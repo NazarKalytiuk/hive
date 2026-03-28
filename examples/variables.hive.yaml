@@ -1,0 +1,64 @@
+name: "Variable and Built-in Functions Demo"
+description: "Demonstrates env vars, captures, and built-in functions"
+tags: [demo, variables]
+
+env:
+  base_url: "http://localhost:3000"
+  admin_email: "admin@example.com"
+
+defaults:
+  headers:
+    Content-Type: "application/json"
+
+steps:
+  - name: Login with env variable
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "{{ env.admin_email }}"
+        password: "password123"
+    capture:
+      token: "$.token"
+    assert:
+      status: 200
+
+  - name: Create user with random email (built-in functions)
+    request:
+      method: POST
+      url: "{{ env.base_url }}/users"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+      body:
+        name: "Random User"
+        email: "user_{{ $random_hex(8) }}@example.com"
+        role: "viewer"
+    capture:
+      user_id: "$.id"
+      user_email: "$.email"
+    assert:
+      status: 201
+      body:
+        "$.name": "Random User"
+        "$.email": { contains: "@example.com" }
+
+  - name: Verify captured user_id works
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 200
+      body:
+        "$.id": "{{ capture.user_id }}"
+        "$.email": "{{ capture.user_email }}"
+
+  - name: Cleanup
+    request:
+      method: DELETE
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 204

@@ -1,0 +1,144 @@
+version: "1"
+name: "User CRUD Operations"
+description: "Tests complete user lifecycle: create, read, update, delete"
+tags: [crud, users, smoke]
+
+env:
+  base_url: "http://localhost:3000"
+  admin_email: "admin@example.com"
+  admin_password: "password123"
+
+defaults:
+  headers:
+    Content-Type: "application/json"
+    Accept: "application/json"
+  timeout: 5000
+
+setup:
+  - name: Authenticate
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "{{ env.admin_email }}"
+        password: "{{ env.admin_password }}"
+    capture:
+      auth_token: "$.token"
+    assert:
+      status: 200
+
+teardown:
+  - name: Clean up test data
+    request:
+      method: POST
+      url: "{{ env.base_url }}/test/cleanup"
+
+tests:
+  create_and_verify_user:
+    description: "Create a user, then verify it exists"
+    tags: [smoke]
+    steps:
+      - name: Create user
+        request:
+          method: POST
+          url: "{{ env.base_url }}/users"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+          body:
+            name: "Jane Doe"
+            email: "jane.doe.{{ $random_hex(6) }}@example.com"
+            role: "editor"
+            tags: ["content", "marketing"]
+        capture:
+          user_id: "$.id"
+          created_at: "$.createdAt"
+        assert:
+          status: 201
+          headers:
+            x-request-id: matches "^[a-f0-9-]{36}$"
+          body:
+            "$.name": "Jane Doe"
+            "$.role": "editor"
+            "$.id": { type: string, not_empty: true }
+            "$.tags": { type: array, length: 2 }
+            "$.createdAt": { type: string, not_empty: true }
+
+      - name: Verify user via GET
+        request:
+          method: GET
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+        assert:
+          status: 200
+          body:
+            "$.id": "{{ capture.user_id }}"
+            "$.name": "Jane Doe"
+
+      - name: Update user role
+        request:
+          method: PATCH
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+          body:
+            role: "admin"
+        assert:
+          status: 200
+          body:
+            "$.role": "admin"
+
+      - name: Delete user
+        request:
+          method: DELETE
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+        assert:
+          status: 204
+
+      - name: Confirm deletion
+        request:
+          method: GET
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+        assert:
+          status: 404
+          body:
+            "$.error": "not_found"
+
+  invalid_inputs:
+    description: "Verify proper error handling for bad requests"
+    steps:
+      - name: Missing required field
+        request:
+          method: POST
+          url: "{{ env.base_url }}/users"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+          body:
+            name: "No Email User"
+        assert:
+          status: 422
+          body:
+            "$.error": "validation_error"
+
+      - name: Invalid email format
+        request:
+          method: POST
+          url: "{{ env.base_url }}/users"
+          headers:
+            Authorization: "Bearer {{ capture.auth_token }}"
+          body:
+            name: "Bad Email"
+            email: "not-an-email"
+        assert:
+          status: 422
+
+      - name: Unauthorized without token
+        request:
+          method: GET
+          url: "{{ env.base_url }}/users"
+        assert:
+          status: 401

@@ -1,0 +1,350 @@
+use clap::{Parser, Subcommand};
+use std::path::Path;
+use std::process;
+
+use hive::assert::types::RunResult;
+use hive::env;
+use hive::error::HiveError;
+use hive::parser;
+use hive::report::{self, OutputFormat};
+use hive::runner;
+
+#[derive(Parser)]
+#[command(name = "hive", version, about = "CLI-first API testing tool")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run test files
+    Run {
+        /// Test file or directory to run
+        path: Option<String>,
+
+        /// Output format: human, json, junit, tap
+        #[arg(long, default_value = "human")]
+        format: String,
+
+        /// Filter by tag (comma-separated, AND logic)
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Override environment variables (key=value)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
+
+        /// Environment name (loads hive.env.{name}.yaml)
+        #[arg(long = "env")]
+        env_name: Option<String>,
+    },
+
+    /// Validate test files without running
+    Validate {
+        /// Test file or directory to validate
+        path: Option<String>,
+    },
+
+    /// List all tests (dry run)
+    List {
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Initialize a new Hive project
+    Init,
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    let exit_code = match cli.command {
+        Commands::Run {
+            path,
+            format,
+            tag,
+            vars,
+            env_name,
+        } => run_command(path, &format, &vars, env_name.as_deref(), tag.as_deref()),
+        Commands::Validate { path } => validate_command(path),
+        Commands::List { tag: _ } => list_command(),
+        Commands::Init => init_command(),
+    };
+
+    process::exit(exit_code);
+}
+
+fn run_command(
+    path: Option<String>,
+    format: &str,
+    vars: &[String],
+    env_name: Option<&str>,
+    tag: Option<&str>,
+) -> i32 {
+    let tag_filter = tag.map(runner::parse_tag_filter).unwrap_or_default();
+    let output_format = match format.parse::<OutputFormat>() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: {}. Use: human, json, junit, tap, html", e);
+            return 2;
+        }
+    };
+
+    let cli_vars = match env::parse_cli_vars(vars) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return e.exit_code();
+        }
+    };
+
+    let files = match resolve_files(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return e.exit_code();
+        }
+    };
+
+    if files.is_empty() {
+        eprintln!("No test files found");
+        return 2;
+    }
+
+    let start = std::time::Instant::now();
+    let mut file_results = Vec::new();
+
+    for file_path in &files {
+        let path = Path::new(file_path);
+        let test_file = match parser::parse_file(path) {
+            Ok(tf) => tf,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return e.exit_code();
+            }
+        };
+
+        // Resolve env from the directory containing the test file
+        let base_dir = path.parent().unwrap_or(Path::new("."));
+        let resolved_env = match env::resolve_env(&test_file.env, env_name, &cli_vars, base_dir) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Error resolving env for {}: {}", file_path, e);
+                return e.exit_code();
+            }
+        };
+
+        match runner::run_file(&test_file, file_path, &resolved_env, &tag_filter) {
+            Ok(result) => file_results.push(result),
+            Err(e) => {
+                eprintln!("Error running {}: {}", file_path, e);
+                return e.exit_code();
+            }
+        }
+    }
+
+    let run_result = RunResult {
+        file_results,
+        duration_ms: start.elapsed().as_millis() as u64,
+    };
+
+    let output = report::render(&run_result, output_format);
+
+    // For HTML format, write to a temp file and open in browser
+    if output_format == report::OutputFormat::Html {
+        let report_path = std::env::temp_dir().join("hive-report.html");
+        if let Err(e) = std::fs::write(&report_path, &output) {
+            eprintln!("Failed to write HTML report: {}", e);
+            return 3;
+        }
+        eprintln!("Report saved to {}", report_path.display());
+
+        // Auto-open in browser
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open").arg(&report_path).spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&report_path)
+                .spawn();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "start"])
+                .arg(&report_path)
+                .spawn();
+        }
+    } else {
+        print!("{}", output);
+    }
+
+    if run_result.passed() {
+        0
+    } else {
+        1
+    }
+}
+
+fn resolve_files(path: Option<String>) -> Result<Vec<String>, HiveError> {
+    match path {
+        Some(p) => {
+            let path = Path::new(&p);
+            if path.is_file() {
+                Ok(vec![p])
+            } else if path.is_dir() {
+                runner::discover_test_files(path)
+            } else {
+                Err(HiveError::Config(format!("Path not found: {}", p)))
+            }
+        }
+        None => {
+            // Default: look for tests/ directory or current dir
+            let tests_dir = Path::new("tests");
+            if tests_dir.is_dir() {
+                runner::discover_test_files(tests_dir)
+            } else {
+                runner::discover_test_files(Path::new("."))
+            }
+        }
+    }
+}
+
+fn validate_command(path: Option<String>) -> i32 {
+    let files = match resolve_files(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return e.exit_code();
+        }
+    };
+
+    if files.is_empty() {
+        eprintln!("No test files found");
+        return 2;
+    }
+
+    let mut all_valid = true;
+    for file_path in &files {
+        let path = Path::new(file_path);
+        match parser::parse_file(path) {
+            Ok(_) => println!("  ✓ {}", file_path),
+            Err(e) => {
+                println!("  ✗ {}: {}", file_path, e);
+                all_valid = false;
+            }
+        }
+    }
+
+    if all_valid {
+        0
+    } else {
+        2
+    }
+}
+
+fn list_command() -> i32 {
+    let files = match resolve_files(None) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return e.exit_code();
+        }
+    };
+
+    if files.is_empty() {
+        println!("No test files found");
+        return 0;
+    }
+
+    for file_path in &files {
+        let path = Path::new(file_path);
+        match parser::parse_file(path) {
+            Ok(tf) => {
+                println!("{}", file_path);
+                println!("  \u{25cf} {}", tf.name);
+                if !tf.tags.is_empty() {
+                    println!("    tags: {}", tf.tags.join(", "));
+                }
+                if !tf.setup.is_empty() {
+                    println!("    setup: {} step(s)", tf.setup.len());
+                }
+                for step in &tf.steps {
+                    println!("    - {}", step.name);
+                }
+                for (name, group) in &tf.tests {
+                    let desc = group
+                        .description
+                        .as_deref()
+                        .map(|d| format!(" — {}", d))
+                        .unwrap_or_default();
+                    println!("    {}{}", name, desc);
+                    for step in &group.steps {
+                        println!("      - {}", step.name);
+                    }
+                }
+                if !tf.teardown.is_empty() {
+                    println!("    teardown: {} step(s)", tf.teardown.len());
+                }
+                println!();
+            }
+            Err(e) => {
+                eprintln!("  ✗ {}: {}", file_path, e);
+            }
+        }
+    }
+
+    0
+}
+
+fn init_command() -> i32 {
+    let dirs = ["tests"];
+    for d in &dirs {
+        if let Err(e) = std::fs::create_dir_all(d) {
+            eprintln!("Failed to create {}: {}", d, e);
+            return 3;
+        }
+    }
+
+    let example_test = r#"name: Health check
+steps:
+  - name: GET /health
+    request:
+      method: GET
+      url: "{{ env.base_url }}/health"
+    assert:
+      status: 200
+"#;
+
+    let env_file = r#"base_url: "http://localhost:3000"
+"#;
+
+    let config_file = r#"test_dir: "tests"
+timeout: 10000
+"#;
+
+    let files = [
+        ("tests/health.hive.yaml", example_test),
+        ("hive.env.yaml", env_file),
+        ("hive.config.yaml", config_file),
+    ];
+
+    for (path, content) in &files {
+        if Path::new(path).exists() {
+            println!("  skip {} (already exists)", path);
+        } else {
+            if let Err(e) = std::fs::write(path, content) {
+                eprintln!("Failed to write {}: {}", path, e);
+                return 3;
+            }
+            println!("  created {}", path);
+        }
+    }
+
+    println!("\nProject initialized! Run `hive run` to execute tests.");
+    0
+}

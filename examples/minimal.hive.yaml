@@ -1,0 +1,8 @@
+name: Health check
+steps:
+  - name: GET /health
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+    assert:
+      status: 200
