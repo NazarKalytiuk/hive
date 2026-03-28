@@ -85,6 +85,7 @@ hive run --env staging
   - [Built-in Functions](#built-in-functions)
 - [CLI Reference](#cli-reference)
 - [Output Formats](#output-formats)
+- [Performance Testing](#performance-testing)
 - [Configuration](#configuration)
 - [Step Options](#step-options)
 - [Shell Completions](#shell-completions)
@@ -403,6 +404,7 @@ body:
 
 ```
 hive run [PATH] [OPTIONS]          Run test files
+hive bench <PATH> [OPTIONS]        Benchmark a step with concurrent requests
 hive validate [PATH]               Validate YAML without running
 hive list                          List all tests (dry run)
 hive init                          Scaffold a new project
@@ -449,6 +451,9 @@ hive run -v
 
 # Preview without sending requests
 hive run --dry-run
+
+# Benchmark an endpoint (100 requests, 10 concurrent)
+hive bench tests/health.hive.yaml -n 100 -c 10
 ```
 
 ### Exit Codes
@@ -490,6 +495,99 @@ Self-contained HTML dashboard with:
 - Failure diffs with expected vs actual
 - Request/response viewer for failed steps
 - Dark theme, auto-opens in browser
+
+## Performance Testing
+
+Hive includes a built-in benchmarking tool that reuses your existing test files. No new format to learn.
+
+### `hive bench`
+
+```bash
+hive bench <FILE> [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-n, --requests <N>` | Total number of requests (default: 100) |
+| `-c, --concurrency <N>` | Concurrent workers (default: 10) |
+| `--step <INDEX>` | Step index to benchmark, 0-based (default: 0) |
+| `--ramp-up <DURATION>` | Gradually add workers over this duration (`"5s"`, `"500ms"`) |
+| `--var <KEY=VALUE>` | Override env variables |
+| `--env <NAME>` | Load environment file |
+| `--format <FORMAT>` | Output: `human` (default) or `json` |
+
+### Examples
+
+```bash
+# Basic benchmark: 100 requests, 10 concurrent
+hive bench tests/health.hive.yaml -n 100 -c 10
+
+# Heavy load: 1000 requests, 50 concurrent
+hive bench tests/health.hive.yaml -n 1000 -c 50
+
+# Gradual ramp-up over 5 seconds
+hive bench tests/health.hive.yaml -n 500 -c 25 --ramp-up 5s
+
+# Benchmark a specific step (e.g., the 3rd step in a multi-step file)
+hive bench tests/crud.hive.yaml --step 2 -n 100 -c 10
+
+# JSON output for CI threshold checks
+hive bench tests/health.hive.yaml -n 200 -c 20 --format json
+```
+
+### Output
+
+```
+ HIVE BENCH  GET http://localhost:3000/health — 200 requests, 200 concurrent
+
+  Requests:      200 total, 200 ok, 0 failed (0.0%)
+  Duration:      64ms
+  Throughput:    3125.0 req/s
+
+  Latency:
+    min        1ms
+    p50        2ms
+    p95        43ms
+    p99        45ms
+    max        45ms
+    stdev      12.60ms
+
+  Status codes:
+    200 — 200 responses
+```
+
+### JSON Output
+
+With `--format json`, the output is a structured object suitable for CI pipelines:
+
+```json
+{
+  "step_name": "GET /health",
+  "total_requests": 200,
+  "successful": 200,
+  "failed": 0,
+  "error_rate": 0.0,
+  "throughput_rps": 3125.0,
+  "latency": {
+    "min_ms": 1,
+    "median_ms": 2,
+    "p95_ms": 43,
+    "p99_ms": 45,
+    "max_ms": 45,
+    "stdev_ms": 12.60
+  },
+  "status_codes": { "200": 200 },
+  "errors": []
+}
+```
+
+### How It Works
+
+- Uses **async concurrent workers** (tokio + async reqwest) for true parallelism
+- Assertions from the test file are evaluated &mdash; only requests matching the expected status count as "successful"
+- Latency stats are computed from successful requests only
+- Status code distribution and unique errors are tracked
+- Ramp-up gradually introduces workers to avoid thundering herd on cold starts
 
 ## Configuration
 
@@ -607,7 +705,7 @@ cd hive
 # Build
 cargo build
 
-# Run tests (267 unit + 13 integration)
+# Run tests (280 unit + 13 integration)
 cargo test --all
 
 # Run the demo server (for manual testing)
@@ -618,6 +716,9 @@ cargo run -p hive -- run examples/ --var base_url=http://localhost:3333
 
 # HTML report
 cargo run -p hive -- run examples/ --var base_url=http://localhost:3333 --format html
+
+# Benchmark
+cargo run -p hive -- bench examples/minimal.hive.yaml -n 200 -c 20 --var base_url=http://localhost:3333
 
 # Lint
 cargo clippy -- -D warnings
@@ -640,6 +741,7 @@ Pipeline: **parse YAML &rarr; resolve env &rarr; interpolate templates &rarr; ex
 | `assert/` | Status, body, headers, duration assertions |
 | `report/` | Human, JSON, JUnit, TAP, HTML reporters |
 | `builtin.rs` | `$uuid`, `$random_hex`, `$timestamp`, etc. |
+| `bench.rs` | Performance testing with async concurrency |
 | `config.rs` | `hive.config.yaml` parsing |
 
 ## License
