@@ -65,6 +65,8 @@ tarn run --env staging                 # use staging environment
 tarn run --format json                 # structured output for LLM/CI
 tarn run --watch                       # re-run on file changes
 tarn run --parallel                    # run files in parallel
+tarn update                            # update to latest version
+tarn update --check                    # check without installing
 ```
 
 ## Table of Contents
@@ -541,6 +543,8 @@ tarn bench <PATH> [OPTIONS]        Benchmark a step
 tarn validate [PATH]               Validate YAML without running
 tarn list                          List all tests
 tarn init                          Scaffold a new project
+tarn update                        Update to the latest version
+tarn update --check                Check for updates without installing
 tarn completions <SHELL>           Generate shell completions
 ```
 

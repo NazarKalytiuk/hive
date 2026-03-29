@@ -30,6 +30,8 @@ glob = "0.3"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 rayon = "1"
 mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"] }
+flate2 = "1"
+tar = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -13,4 +13,5 @@ pub mod parser;
 pub mod report;
 pub mod runner;
 pub mod scripting;
+pub mod update;
 pub mod watch;

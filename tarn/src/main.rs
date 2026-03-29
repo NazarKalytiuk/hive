@@ -112,6 +112,13 @@ enum Commands {
         format: String,
     },
 
+    /// Update tarn to the latest version
+    Update {
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
@@ -169,6 +176,7 @@ fn main() {
         Commands::Validate { path } => validate_command(path),
         Commands::List { tag: _ } => list_command(),
         Commands::Init => init_command(),
+        Commands::Update { check } => update_command(check),
         Commands::Completions { shell } => {
             generate(shell, &mut Cli::command(), "tarn", &mut std::io::stdout());
             0
@@ -552,6 +560,54 @@ fn list_command() -> i32 {
     }
 
     0
+}
+
+fn update_command(check_only: bool) -> i32 {
+    eprint!("Checking for updates... ");
+    let info = match tarn::update::check_for_update() {
+        Ok(info) => info,
+        Err(e) => {
+            eprintln!("failed");
+            eprintln!("Error: {}", e);
+            return 3;
+        }
+    };
+
+    if !info.is_newer {
+        eprintln!("up to date");
+        println!(
+            "tarn v{} is the latest version",
+            info.current_version
+        );
+        return 0;
+    }
+
+    println!("update available");
+    println!(
+        "  Current: v{}\n  Latest:  v{}",
+        info.current_version, info.latest_version
+    );
+
+    if check_only {
+        return 0;
+    }
+
+    if info.download_url.is_none() {
+        eprintln!("No binary available for your platform. Build from source instead.");
+        return 3;
+    }
+
+    println!();
+    match tarn::update::perform_update(&info) {
+        Ok(()) => {
+            println!("\n  Updated tarn to v{}", info.latest_version);
+            0
+        }
+        Err(e) => {
+            eprintln!("Update failed: {}", e);
+            3
+        }
+    }
 }
 
 fn init_command() -> i32 {
