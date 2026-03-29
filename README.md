@@ -4,9 +4,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/NazarKalytiuk/tarn/actions/workflows/ci.yml"><img src="https://github.com/NazarKalytiuk/tarn/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/NazarKalytiuk/tarn/releases/latest"><img src="https://img.shields.io/github/v/release/NazarKalytiuk/tarn" alt="Release"></a>
-  <a href="https://github.com/NazarKalytiuk/tarn/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://github.com/NazarKalytiuk/hive/actions/workflows/ci.yml"><img src="https://github.com/NazarKalytiuk/hive/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/NazarKalytiuk/hive/releases/latest"><img src="https://img.shields.io/github/v/release/NazarKalytiuk/hive" alt="Release"></a>
+  <a href="https://github.com/NazarKalytiuk/hive/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
 </p>
 
 ---
@@ -47,13 +47,13 @@ $ tarn run
 
 ```bash
 # One-liner (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/NazarKalytiuk/hive/main/install.sh | sh
 
 # Or build from source
-cargo install --git https://github.com/NazarKalytiuk/tarn.git --bin tarn
+cargo install --git https://github.com/NazarKalytiuk/hive.git --bin tarn
 ```
 
-Binaries for **macOS** (Intel & Apple Silicon) and **Linux** (amd64 & arm64) on the [releases page](https://github.com/NazarKalytiuk/tarn/releases).
+Binaries for **macOS** (Intel & Apple Silicon) and **Linux** (amd64 & arm64) on the [releases page](https://github.com/NazarKalytiuk/hive/releases).
 
 ## Quick Start
 
@@ -775,7 +775,7 @@ The MCP server lets your AI agent write `.tarn.yaml` tests, execute them, parse 
 ## GitHub Action
 
 ```yaml
-- uses: NazarKalytiuk/tarn@v1
+- uses: NazarKalytiuk/hive@v1
   with:
     path: tests/
     format: junit
@@ -858,11 +858,11 @@ tarn completions fish > ~/.config/fish/completions/tarn.fish
 ## Development
 
 ```bash
-git clone https://github.com/NazarKalytiuk/tarn.git
-cd tarn
+git clone https://github.com/NazarKalytiuk/hive.git
+cd hive
 
 cargo build                    # build
-cargo test --all               # 348+ tests
+cargo test --all               # 365+ tests
 cargo clippy                   # lint
 cargo fmt                      # format
 
@@ -885,6 +885,9 @@ Pipeline: **parse YAML &rarr; resolve env &rarr; interpolate &rarr; execute HTTP
 | `http.rs` | HTTP client (reqwest) |
 | `capture.rs` | JSONPath + header extraction |
 | `cookie.rs` | Automatic cookie jar |
+| `config.rs` | `tarn.config.yaml` parsing |
+| `builtin.rs` | Built-in functions (`$uuid`, `$timestamp`, etc.) |
+| `update.rs` | Self-update mechanism |
 | `assert/` | Status, body, headers, duration |
 | `report/` | Human, JSON, JUnit, TAP, HTML |
 | `scripting.rs` | Lua scripting engine (mlua) |
