@@ -387,9 +387,9 @@ Disable automatic cookies per file:
 cookies: "off"
 ```
 
-### Skip Cookies for a Single Step
+### Step-Level Cookie Control
 
-Use `cookies: false` on a step to bypass the cookie jar for that request. No cookies are sent and no `Set-Cookie` headers are captured:
+Use `cookies: false` on a step to bypass the cookie jar entirely. No cookies are sent and no `Set-Cookie` headers are captured:
 
 ```yaml
 steps:
@@ -411,6 +411,49 @@ steps:
     assert:
       status: 401
 ```
+
+### Named Cookie Jars
+
+For multi-user scenarios, use named jars to maintain separate cookie sessions:
+
+```yaml
+steps:
+  - name: Login as admin
+    cookies: "admin"
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "admin@test.com"
+        password: "secret"
+
+  - name: Login as viewer
+    cookies: "viewer"
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "viewer@test.com"
+        password: "secret"
+
+  - name: Admin can manage users
+    cookies: "admin"
+    request:
+      method: GET
+      url: "{{ env.base_url }}/admin/users"
+    assert:
+      status: 200
+
+  - name: Viewer cannot manage users
+    cookies: "viewer"
+    request:
+      method: GET
+      url: "{{ env.base_url }}/admin/users"
+    assert:
+      status: 403
+```
+
+Each named jar is independent &mdash; cookies captured in `"admin"` are never sent with `"viewer"` requests. Steps without a `cookies:` field (or with `cookies: true`) use the default jar.
 
 ### CSRF Protection
 

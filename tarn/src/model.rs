@@ -91,9 +91,36 @@ pub struct Step {
     /// Lua script to run after HTTP response for custom validation
     pub script: Option<String>,
 
-    /// Per-step cookie control: set to `false` to skip the cookie jar for this step.
-    /// When false, no cookies are sent and no Set-Cookie headers are captured.
-    pub cookies: Option<bool>,
+    /// Per-step cookie control:
+    /// - omitted or `true`: use the default cookie jar
+    /// - `false`: skip cookies entirely for this step
+    /// - `"jar-name"`: use a named cookie jar (for multi-user scenarios)
+    pub cookies: Option<StepCookies>,
+}
+
+/// Step-level cookie control.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StepCookies {
+    /// Enable (true) or disable (false) the default cookie jar.
+    Enabled(bool),
+    /// Use a named cookie jar.
+    Named(String),
+}
+
+impl<'de> Deserialize<'de> for StepCookies {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        match value {
+            serde_yaml::Value::Bool(b) => Ok(StepCookies::Enabled(b)),
+            serde_yaml::Value::String(s) => Ok(StepCookies::Named(s)),
+            _ => Err(serde::de::Error::custom(
+                "cookies must be true, false, or a jar name string",
+            )),
+        }
+    }
 }
 
 /// Capture specification: either a simple JSONPath string or an extended capture.
@@ -677,7 +704,7 @@ steps:
       url: "http://localhost:3000"
 "#;
         let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(tf.steps[0].cookies, Some(false));
+        assert_eq!(tf.steps[0].cookies, Some(StepCookies::Enabled(false)));
     }
 
     #[test]
@@ -692,7 +719,25 @@ steps:
       url: "http://localhost:3000"
 "#;
         let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(tf.steps[0].cookies, Some(true));
+        assert_eq!(tf.steps[0].cookies, Some(StepCookies::Enabled(true)));
+    }
+
+    #[test]
+    fn deserialize_step_cookies_named_jar() {
+        let yaml = r#"
+name: Step cookies test
+steps:
+  - name: Admin step
+    cookies: "admin"
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            tf.steps[0].cookies,
+            Some(StepCookies::Named("admin".to_string()))
+        );
     }
 
     #[test]

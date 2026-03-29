@@ -185,8 +185,11 @@
           "description": "Lua script to run after HTTP response for custom validation"
         },
         "cookies": {
-          "type": "boolean",
-          "description": "Per-step cookie control. Set to false to skip the cookie jar for this request (no cookies sent, no Set-Cookie captured).",
+          "description": "Per-step cookie control. `false` disables cookies. `true` uses the default jar. A string names a specific jar for multi-user scenarios (e.g., 'admin', 'user').",
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "minLength": 1 }
+          ],
           "default": true
         }
       },

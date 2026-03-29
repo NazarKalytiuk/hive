@@ -7,7 +7,7 @@ use crate::cookie::CookieJar;
 use crate::error::TarnError;
 use crate::http;
 use crate::interpolation::{self, Context};
-use crate::model::{Assertion, PollConfig, Step, TestFile};
+use crate::model::{Assertion, PollConfig, Step, StepCookies, TestFile};
 use crate::scripting;
 use std::collections::HashMap;
 use std::path::Path;
@@ -69,17 +69,13 @@ pub fn run_file(
     // Build interpolation context with resolved env
     let mut captures: HashMap<String, serde_json::Value> = HashMap::new();
 
-    // Cookie jar: enabled by default, disabled with `cookies: "off"`
+    // Cookie jars: enabled by default, disabled with `cookies: "off"`
     let cookies_enabled = test_file
         .cookies
         .as_deref()
         .map(|c| c != "off")
         .unwrap_or(true);
-    let mut cookie_jar = if cookies_enabled {
-        Some(CookieJar::new())
-    } else {
-        None
-    };
+    let mut cookie_jars: HashMap<String, CookieJar> = HashMap::new();
 
     // Resolve base directory for file paths (e.g., multipart file references)
     let base_dir = Path::new(file_path)
@@ -94,7 +90,8 @@ pub fn run_file(
         &mut captures,
         test_file,
         opts,
-        cookie_jar.as_mut(),
+        cookies_enabled,
+        &mut cookie_jars,
         &base_dir,
     )?;
     let setup_failed = setup_results.iter().any(|s| !s.passed);
@@ -111,7 +108,8 @@ pub fn run_file(
                 &mut step_captures,
                 test_file,
                 opts,
-                cookie_jar.as_mut(),
+                cookies_enabled,
+                &mut cookie_jars,
                 &base_dir,
             )?;
             let passed = step_results.iter().all(|s| s.passed);
@@ -148,7 +146,8 @@ pub fn run_file(
                 &mut test_captures,
                 test_file,
                 opts,
-                cookie_jar.as_mut(),
+                cookies_enabled,
+                &mut cookie_jars,
                 &base_dir,
             )?;
             let passed = step_results.iter().all(|s| s.passed);
@@ -170,7 +169,8 @@ pub fn run_file(
         &mut captures,
         test_file,
         opts,
-        cookie_jar.as_mut(),
+        cookies_enabled,
+        &mut cookie_jars,
         &base_dir,
     )?;
 
@@ -190,19 +190,18 @@ pub fn run_file(
 }
 
 /// Run a sequence of steps, accumulating captures.
+#[allow(clippy::too_many_arguments)]
 fn run_steps(
     steps: &[Step],
     env: &HashMap<String, String>,
     captures: &mut HashMap<String, serde_json::Value>,
     test_file: &TestFile,
     opts: &RunOptions,
-    cookie_jar: Option<&mut CookieJar>,
+    cookies_enabled: bool,
+    cookie_jars: &mut HashMap<String, CookieJar>,
     base_dir: &Path,
 ) -> Result<Vec<StepResult>, TarnError> {
     let mut results = Vec::new();
-
-    // We need to reborrow cookie_jar on each iteration
-    let jar_cell = std::cell::RefCell::new(cookie_jar);
 
     for step in steps {
         let result = run_step(
@@ -211,7 +210,8 @@ fn run_steps(
             captures,
             test_file,
             opts,
-            jar_cell.borrow_mut().as_deref_mut(),
+            cookies_enabled,
+            cookie_jars,
             base_dir,
         )?;
         results.push(result);
@@ -232,10 +232,15 @@ fn parse_delay(spec: &str) -> Option<u64> {
     }
 }
 
-/// Check if cookies are enabled for a given step.
-/// Step-level `cookies: false` overrides the file-level cookie jar.
-fn step_cookies_enabled(step: &Step) -> bool {
-    step.cookies.unwrap_or(true)
+/// Resolve which cookie jar a step should use.
+/// Returns None if cookies are disabled for this step, or the jar name.
+fn resolve_jar_name(step: &Step) -> Option<String> {
+    match &step.cookies {
+        None => Some("default".to_string()),
+        Some(StepCookies::Enabled(true)) => Some("default".to_string()),
+        Some(StepCookies::Enabled(false)) => None,
+        Some(StepCookies::Named(name)) => Some(name.clone()),
+    }
 }
 
 /// Prepare interpolated request parts from a step.
@@ -317,13 +322,15 @@ fn prepare_request(
 /// Run a single step: interpolate, execute HTTP request, run assertions, extract captures.
 /// Supports retries, polling, GraphQL, multipart, Lua scripts, step-level timeout, delay, verbose, dry-run.
 /// Capture failures are handled gracefully — the step is marked as failed instead of aborting the run.
+#[allow(clippy::too_many_arguments)]
 fn run_step(
     step: &Step,
     env: &HashMap<String, String>,
     captures: &mut HashMap<String, serde_json::Value>,
     test_file: &TestFile,
     opts: &RunOptions,
-    mut cookie_jar: Option<&mut CookieJar>,
+    cookies_enabled: bool,
+    cookie_jars: &mut HashMap<String, CookieJar>,
     base_dir: &Path,
 ) -> Result<StepResult, TarnError> {
     // Apply delay: step-level > defaults > none
@@ -337,13 +344,25 @@ fn run_step(
         }
     }
 
-    // Check step-level cookie override
-    let use_cookies = step_cookies_enabled(step);
+    // Resolve which cookie jar to use (None = disabled)
+    let jar_name = if cookies_enabled {
+        resolve_jar_name(step)
+    } else {
+        None
+    };
 
     // Dispatch to poll mode if configured
     if let Some(ref poll) = step.poll {
         return run_step_poll(
-            step, poll, env, captures, test_file, opts, cookie_jar, base_dir,
+            step,
+            poll,
+            env,
+            captures,
+            test_file,
+            opts,
+            cookies_enabled,
+            cookie_jars,
+            base_dir,
         );
     }
 
@@ -352,11 +371,9 @@ fn run_step(
         env,
         captures,
         test_file,
-        if use_cookies {
-            cookie_jar.as_deref()
-        } else {
-            None
-        },
+        jar_name
+            .as_ref()
+            .and_then(|name| cookie_jars.get(name.as_str())),
     );
 
     // Verbose: print request details
@@ -411,11 +428,10 @@ fn run_step(
             http::execute_request(&step.request.method, &url, &headers, body.as_ref(), timeout)?
         };
 
-        // Capture cookies from response (skip if step disables cookies)
-        if use_cookies {
-            if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
-                jar.capture_from_response(&response.raw_headers);
-            }
+        // Capture cookies from response into the appropriate jar
+        if let Some(ref name) = jar_name {
+            let jar = cookie_jars.entry(name.clone()).or_default();
+            jar.capture_from_response(&response.raw_headers);
         }
 
         if opts.verbose {
@@ -537,11 +553,16 @@ fn run_step_poll(
     captures: &mut HashMap<String, serde_json::Value>,
     test_file: &TestFile,
     opts: &RunOptions,
-    mut cookie_jar: Option<&mut CookieJar>,
+    cookies_enabled: bool,
+    cookie_jars: &mut HashMap<String, CookieJar>,
     base_dir: &Path,
 ) -> Result<StepResult, TarnError> {
     let interval_ms = parse_delay(&poll.interval).unwrap_or(1000);
-    let use_cookies = step_cookies_enabled(step);
+    let jar_name = if cookies_enabled {
+        resolve_jar_name(step)
+    } else {
+        None
+    };
 
     for attempt in 0..poll.max_attempts {
         if attempt > 0 {
@@ -553,11 +574,9 @@ fn run_step_poll(
             env,
             captures,
             test_file,
-            if use_cookies {
-                cookie_jar.as_deref()
-            } else {
-                None
-            },
+            jar_name
+                .as_ref()
+                .and_then(|name| cookie_jars.get(name.as_str())),
         );
 
         if opts.verbose {
@@ -584,11 +603,10 @@ fn run_step_poll(
             http::execute_request(&step.request.method, &url, &headers, body.as_ref(), timeout)?
         };
 
-        // Capture cookies (skip if step disables cookies)
-        if use_cookies {
-            if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
-                jar.capture_from_response(&response.raw_headers);
-            }
+        // Capture cookies into the appropriate jar
+        if let Some(ref name) = jar_name {
+            let jar = cookie_jars.entry(name.clone()).or_default();
+            jar.capture_from_response(&response.raw_headers);
         }
 
         // Check poll.until condition
@@ -881,10 +899,10 @@ mod tests {
         assert_eq!(parse_delay("abc"), None);
     }
 
-    // --- Step cookies flag ---
+    // --- Step cookies / named jars ---
 
     #[test]
-    fn step_cookies_enabled_default() {
+    fn resolve_jar_name_default() {
         let yaml = r#"
 name: test
 steps:
@@ -894,11 +912,11 @@ steps:
       url: "http://localhost:3000"
 "#;
         let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
-        assert!(step_cookies_enabled(&tf.steps[0]));
+        assert_eq!(resolve_jar_name(&tf.steps[0]), Some("default".to_string()));
     }
 
     #[test]
-    fn step_cookies_enabled_explicit_false() {
+    fn resolve_jar_name_explicit_false() {
         let yaml = r#"
 name: test
 steps:
@@ -909,11 +927,11 @@ steps:
       url: "http://localhost:3000"
 "#;
         let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
-        assert!(!step_cookies_enabled(&tf.steps[0]));
+        assert_eq!(resolve_jar_name(&tf.steps[0]), None);
     }
 
     #[test]
-    fn step_cookies_enabled_explicit_true() {
+    fn resolve_jar_name_explicit_true() {
         let yaml = r#"
 name: test
 steps:
@@ -924,7 +942,22 @@ steps:
       url: "http://localhost:3000"
 "#;
         let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
-        assert!(step_cookies_enabled(&tf.steps[0]));
+        assert_eq!(resolve_jar_name(&tf.steps[0]), Some("default".to_string()));
+    }
+
+    #[test]
+    fn resolve_jar_name_named() {
+        let yaml = r#"
+name: test
+steps:
+  - name: step
+    cookies: "admin"
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(resolve_jar_name(&tf.steps[0]), Some("admin".to_string()));
     }
 
     // --- Model deserializes new fields ---
