@@ -13,7 +13,7 @@ fn free_port() -> u16 {
 }
 
 /// Start the demo server on a given port and return the child process.
-/// Waits until the server is ready.
+/// Waits until the server is ready to handle HTTP requests (not just TCP).
 fn start_demo_server(port: u16) -> Child {
     // The demo-server binary is built alongside tarn
     let demo_bin = std::path::Path::new(env!("CARGO_BIN_EXE_tarn"))
@@ -28,10 +28,17 @@ fn start_demo_server(port: u16) -> Child {
         .spawn()
         .expect("Failed to start demo-server");
 
-    // Wait for server to be ready
+    // Wait for server to be fully ready by hitting /health
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(200))
+        .build()
+        .unwrap();
+    let health_url = format!("http://127.0.0.1:{}/health", port);
     for _ in 0..50 {
-        if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
-            return child;
+        if let Ok(resp) = client.get(&health_url).send() {
+            if resp.status().is_success() {
+                return child;
+            }
         }
         std::thread::sleep(Duration::from_millis(100));
     }

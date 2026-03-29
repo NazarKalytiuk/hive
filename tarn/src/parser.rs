@@ -671,6 +671,193 @@ steps:
     }
 
     #[test]
+    fn resolve_includes_in_teardown() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let shared_content = r#"
+name: Shared cleanup
+steps:
+  - name: Cleanup DB
+    request:
+      method: POST
+      url: "http://localhost:3000/cleanup"
+"#;
+        std::fs::write(dir.path().join("cleanup.tarn.yaml"), shared_content).unwrap();
+
+        let main_content = r#"
+name: Main test
+teardown:
+  - include: ./cleanup.tarn.yaml
+steps:
+  - name: Check
+    request:
+      method: GET
+      url: "http://localhost:3000/check"
+"#;
+        let main_path = dir.path().join("main.tarn.yaml");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        let tf = parse_file(&main_path).unwrap();
+        assert_eq!(tf.teardown.len(), 1);
+        assert_eq!(tf.teardown[0].name, "Cleanup DB");
+    }
+
+    #[test]
+    fn resolve_includes_in_test_group_steps() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let shared_content = r#"
+name: Shared steps
+steps:
+  - name: Shared step A
+    request:
+      method: GET
+      url: "http://localhost:3000/a"
+"#;
+        std::fs::write(dir.path().join("shared.tarn.yaml"), shared_content).unwrap();
+
+        let main_content = r#"
+name: Test groups with includes
+tests:
+  group_one:
+    steps:
+      - include: ./shared.tarn.yaml
+      - name: Group-specific step
+        request:
+          method: GET
+          url: "http://localhost:3000/b"
+"#;
+        let main_path = dir.path().join("main.tarn.yaml");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        let tf = parse_file(&main_path).unwrap();
+        let group = tf.tests.get("group_one").unwrap();
+        assert_eq!(group.steps.len(), 2);
+        assert_eq!(group.steps[0].name, "Shared step A");
+        assert_eq!(group.steps[1].name, "Group-specific step");
+    }
+
+    #[test]
+    fn resolve_includes_in_steps_array() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let shared_content = r#"
+name: Shared check
+steps:
+  - name: Health check
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+"#;
+        std::fs::write(dir.path().join("health.tarn.yaml"), shared_content).unwrap();
+
+        let main_content = r#"
+name: Main with included steps
+steps:
+  - include: ./health.tarn.yaml
+  - name: Custom step
+    request:
+      method: GET
+      url: "http://localhost:3000/custom"
+"#;
+        let main_path = dir.path().join("main.tarn.yaml");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        let tf = parse_file(&main_path).unwrap();
+        assert_eq!(tf.steps.len(), 2);
+        assert_eq!(tf.steps[0].name, "Health check");
+        assert_eq!(tf.steps[1].name, "Custom step");
+    }
+
+    #[test]
+    fn resolve_includes_extracts_setup_and_steps() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Included file has both setup and steps
+        let shared_content = r#"
+name: Shared auth
+setup:
+  - name: Pre-auth
+    request:
+      method: POST
+      url: "http://localhost:3000/pre"
+steps:
+  - name: Login
+    request:
+      method: POST
+      url: "http://localhost:3000/login"
+"#;
+        std::fs::write(dir.path().join("auth.tarn.yaml"), shared_content).unwrap();
+
+        let main_content = r#"
+name: Main test
+setup:
+  - include: ./auth.tarn.yaml
+steps:
+  - name: Check
+    request:
+      method: GET
+      url: "http://localhost:3000/check"
+"#;
+        let main_path = dir.path().join("main.tarn.yaml");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        let tf = parse_file(&main_path).unwrap();
+        // Both setup and steps from the included file should be inlined
+        assert_eq!(tf.setup.len(), 2);
+        assert_eq!(tf.setup[0].name, "Pre-auth");
+        assert_eq!(tf.setup[1].name, "Login");
+    }
+
+    #[test]
+    fn resolve_includes_nested() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Level 2: deepest include
+        let deep_content = r#"
+name: Deep shared
+steps:
+  - name: Deep step
+    request:
+      method: GET
+      url: "http://localhost:3000/deep"
+"#;
+        std::fs::write(dir.path().join("deep.tarn.yaml"), deep_content).unwrap();
+
+        // Level 1: includes the deep file
+        let mid_content = r#"
+name: Mid shared
+steps:
+  - include: ./deep.tarn.yaml
+  - name: Mid step
+    request:
+      method: GET
+      url: "http://localhost:3000/mid"
+"#;
+        std::fs::write(dir.path().join("mid.tarn.yaml"), mid_content).unwrap();
+
+        // Level 0: includes the mid file
+        let main_content = r#"
+name: Main test
+setup:
+  - include: ./mid.tarn.yaml
+steps:
+  - name: Main step
+    request:
+      method: GET
+      url: "http://localhost:3000/main"
+"#;
+        let main_path = dir.path().join("main.tarn.yaml");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        let tf = parse_file(&main_path).unwrap();
+        // mid includes deep, so setup should have: Deep step, Mid step
+        assert_eq!(tf.setup.len(), 2);
+        assert_eq!(tf.setup[0].name, "Deep step");
+        assert_eq!(tf.setup[1].name, "Mid step");
+    }
+
+    #[test]
     fn resolve_includes_missing_file() {
         let dir = tempfile::tempdir().unwrap();
 

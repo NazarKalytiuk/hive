@@ -232,6 +232,12 @@ fn parse_delay(spec: &str) -> Option<u64> {
     }
 }
 
+/// Check if cookies are enabled for a given step.
+/// Step-level `cookies: false` overrides the file-level cookie jar.
+fn step_cookies_enabled(step: &Step) -> bool {
+    step.cookies.unwrap_or(true)
+}
+
 /// Prepare interpolated request parts from a step.
 fn prepare_request(
     step: &Step,
@@ -331,6 +337,9 @@ fn run_step(
         }
     }
 
+    // Check step-level cookie override
+    let use_cookies = step_cookies_enabled(step);
+
     // Dispatch to poll mode if configured
     if let Some(ref poll) = step.poll {
         return run_step_poll(
@@ -338,8 +347,17 @@ fn run_step(
         );
     }
 
-    let (url, headers, body, timeout, ctx) =
-        prepare_request(step, env, captures, test_file, cookie_jar.as_deref());
+    let (url, headers, body, timeout, ctx) = prepare_request(
+        step,
+        env,
+        captures,
+        test_file,
+        if use_cookies {
+            cookie_jar.as_deref()
+        } else {
+            None
+        },
+    );
 
     // Verbose: print request details
     if opts.verbose {
@@ -393,9 +411,11 @@ fn run_step(
             http::execute_request(&step.request.method, &url, &headers, body.as_ref(), timeout)?
         };
 
-        // Capture cookies from response
-        if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
-            jar.capture_from_response(&response.raw_headers);
+        // Capture cookies from response (skip if step disables cookies)
+        if use_cookies {
+            if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
+                jar.capture_from_response(&response.raw_headers);
+            }
         }
 
         if opts.verbose {
@@ -521,14 +541,24 @@ fn run_step_poll(
     base_dir: &Path,
 ) -> Result<StepResult, TarnError> {
     let interval_ms = parse_delay(&poll.interval).unwrap_or(1000);
+    let use_cookies = step_cookies_enabled(step);
 
     for attempt in 0..poll.max_attempts {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(interval_ms));
         }
 
-        let (url, headers, body, timeout, ctx) =
-            prepare_request(step, env, captures, test_file, cookie_jar.as_deref());
+        let (url, headers, body, timeout, ctx) = prepare_request(
+            step,
+            env,
+            captures,
+            test_file,
+            if use_cookies {
+                cookie_jar.as_deref()
+            } else {
+                None
+            },
+        );
 
         if opts.verbose {
             eprintln!(
@@ -554,9 +584,11 @@ fn run_step_poll(
             http::execute_request(&step.request.method, &url, &headers, body.as_ref(), timeout)?
         };
 
-        // Capture cookies
-        if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
-            jar.capture_from_response(&response.raw_headers);
+        // Capture cookies (skip if step disables cookies)
+        if use_cookies {
+            if let Some(ref mut jar) = cookie_jar.as_deref_mut() {
+                jar.capture_from_response(&response.raw_headers);
+            }
         }
 
         // Check poll.until condition
@@ -847,6 +879,52 @@ mod tests {
     #[test]
     fn parse_delay_invalid() {
         assert_eq!(parse_delay("abc"), None);
+    }
+
+    // --- Step cookies flag ---
+
+    #[test]
+    fn step_cookies_enabled_default() {
+        let yaml = r#"
+name: test
+steps:
+  - name: step
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert!(step_cookies_enabled(&tf.steps[0]));
+    }
+
+    #[test]
+    fn step_cookies_enabled_explicit_false() {
+        let yaml = r#"
+name: test
+steps:
+  - name: step
+    cookies: false
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert!(!step_cookies_enabled(&tf.steps[0]));
+    }
+
+    #[test]
+    fn step_cookies_enabled_explicit_true() {
+        let yaml = r#"
+name: test
+steps:
+  - name: step
+    cookies: true
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert!(step_cookies_enabled(&tf.steps[0]));
     }
 
     // --- Model deserializes new fields ---

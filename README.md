@@ -387,6 +387,50 @@ Disable automatic cookies per file:
 cookies: "off"
 ```
 
+### Skip Cookies for a Single Step
+
+Use `cookies: false` on a step to bypass the cookie jar for that request. No cookies are sent and no `Set-Cookie` headers are captured:
+
+```yaml
+steps:
+  - name: Login
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "admin@test.com"
+        password: "secret"
+    assert:
+      status: 200
+
+  - name: Test unauthenticated access
+    cookies: false
+    request:
+      method: GET
+      url: "{{ env.base_url }}/profile"
+    assert:
+      status: 401
+```
+
+### CSRF Protection
+
+When the cookie jar sends cookies automatically, frameworks with CSRF protection (e.g., Better Auth) may reject requests that lack an `Origin` header. Add it to `defaults` to fix:
+
+```yaml
+defaults:
+  headers:
+    Content-Type: "application/json"
+    Origin: "http://localhost:3000"
+```
+
+If your app derives the expected origin from the request URL, set `Origin` to match `env.base_url`:
+
+```yaml
+defaults:
+  headers:
+    Origin: "{{ env.base_url }}"
+```
+
 ## Multipart / File Upload
 
 Send multipart form data for file uploads using the `multipart:` field:

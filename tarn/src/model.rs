@@ -90,6 +90,10 @@ pub struct Step {
 
     /// Lua script to run after HTTP response for custom validation
     pub script: Option<String>,
+
+    /// Per-step cookie control: set to `false` to skip the cookie jar for this step.
+    /// When false, no cookies are sent and no Set-Cookie headers are captured.
+    pub cookies: Option<bool>,
 }
 
 /// Capture specification: either a simple JSONPath string or an extended capture.
@@ -660,6 +664,50 @@ steps:
     }
 
     // --- Cookies ---
+
+    #[test]
+    fn deserialize_step_cookies_false() {
+        let yaml = r#"
+name: Step cookies test
+steps:
+  - name: No cookies step
+    cookies: false
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps[0].cookies, Some(false));
+    }
+
+    #[test]
+    fn deserialize_step_cookies_true() {
+        let yaml = r#"
+name: Step cookies test
+steps:
+  - name: With cookies
+    cookies: true
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps[0].cookies, Some(true));
+    }
+
+    #[test]
+    fn deserialize_step_cookies_default_none() {
+        let yaml = r#"
+name: Step cookies test
+steps:
+  - name: Default step
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps[0].cookies, None);
+    }
 
     #[test]
     fn deserialize_cookies_off() {
