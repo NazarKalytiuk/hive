@@ -119,14 +119,11 @@ impl SelfSignedHttpsServer {
         let thread = thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
-                let config =
-                    RustlsConfig::from_pem_file(cert_path_for_thread, key_path_for_thread)
-                        .await
-                        .unwrap();
-                let app = Router::new().route(
-                    "/health",
-                    get(|| async { Json(json!({ "status": "ok" })) }),
-                );
+                let config = RustlsConfig::from_pem_file(cert_path_for_thread, key_path_for_thread)
+                    .await
+                    .unwrap();
+                let app = Router::new()
+                    .route("/health", get(|| async { Json(json!({ "status": "ok" })) }));
 
                 axum_server::bind_rustls(([127, 0, 0, 1], port).into(), config)
                     .handle(handle_clone)
@@ -808,9 +805,7 @@ fn invalid_ssl_certificate_returns_actionable_error() {
     )
     .unwrap_err();
 
-    let message = error
-        .to_string()
-        .to_ascii_lowercase();
+    let message = error.to_string().to_ascii_lowercase();
     assert!(
         message.contains("certificate")
             || message.contains("tls")
@@ -847,7 +842,15 @@ steps:
 
     let output = tarn()
         .current_dir(dir.path())
-        .args(["run", "--dry-run", "--parallel", "--jobs", "4", "--format", "json"])
+        .args([
+            "run",
+            "--dry-run",
+            "--parallel",
+            "--jobs",
+            "4",
+            "--format",
+            "json",
+        ])
         .output()
         .unwrap();
 
