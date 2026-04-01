@@ -92,6 +92,9 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_TAP_REPO: ${{ secrets.HOMEBREW_TAP_REPO }}
     steps:
       - uses: actions/checkout@v4
 
@@ -133,10 +136,7 @@ jobs:
             artifacts/tarn-checksums.txt
 
       - name: Publish Homebrew tap
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' && secrets.HOMEBREW_TAP_REPO != '' }}
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          HOMEBREW_TAP_REPO: ${{ secrets.HOMEBREW_TAP_REPO }}
+        if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP_REPO != ''
         run: |
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap
           mkdir -p tap/Formula
@@ -151,30 +151,33 @@ jobs:
   publish-crates:
     name: Publish crates.io packages
     needs: build
-    if: ${{ secrets.CRATES_IO_TOKEN != '' }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish tarn
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: cargo publish -p tarn
 
       - name: Wait for crates.io index
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: sleep 30
 
       - name: Publish tarn-mcp
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        if: env.CARGO_REGISTRY_TOKEN != ''
         run: cargo publish -p tarn-mcp
 
   docker:
     name: Publish Docker image
     needs: build
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -192,11 +195,11 @@ jobs:
           password: ${{ github.token }}
 
       - name: Login to Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Compute image names
         id: images
@@ -205,8 +208,8 @@ jobs:
           {
             echo 'images<<EOF'
             echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/tarn"
-            if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-              echo "${{ secrets.DOCKERHUB_USERNAME }}/tarn"
+            if [ -n "$DOCKERHUB_USERNAME" ]; then
+              echo "${DOCKERHUB_USERNAME}/tarn"
             fi
             echo EOF
           } >> "$GITHUB_OUTPUT"
