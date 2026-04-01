@@ -1,10 +1,10 @@
 # Tarn AI Workflow Demo
 
-This is a text-first demo you can publish alongside the repo until you record a video.
+This is the shortest text-first demo of Tarn's core promise: an agent writes a test, Tarn returns structured failures, and the agent fixes the exact mismatch instead of guessing from stdout.
 
 ## Goal
 
-Generate a test from an endpoint description, run Tarn, inspect structured failure JSON, fix the test, rerun green.
+Generate a test from an endpoint description, run Tarn, inspect structured JSON, fix the test, rerun green.
 
 ## Example Prompt
 
@@ -31,7 +31,7 @@ steps:
 ## Run Tarn
 
 ```bash
-tarn run health.tarn.yaml --format json
+tarn run health.tarn.yaml --format json --json-mode compact
 ```
 
 ## Failure JSON Excerpt
@@ -39,13 +39,16 @@ tarn run health.tarn.yaml --format json
 ```json
 {
   "failure_category": "assertion_failed",
+  "error_code": "STATUS_MISMATCH",
+  "remediation_hints": [
+    "Compare the expected status with the actual response status."
+  ],
   "assertions": {
     "failures": [
       {
         "assertion": "status",
         "expected": "201",
-        "actual": "200",
-        "message": "Expected HTTP status 201, got 200"
+        "actual": "200"
       }
     ]
   },
@@ -64,19 +67,13 @@ tarn run health.tarn.yaml --format json
 
 ## Agent Diagnosis
 
-- The request reached the right endpoint.
-- The body assertion already passes.
-- The only mismatch is the expected status: `201` should be `200`.
+- the request reached the correct endpoint
+- the body assertion already passes
+- the only mismatch is the expected status
+
+At this point the agent can either patch the file directly or call `tarn_fix_plan` over the latest report.
 
 ## Fix
-
-Change:
-
-```yaml
-status: 201
-```
-
-to:
 
 ```yaml
 status: 200
@@ -85,7 +82,7 @@ status: 200
 ## Rerun
 
 ```bash
-tarn run health.tarn.yaml --format json
+tarn run health.tarn.yaml --format json --json-mode compact
 ```
 
 Expected summary:

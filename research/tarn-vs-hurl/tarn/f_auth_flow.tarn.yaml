@@ -1,0 +1,43 @@
+name: Scenario F - Auth Flow
+env:
+  base_url: "http://127.0.0.1:3001"
+setup:
+  - name: Cleanup state
+    request:
+      method: POST
+      url: "{{ env.base_url }}/test/cleanup"
+    assert:
+      status: 200
+steps:
+  - name: Request without auth
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users"
+    assert:
+      status: 401
+      body:
+        "$.error": "unauthorized"
+  - name: Login for bearer token
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      headers:
+        Content-Type: "application/json"
+      body:
+        email: "auth@example.com"
+        password: "secret"
+    capture:
+      token: "$.token"
+    assert:
+      status: 200
+  - name: Request with bearer auth
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users?page=1&limit=1"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 200
+      body:
+        "$.meta.page": 1
+        "$.meta.limit": 1

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn Docs · MCP</title>
+    <meta name="description" content="Set up tarn-mcp and use Tarn as a structured MCP tool surface.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header__inner">
+          <a class="brand" href="./index.html">
+            <span class="brand__eyebrow">Tarn Docs</span>
+            <span class="brand__title">MCP Integration</span>
+          </a>
+          <nav class="nav">
+            <a href="./index.html">Home</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./test-files.html">Test Files</a>
+            <a href="./ai-workflows.html">AI Workflows</a>
+            <a href="./examples.html">Examples</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page">
+        <div class="container">
+          <section class="page__hero">
+            <span class="eyebrow">Guide 04</span>
+            <h1>Keep the agent on a small, typed tool surface.</h1>
+            <p class="intro">`tarn-mcp` exposes Tarn as structured tools so the assistant can list suites, validate YAML, run tests, and generate a fix plan without scraping CLI output.</p>
+          </section>
+
+          <div class="page__layout">
+            <article class="page__content">
+              <h2>Claude Code setup</h2>
+              <pre class="code-block"><code>{
+  "mcpServers": {
+    "tarn": {
+      "command": "tarn-mcp",
+      "args": []
+    }
+  }
+}</code></pre>
+
+              <h2>Available tools</h2>
+              <ul>
+                <li><span class="inline-code">tarn_list</span>: enumerate files and steps.</li>
+                <li><span class="inline-code">tarn_validate</span>: catch syntax and config issues before execution.</li>
+                <li><span class="inline-code">tarn_run</span>: execute tests and return structured report JSON.</li>
+                <li><span class="inline-code">tarn_fix_plan</span>: prioritize failed steps and suggest next actions from the report.</li>
+              </ul>
+
+              <h2>Recommended loop</h2>
+              <ol>
+                <li>Call <span class="inline-code">tarn_list</span> to get the suite shape.</li>
+                <li>Edit or generate the Tarn YAML.</li>
+                <li>Call <span class="inline-code">tarn_validate</span>.</li>
+                <li>Call <span class="inline-code">tarn_run</span>.</li>
+                <li>Call <span class="inline-code">tarn_fix_plan</span> if the run failed and you want a prioritized debugging plan.</li>
+              </ol>
+
+              <h2>Why it beats shelling out</h2>
+              <ul>
+                <li>No stdout scraping or fragile regex around human output.</li>
+                <li>Shared contract with the JSON report schema.</li>
+                <li>Smaller prompt footprint because the tool result is already structured.</li>
+              </ul>
+            </article>
+
+            <aside class="page__aside">
+              <h3>Repository References</h3>
+              <div class="aside-list">
+                <a href="../MCP_WORKFLOW.md">
+                  <strong>MCP Workflow Markdown</strong>
+                  <span>Canonical repo note</span>
+                </a>
+                <a href="../../tarn-mcp/src/tools.rs">
+                  <strong>`tarn-mcp` Tool Code</strong>
+                  <span>Implementation surface</span>
+                </a>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      <footer class="site-footer">
+        <div class="site-footer__inner">
+          Need runnable suites to feed those tools? Open <a href="./examples.html">Examples</a>.
+        </div>
+      </footer>
+    </div>
+  </body>
+  </html>

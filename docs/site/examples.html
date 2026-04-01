@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn Docs · Examples</title>
+    <meta name="description" content="Browse Tarn example suites and scaffolds.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header__inner">
+          <a class="brand" href="./index.html">
+            <span class="brand__eyebrow">Tarn Docs</span>
+            <span class="brand__title">Example Corpus</span>
+          </a>
+          <nav class="nav">
+            <a href="./index.html">Home</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./test-files.html">Test Files</a>
+            <a href="./ai-workflows.html">AI Workflows</a>
+            <a href="./mcp.html">MCP</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page">
+        <div class="container">
+          <section class="page__hero">
+            <span class="eyebrow">Guide 05</span>
+            <h1>Copy from examples that already map to real endpoints.</h1>
+            <p class="intro">The repo examples now do double duty: onboarding material and parser/schema regression coverage.</p>
+          </section>
+
+          <div class="page__layout">
+            <article class="page__content">
+              <h2>Init scaffolds</h2>
+              <ul>
+                <li><a href="../../examples/init/health.tarn.yaml">health.tarn.yaml</a>: safe first-run smoke test</li>
+                <li><a href="../../examples/init/auth-flow.tarn.yaml">auth-flow.tarn.yaml</a>: setup + bearer token reuse</li>
+                <li><a href="../../examples/init/polling-job.tarn.yaml">polling-job.tarn.yaml</a>: poll until ready</li>
+                <li><a href="../../examples/init/multipart-upload.tarn.yaml">multipart-upload.tarn.yaml</a>: file upload structure</li>
+                <li><a href="../../examples/init/multi-user-session.tarn.yaml">multi-user-session.tarn.yaml</a>: named cookie jars</li>
+              </ul>
+
+              <h2>Local demo-server suites</h2>
+              <ul>
+                <li><a href="../../examples/demo-server/hello-world.tarn.yaml">hello-world.tarn.yaml</a></li>
+                <li><a href="../../examples/demo-server/redirects.tarn.yaml">redirects.tarn.yaml</a></li>
+                <li><a href="../../examples/demo-server/cookies.tarn.yaml">cookies.tarn.yaml</a></li>
+                <li><a href="../../examples/demo-server/form-and-text.tarn.yaml">form-and-text.tarn.yaml</a></li>
+                <li><a href="../../examples/demo-server/error-responses.tarn.yaml">error-responses.tarn.yaml</a></li>
+                <li><a href="../../examples/demo-server/auth-user-lifecycle.tarn.yaml">auth-user-lifecycle.tarn.yaml</a></li>
+              </ul>
+
+              <h2>Public API and feature demos</h2>
+              <ul>
+                <li><a href="../../examples/minimal.tarn.yaml">minimal.tarn.yaml</a></li>
+                <li><a href="../../examples/auth.tarn.yaml">auth.tarn.yaml</a></li>
+                <li><a href="../../examples/assertions.tarn.yaml">assertions.tarn.yaml</a></li>
+                <li><a href="../../examples/crud.tarn.yaml">crud.tarn.yaml</a></li>
+                <li><a href="../../examples/variables.tarn.yaml">variables.tarn.yaml</a></li>
+                <li><a href="../../examples/public-api/httpbin.tarn.yaml">public-api/httpbin.tarn.yaml</a></li>
+                <li><a href="../../examples/public-api/jsonplaceholder.tarn.yaml">public-api/jsonplaceholder.tarn.yaml</a></li>
+              </ul>
+
+              <h2>Run them locally</h2>
+              <pre class="code-block"><code>PORT=3000 cargo run -p demo-server &
+cargo run -p tarn -- run examples/demo-server/
+</code></pre>
+            </article>
+
+            <aside class="page__aside">
+              <h3>Why examples matter</h3>
+              <div class="aside-list">
+                <a href="../../tarn/src/parser.rs">
+                  <strong>Parser Regression</strong>
+                  <span>Examples are schema- and parser-validated in tests</span>
+                </a>
+                <a href="../../README.md">
+                  <strong>Hello World</strong>
+                  <span>Shortest local path</span>
+                </a>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      <footer class="site-footer">
+        <div class="site-footer__inner">
+          Start with <a href="./getting-started.html">Getting Started</a> if you are opening Tarn for the first time.
+        </div>
+      </footer>
+    </div>
+  </body>
+  </html>

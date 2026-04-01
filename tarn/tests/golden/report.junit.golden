@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="1" time="0.321">
+  <testsuite name="Reporter Golden" tests="4" failures="1" time="0.321">
+    <testcase classname="setup" name="Authenticate" time="0.012" />
+    <testcase classname="smoke" name="Create item" time="0.034" />
+    <testcase classname="smoke" name="Fetch item" time="0.056">
+      <failure message="body mismatch: expected [hidden] to match [hidden]" type="AssertionFailure">Expected: {&quot;id&quot;:&quot;it_123&quot;,&quot;token&quot;:&quot;[hidden]&quot;}
+Actual: {&quot;id&quot;:&quot;it_123&quot;,&quot;token&quot;:&quot;wrong-token&quot;}</failure>
+    </testcase>
+    <testcase classname="teardown" name="Cleanup" time="0.008" />
+  </testsuite>
+</testsuites>
+

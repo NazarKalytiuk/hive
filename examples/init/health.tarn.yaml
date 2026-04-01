@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Health check
+steps:
+  - name: GET /health
+    request:
+      method: GET
+      url: "{{ env.base_url }}/health"
+    assert:
+      status: 200

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn Docs</title>
+    <meta name="description" content="Canonical guides for Tarn, the AI-first API testing CLI.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header__inner">
+          <a class="brand" href="./index.html">
+            <span class="brand__eyebrow">Tarn Docs</span>
+            <span class="brand__title">AI-first API testing, without framework drag</span>
+          </a>
+          <nav class="nav">
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./test-files.html">Test Files</a>
+            <a href="./ai-workflows.html">AI Workflows</a>
+            <a href="./mcp.html">MCP</a>
+            <a href="./examples.html">Examples</a>
+          </nav>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="container">
+            <div class="hero__panel">
+              <span class="eyebrow">Canonical Guides</span>
+              <h1>Ship API tests that agents can actually debug.</h1>
+              <p class="lede">
+                Tarn keeps the authoring surface YAML-simple, but pushes hard on the machine loop:
+                structured JSON failures, stable error codes, remediation hints, MCP tools, setup and teardown,
+                named cookie jars, polling, Lua, and multi-format reporting.
+              </p>
+              <div class="hero__actions">
+                <a class="button button--primary" href="./getting-started.html">Start Here</a>
+                <a class="button button--secondary" href="./ai-workflows.html">See the AI Loop</a>
+              </div>
+              <pre class="hero__terminal"><code>$ tarn init
+$ tarn run --format json --json-mode compact
+$ tarn fmt --check
+$ tarn-mcp</code></pre>
+              <div class="kpi-row">
+                <div class="kpi">
+                  <strong>1 binary</strong>
+                  <span>No runtime, no test framework project to bootstrap.</span>
+                </div>
+                <div class="kpi">
+                  <strong>7 formats</strong>
+                  <span>Human, JSON, JUnit, TAP, HTML, curl, and curl-all.</span>
+                </div>
+                <div class="kpi">
+                  <strong>MCP-native</strong>
+                  <span>`tarn_run`, `tarn_validate`, `tarn_list`, `tarn_fix_plan`.</span>
+                </div>
+                <div class="kpi">
+                  <strong>Example-driven</strong>
+                  <span>Local demo-server corpus used as parser regression coverage.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section section--tight">
+          <div class="container">
+            <div class="section__header">
+              <span class="eyebrow">Guides</span>
+              <h2>Follow the shortest path first.</h2>
+              <p class="intro">The site pages are optimized for onboarding. The repository markdown remains the deeper source material for strategy, release notes, and workflow details.</p>
+            </div>
+            <div class="grid grid--3">
+              <article class="card">
+                <h3><a href="./getting-started.html">Getting Started</a></h3>
+                <p>Install Tarn, scaffold a project, run the local demo server, and understand `tarn fmt`, `validate`, and `run` in one pass.</p>
+              </article>
+              <article class="card">
+                <h3><a href="./test-files.html">Writing Test Files</a></h3>
+                <p>Request structure, assertions, captures, cookies, polling, multipart, GraphQL, and redaction without having to jump through the whole README.</p>
+              </article>
+              <article class="card">
+                <h3><a href="./ai-workflows.html">AI Workflows</a></h3>
+                <p>How compact JSON, failure categories, error codes, remediation hints, and curl exports tighten the agent retry loop.</p>
+              </article>
+              <article class="card">
+                <h3><a href="./mcp.html">MCP Integration</a></h3>
+                <p>Set up `tarn-mcp` in Claude Code, Cursor, or Windsurf and keep the agent on a structured tool surface instead of shell output scraping.</p>
+              </article>
+              <article class="card">
+                <h3><a href="./examples.html">Examples</a></h3>
+                <p>Browse the local example corpus for auth, redirects, cookies, forms, multipart, error responses, and authenticated CRUD flows.</p>
+              </article>
+              <article class="card">
+                <h3><a href="../INDEX.md">Deep Docs</a></h3>
+                <p>Canonical product, roadmap, migration, comparison, release, and launch documents still live in the repository markdown for longer-form context.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="container">
+            <div class="section__header">
+              <span class="eyebrow">Repository Canon</span>
+              <h2>What stays in markdown.</h2>
+              <p class="intro">The site is the fast path. These documents are still the repo-level source for planning and operational detail.</p>
+            </div>
+            <div class="grid grid--2">
+              <article class="card">
+                <h3>Strategy and Positioning</h3>
+                <ul>
+                  <li><a href="../TARN_PRODUCT_STRATEGY.md">Tarn Product Strategy</a></li>
+                  <li><a href="../TARN_VS_HURL_COMPARISON.md">Tarn vs Hurl Comparison</a></li>
+                  <li><a href="../HURL_MIGRATION.md">Hurl Migration Guide</a></li>
+                </ul>
+              </article>
+              <article class="card">
+                <h3>Execution and Operations</h3>
+                <ul>
+                  <li><a href="../TARN_COMPETITIVENESS_ROADMAP.md">Competitiveness Roadmap</a></li>
+                  <li><a href="../MCP_WORKFLOW.md">MCP Workflow</a></li>
+                  <li><a href="../AI_WORKFLOW_DEMO.md">AI Workflow Demo</a></li>
+                  <li><a href="../RELEASE_VERIFICATION.md">Release Verification</a></li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="site-footer__inner">
+          Tarn docs site. Static, zero-build, and deployable from `docs/site/` via GitHub Pages.
+        </div>
+      </footer>
+    </div>
+  </body>
+  </html>

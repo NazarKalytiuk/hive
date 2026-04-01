@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Demo server error surfaces
+steps:
+  - name: HTML error page can still be asserted
+    request:
+      method: GET
+      url: "{{ env.base_url }}/html-error"
+    assert:
+      status: 502
+      body:
+        "$": "<html><body><h1>Upstream failure</h1></body></html>"
+
+  - name: Empty response is still a valid success
+    request:
+      method: GET
+      url: "{{ env.base_url }}/empty"
+    assert:
+      status: 204

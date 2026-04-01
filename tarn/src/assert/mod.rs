@@ -1,6 +1,7 @@
 pub mod body;
 pub mod duration;
 pub mod headers;
+pub mod redirect;
 pub mod status;
 pub mod types;
 
@@ -15,6 +16,9 @@ pub fn run_assertions(
     response_status: u16,
     response_headers: &HashMap<String, String>,
     response_body: &serde_json::Value,
+    response_body_bytes: &[u8],
+    response_url: &str,
+    redirect_count: u32,
     duration_ms: u64,
 ) -> Vec<AssertionResult> {
     let mut results = Vec::new();
@@ -29,6 +33,15 @@ pub fn run_assertions(
         results.push(duration::assert_duration(duration_spec, duration_ms));
     }
 
+    // Redirect assertions
+    if let Some(ref expected_redirect) = assertion.redirect {
+        results.extend(redirect::assert_redirect(
+            expected_redirect,
+            response_url,
+            redirect_count,
+        ));
+    }
+
     // Header assertions
     if let Some(ref expected_headers) = assertion.headers {
         results.extend(headers::assert_headers(expected_headers, response_headers));
@@ -36,7 +49,11 @@ pub fn run_assertions(
 
     // Body assertions
     if let Some(ref body_assertions) = assertion.body {
-        results.extend(body::assert_body(response_body, body_assertions));
+        results.extend(body::assert_body(
+            response_body,
+            response_body_bytes,
+            body_assertions,
+        ));
     }
 
     results
@@ -52,12 +69,13 @@ mod tests {
         let assertion = Assertion {
             status: Some(StatusAssertion::Exact(200)),
             duration: None,
+            redirect: None,
             headers: None,
             body: None,
         };
         let headers = HashMap::new();
         let body = serde_json::Value::Null;
-        let results = run_assertions(&assertion, 200, &headers, &body, 100);
+        let results = run_assertions(&assertion, 200, &headers, &body, &[], "", 0, 100);
         assert_eq!(results.len(), 1);
         assert!(results[0].passed);
     }
@@ -67,12 +85,13 @@ mod tests {
         let assertion = Assertion {
             status: Some(StatusAssertion::Exact(200)),
             duration: None,
+            redirect: None,
             headers: None,
             body: None,
         };
         let headers = HashMap::new();
         let body = serde_json::Value::Null;
-        let results = run_assertions(&assertion, 404, &headers, &body, 100);
+        let results = run_assertions(&assertion, 404, &headers, &body, &[], "", 0, 100);
         assert_eq!(results.len(), 1);
         assert!(!results[0].passed);
     }
@@ -82,12 +101,13 @@ mod tests {
         let assertion = Assertion {
             status: None,
             duration: None,
+            redirect: None,
             headers: None,
             body: None,
         };
         let headers = HashMap::new();
         let body = serde_json::Value::Null;
-        let results = run_assertions(&assertion, 200, &headers, &body, 100);
+        let results = run_assertions(&assertion, 200, &headers, &body, &[], "", 0, 100);
         assert!(results.is_empty());
     }
 }

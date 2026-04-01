@@ -1,0 +1,70 @@
+name: Scenario C - Chaining CRUD
+env:
+  base_url: "http://127.0.0.1:3001"
+setup:
+  - name: Cleanup state
+    request:
+      method: POST
+      url: "{{ env.base_url }}/test/cleanup"
+    assert:
+      status: 200
+  - name: Login
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      headers:
+        Content-Type: "application/json"
+      body:
+        email: "research@example.com"
+        password: "secret"
+    capture:
+      token: "$.token"
+    assert:
+      status: 200
+      body:
+        "$.token":
+          type: string
+          matches: "^[0-9a-f-]{36}$"
+steps:
+  - name: Create user
+    request:
+      method: POST
+      url: "{{ env.base_url }}/users"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+        Content-Type: "application/json"
+      body:
+        name: "Research User"
+        email: "research.user@example.com"
+        role: "editor"
+        tags:
+          - "alpha"
+          - "beta"
+    capture:
+      user_id: "$.id"
+    assert:
+      status: 201
+      body:
+        "$.id":
+          matches: "^usr_[0-9a-f]+$"
+        "$.name": "Research User"
+  - name: Get created user
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 200
+      body:
+        "$.email": "research.user@example.com"
+        "$.role": "editor"
+  - name: Delete created user
+    request:
+      method: DELETE
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status:
+        in: [200, 204]

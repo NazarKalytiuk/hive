@@ -1,3 +1,4 @@
+use crate::model::{MultipartBody, RedactionConfig};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -10,6 +11,25 @@ pub enum FailureCategory {
     Timeout,
     ParseError,
     CaptureError,
+}
+
+/// Stable machine-readable failure code for programmatic handling.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    AssertionMismatch,
+    CaptureExtractionFailed,
+    PollConditionNotMet,
+    RequestTimedOut,
+    ConnectionRefused,
+    DnsResolutionFailed,
+    TlsVerificationFailed,
+    RedirectLimitExceeded,
+    NetworkError,
+    InterpolationFailed,
+    ValidationFailed,
+    ConfigurationError,
+    ParseError,
 }
 
 /// Result of a single assertion check.
@@ -25,6 +45,8 @@ pub struct AssertionResult {
     pub actual: String,
     /// Human-readable message
     pub message: String,
+    /// Optional unified diff for whole-body mismatches
+    pub diff: Option<String>,
 }
 
 impl AssertionResult {
@@ -42,6 +64,7 @@ impl AssertionResult {
             passed: true,
             expected,
             actual,
+            diff: None,
         }
     }
 
@@ -57,6 +80,24 @@ impl AssertionResult {
             expected: expected.into(),
             actual: actual.into(),
             message: message.into(),
+            diff: None,
+        }
+    }
+
+    pub fn fail_with_diff(
+        assertion: impl Into<String>,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+        message: impl Into<String>,
+        diff: impl Into<String>,
+    ) -> Self {
+        Self {
+            assertion: assertion.into(),
+            passed: false,
+            expected: expected.into(),
+            actual: actual.into(),
+            message: message.into(),
+            diff: Some(diff.into()),
         }
     }
 }
@@ -95,6 +136,63 @@ impl StepResult {
             .filter(|a| !a.passed)
             .collect()
     }
+
+    pub fn error_code(&self) -> Option<ErrorCode> {
+        let message = self.primary_failure_message().unwrap_or_default();
+        let lower = message.to_ascii_lowercase();
+
+        match self.error_category {
+            Some(FailureCategory::AssertionFailed) => Some(ErrorCode::AssertionMismatch),
+            Some(FailureCategory::CaptureError) => Some(ErrorCode::CaptureExtractionFailed),
+            Some(FailureCategory::Timeout) => {
+                if self
+                    .assertion_results
+                    .iter()
+                    .any(|assertion| assertion.assertion == "poll")
+                {
+                    Some(ErrorCode::PollConditionNotMet)
+                } else {
+                    Some(ErrorCode::RequestTimedOut)
+                }
+            }
+            Some(FailureCategory::ParseError) => {
+                if lower.contains("interpolation") {
+                    Some(ErrorCode::InterpolationFailed)
+                } else if lower.contains("validation") {
+                    Some(ErrorCode::ValidationFailed)
+                } else if lower.contains("config") {
+                    Some(ErrorCode::ConfigurationError)
+                } else {
+                    Some(ErrorCode::ParseError)
+                }
+            }
+            Some(FailureCategory::ConnectionError) => {
+                if lower.contains("tls verification failed") {
+                    Some(ErrorCode::TlsVerificationFailed)
+                } else if lower.contains("too many redirects") {
+                    Some(ErrorCode::RedirectLimitExceeded)
+                } else if lower.contains("connection refused") {
+                    Some(ErrorCode::ConnectionRefused)
+                } else if lower.contains("failed to lookup")
+                    || lower.contains("dns")
+                    || lower.contains("no such host")
+                    || lower.contains("name or service not known")
+                {
+                    Some(ErrorCode::DnsResolutionFailed)
+                } else {
+                    Some(ErrorCode::NetworkError)
+                }
+            }
+            None => None,
+        }
+    }
+
+    fn primary_failure_message(&self) -> Option<&str> {
+        self.assertion_results
+            .iter()
+            .find(|assertion| !assertion.passed)
+            .map(|assertion| assertion.message.as_str())
+    }
 }
 
 /// HTTP request info for reporting.
@@ -104,6 +202,7 @@ pub struct RequestInfo {
     pub url: String,
     pub headers: HashMap<String, String>,
     pub body: Option<serde_json::Value>,
+    pub multipart: Option<MultipartBody>,
 }
 
 /// HTTP response info for reporting.
@@ -145,6 +244,8 @@ pub struct FileResult {
     pub name: String,
     pub passed: bool,
     pub duration_ms: u64,
+    pub redaction: RedactionConfig,
+    pub redacted_values: Vec<String>,
     pub setup_results: Vec<StepResult>,
     pub test_results: Vec<TestResult>,
     pub teardown_results: Vec<StepResult>,
@@ -216,6 +317,7 @@ mod tests {
         assert_eq!(r.assertion, "status");
         assert_eq!(r.expected, "200");
         assert_eq!(r.actual, "200");
+        assert_eq!(r.diff, None);
     }
 
     #[test]
@@ -223,6 +325,14 @@ mod tests {
         let r = AssertionResult::fail("status", "200", "404", "Expected 200, got 404");
         assert!(!r.passed);
         assert_eq!(r.message, "Expected 200, got 404");
+        assert_eq!(r.diff, None);
+    }
+
+    #[test]
+    fn assertion_result_fail_with_diff() {
+        let r = AssertionResult::fail_with_diff("body $", "a", "b", "mismatch", "--- expected");
+        assert!(!r.passed);
+        assert_eq!(r.diff.as_deref(), Some("--- expected"));
     }
 
     #[test]
@@ -245,6 +355,82 @@ mod tests {
         assert_eq!(sr.failed_assertions(), 1);
         assert_eq!(sr.failures().len(), 1);
         assert_eq!(sr.failures()[0].assertion, "body $.name");
+    }
+
+    #[test]
+    fn step_result_error_code_uses_timeout_subtypes() {
+        let poll_timeout = StepResult {
+            name: "poll".into(),
+            passed: false,
+            duration_ms: 0,
+            assertion_results: vec![AssertionResult::fail(
+                "poll",
+                "condition met",
+                "not met",
+                "Polling timed out",
+            )],
+            request_info: None,
+            response_info: None,
+            error_category: Some(FailureCategory::Timeout),
+        };
+        assert_eq!(
+            poll_timeout.error_code(),
+            Some(ErrorCode::PollConditionNotMet)
+        );
+
+        let request_timeout = StepResult {
+            name: "http".into(),
+            passed: false,
+            duration_ms: 0,
+            assertion_results: vec![AssertionResult::fail(
+                "runtime",
+                "ok",
+                "timeout",
+                "Request to https://example.com timed out",
+            )],
+            request_info: None,
+            response_info: None,
+            error_category: Some(FailureCategory::Timeout),
+        };
+        assert_eq!(
+            request_timeout.error_code(),
+            Some(ErrorCode::RequestTimedOut)
+        );
+    }
+
+    #[test]
+    fn step_result_error_code_uses_connection_subtypes() {
+        let refused = StepResult {
+            name: "refused".into(),
+            passed: false,
+            duration_ms: 0,
+            assertion_results: vec![AssertionResult::fail(
+                "runtime",
+                "ok",
+                "error",
+                "Connection refused to http://127.0.0.1:1",
+            )],
+            request_info: None,
+            response_info: None,
+            error_category: Some(FailureCategory::ConnectionError),
+        };
+        assert_eq!(refused.error_code(), Some(ErrorCode::ConnectionRefused));
+
+        let tls = StepResult {
+            name: "tls".into(),
+            passed: false,
+            duration_ms: 0,
+            assertion_results: vec![AssertionResult::fail(
+                "runtime",
+                "ok",
+                "error",
+                "TLS verification failed for https://example.com",
+            )],
+            request_info: None,
+            response_info: None,
+            error_category: Some(FailureCategory::ConnectionError),
+        };
+        assert_eq!(tls.error_code(), Some(ErrorCode::TlsVerificationFailed));
     }
 
     #[test]
@@ -292,6 +478,8 @@ mod tests {
             name: "Test".into(),
             passed: true,
             duration_ms: 1000,
+            redaction: RedactionConfig::default(),
+            redacted_values: vec![],
             setup_results: vec![StepResult {
                 name: "setup".into(),
                 passed: true,
@@ -343,6 +531,8 @@ mod tests {
                     name: "A".into(),
                     passed: true,
                     duration_ms: 100,
+                    redaction: RedactionConfig::default(),
+                    redacted_values: vec![],
                     setup_results: vec![],
                     test_results: vec![TestResult {
                         name: "t".into(),
@@ -366,6 +556,8 @@ mod tests {
                     name: "B".into(),
                     passed: false,
                     duration_ms: 200,
+                    redaction: RedactionConfig::default(),
+                    redacted_values: vec![],
                     setup_results: vec![],
                     test_results: vec![TestResult {
                         name: "t".into(),

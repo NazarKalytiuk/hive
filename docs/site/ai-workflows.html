@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn Docs · AI Workflows</title>
+    <meta name="description" content="Use Tarn in an LLM or automation loop with structured JSON and remediation hints.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header__inner">
+          <a class="brand" href="./index.html">
+            <span class="brand__eyebrow">Tarn Docs</span>
+            <span class="brand__title">AI Workflows</span>
+          </a>
+          <nav class="nav">
+            <a href="./index.html">Home</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./test-files.html">Test Files</a>
+            <a href="./mcp.html">MCP</a>
+            <a href="./examples.html">Examples</a>
+          </nav>
+        </div>
+      </header>
+
+      <main class="page">
+        <div class="container">
+          <section class="page__hero">
+            <span class="eyebrow">Guide 03</span>
+            <h1>Give the model objects, not stdout.</h1>
+            <p class="intro">Tarn’s wedge is not “YAML tests exist”. It is that failures come back as structured data with a stable taxonomy that an agent can reason over directly.</p>
+          </section>
+
+          <div class="page__layout">
+            <article class="page__content">
+              <h2>Use JSON intentionally</h2>
+              <pre class="code-block"><code>tarn run --format json --json-mode compact
+tarn run --format human --format json=reports/run.json --format curl=reports/failures.sh</code></pre>
+              <ul>
+                <li><strong>Verbose JSON</strong>: richer assertion detail for forensics.</li>
+                <li><strong>Compact JSON</strong>: slimmer payload for LLM and automation loops.</li>
+                <li><strong>curl export</strong>: replays failed or full-suite requests without re-reading YAML.</li>
+              </ul>
+
+              <h2>Fields that matter in the retry loop</h2>
+              <ul>
+                <li><span class="inline-code">failure_category</span>: assertion, parse, connection, timeout, capture.</li>
+                <li><span class="inline-code">error_code</span>: stable machine-readable subtype for routing and heuristics.</li>
+                <li><span class="inline-code">remediation_hints</span>: lightweight next-step guidance in the JSON itself.</li>
+                <li><span class="inline-code">request</span> and <span class="inline-code">response</span>: included on executed failures so the model sees what actually happened.</li>
+              </ul>
+
+              <h2>Recommended shell loop</h2>
+              <ol>
+                <li>Generate or edit the Tarn YAML.</li>
+                <li>Run <span class="inline-code">tarn validate</span> to catch parser and config issues.</li>
+                <li>Run <span class="inline-code">tarn run --format json --json-mode compact</span>.</li>
+                <li>Branch on <span class="inline-code">failure_category</span> and <span class="inline-code">error_code</span> before touching assertions blindly.</li>
+                <li>Use curl export when you need to replay exact failures outside Tarn.</li>
+              </ol>
+
+              <h2>Redaction</h2>
+              <p>Report-time redaction is configurable at DSL level. Tarn can redact sensitive headers, named env vars, and selected captures across JSON, human, JUnit, TAP, HTML, and curl outputs.</p>
+
+              <h2>Why this matters</h2>
+              <p>An agent should not need to infer whether a failure is DNS, TLS verification, unresolved interpolation, or a plain status mismatch from plain-text output. Tarn ships that distinction directly.</p>
+            </article>
+
+            <aside class="page__aside">
+              <h3>Related Material</h3>
+              <div class="aside-list">
+                <a href="../AI_WORKFLOW_DEMO.md">
+                  <strong>AI Workflow Demo</strong>
+                  <span>Text-first walkthrough</span>
+                </a>
+                <a href="../../schemas/v1/report.json">
+                  <strong>Report Schema</strong>
+                  <span>Exact JSON contract</span>
+                </a>
+                <a href="./mcp.html">
+                  <strong>MCP Guide</strong>
+                  <span>Structured tool loop instead of shelling out</span>
+                </a>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      <footer class="site-footer">
+        <div class="site-footer__inner">
+          Prefer tool calls over shell parsing? Continue with <a href="./mcp.html">MCP Integration</a>.
+        </div>
+      </footer>
+    </div>
+  </body>
+  </html>

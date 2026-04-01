@@ -1,27 +1,56 @@
 # Tarn MCP Workflow
 
-## Claude Code / Cursor Loop
+Tarn's MCP server exists to keep the agent on a structured tool surface instead of asking it to parse shell output.
 
-1. The agent calls `tarn_list` to see available tests and steps.
-2. The agent calls `tarn_validate` after generating or editing `.tarn.yaml`.
-3. The agent calls `tarn_run` to execute tests and receive structured JSON.
-4. The agent inspects `failure_category`, failed assertions, and optional request/response payloads.
-5. The agent edits the test or the application code.
-6. The agent reruns `tarn_run` until the summary status is `PASSED`.
+## Available Tools
+
+- `tarn_list`
+- `tarn_validate`
+- `tarn_run`
+- `tarn_fix_plan`
+
+## Recommended Loop
+
+1. Call `tarn_list` to discover tests and steps.
+2. Call `tarn_validate` after generating or editing `.tarn.yaml`.
+3. Call `tarn_run` and inspect the structured report.
+4. Branch first on `failure_category` and `error_code`.
+5. Use `tarn_fix_plan` when you want prioritized next actions from the latest report.
+6. Edit the test or the application code.
+7. Rerun until `summary.status` is `PASSED`.
+
+## Fields That Matter Most
+
+Focus on these first:
+
+- `failure_category`
+- `error_code`
+- `remediation_hints`
+- `assertions.failures`
+- optional failed-step `request`
+- optional failed-step `response`
+
+That ordering is deliberate. It keeps the agent from patching assertions before it understands whether the failure is parse, connection, timeout, capture, or a plain mismatch.
 
 ## Why MCP Instead of Shelling Out
 
-- No stdout scraping.
-- The agent gets structured data directly.
-- The tool surface is smaller: `tarn_run`, `tarn_validate`, `tarn_list`.
-- Editors can expose these tools without teaching the model shell quoting.
+- no stdout scraping
+- fewer quoting and path-resolution mistakes
+- smaller tool surface for the model
+- direct structured results instead of ad hoc parsing
 
 ## When Plain CLI Is Still Fine
 
-Use `tarn run --format json` directly when:
+Use the CLI directly when:
 
-- you do not want to configure MCP;
-- you are in CI;
-- you want to pipe results into another tool manually.
+- you are in CI
+- you do not want MCP setup overhead
+- you want report files such as `json`, `html`, `junit`, or `curl`
 
-The JSON contract is the same idea either way: failures are machine-readable, stable, and versioned.
+The equivalent fallback is:
+
+```bash
+tarn run --format json --json-mode compact
+```
+
+The report contract is the same idea either way: machine-readable, versioned, and intentionally stable.

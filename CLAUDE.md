@@ -36,7 +36,7 @@ Key modules in `src/`:
 - **capture.rs** - JSONPath + header extraction from responses for variable chaining between steps (type-preserving)
 - **cookie.rs** - Automatic cookie jar: captures Set-Cookie, sends Cookie on subsequent requests
 - **assert/** - Assertion modules: status, headers, body (JSONPath), duration, types
-- **report/** - Output formatters behind a Reporter trait: human (colored), json, junit, tap
+- **report/** - Output formatters: human, json, junit, tap, html, curl
 - **builtin.rs** - Built-in functions: `$uuid`, `$random_hex(n)`, `$random_int(min,max)`, `$timestamp`, `$now_iso`
 - **config.rs** - Optional `tarn.config.yaml` parsing
 - **main.rs** - CLI entry point using clap (derive)
@@ -69,7 +69,7 @@ steps:
       status: 200
 ```
 
-Full format supports: `env`, `defaults` (with `delay`), `setup`, `teardown`, `tests` (with `steps`), `capture` (JSONPath + header), `cookies`, `multipart`, `include`, and rich assertions including status ranges (see spec.md for the complete assertion reference).
+Full format supports: `env`, `defaults`, `setup`, `teardown`, `tests` (with `steps`), `capture`, `cookies`, `form`, `multipart`, `include`, `auth`, polling, and rich assertions. Use `README.md`, `docs/INDEX.md`, and `schemas/v1/testfile.json` as the canonical surface reference.
 
 ## Exit Codes
 
@@ -78,15 +78,9 @@ Full format supports: `env`, `defaults` (with `delay`), `setup`, `teardown`, `te
 - 2: configuration/parse error
 - 3: runtime error (network failure, timeout)
 
-## Implementation Phases
+## Project Status
 
-The spec defines 6 ordered phases. Check `spec.md` "Implementation Plan" section for current phase targets. In summary:
-1. Foundation (CLI skeleton, basic HTTP, status assertions)
-2. Core assertions (body/JSONPath, headers, duration)
-3. Variables and chaining (capture, env resolution, interpolation, built-ins)
-4. Setup/teardown and orchestration (runner lifecycle, tag filtering, file discovery)
-5. Reporters (JSON, JUnit, TAP output formats)
-6. Polish (init, list, validate commands, JSON Schema, error messages)
+The competitiveness roadmap is complete through `T50`. Use `docs/TARN_PRODUCT_STRATEGY.md` for current direction and `docs/TARN_COMPETITIVENESS_ROADMAP.md` only as historical sequencing context.
 
 ## Design Decisions
 
@@ -103,18 +97,19 @@ The spec defines 6 ordered phases. Check `spec.md` "Implementation Plan" section
 - Status assertions support exact (`200`), shorthand (`"2xx"`), sets (`in: [200, 201]`), ranges (`gte: 400, lt: 500`)
 - Supports multipart/form-data via `multipart:` field (separate from `body:`)
 - Shared setup via `include:` directives in step arrays, resolved at parse time
-- Project config currently controls `test_dir`, `env_file`, and fallback defaults for `timeout`, `retries`, and `parallel`
+- Project config also controls defaults, redaction policy, environments, and transport settings
 
 ## AI Workflow
 
 Preferred diagnosis loop:
 
 1. `cargo run -- validate <file>` for syntax/config issues
-2. `cargo run -- run <file> --format json`
-3. inspect `failure_category`
+2. `cargo run -- run <file> --format json --json-mode compact`
+3. inspect `failure_category` and `error_code`
 4. inspect `assertions.failures`
 5. inspect optional `request` / `response`
-6. patch YAML or application code
+6. optionally use `tarn_fix_plan`
+7. patch YAML or application code
 
 Useful docs:
 

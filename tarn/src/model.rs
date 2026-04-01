@@ -2,6 +2,86 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// Runtime HTTP transport settings shared by run and bench commands.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HttpTransportConfig {
+    pub proxy: Option<String>,
+    pub no_proxy: Option<String>,
+    pub cacert: Option<String>,
+    pub cert: Option<String>,
+    pub key: Option<String>,
+    pub insecure: bool,
+    pub http_version: Option<HttpVersionPreference>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpVersionPreference {
+    Http1_1,
+    Http2,
+}
+
+impl HttpTransportConfig {
+    /// Merge project defaults with CLI overrides. CLI wins when provided.
+    pub fn merge(project: &Self, cli: &Self) -> Self {
+        Self {
+            proxy: cli.proxy.clone().or_else(|| project.proxy.clone()),
+            no_proxy: cli.no_proxy.clone().or_else(|| project.no_proxy.clone()),
+            cacert: cli.cacert.clone().or_else(|| project.cacert.clone()),
+            cert: cli.cert.clone().or_else(|| project.cert.clone()),
+            key: cli.key.clone().or_else(|| project.key.clone()),
+            insecure: cli.insecure || project.insecure,
+            http_version: cli.http_version.or(project.http_version),
+        }
+    }
+
+    pub fn has_custom_transport(&self) -> bool {
+        self.proxy.is_some()
+            || self.no_proxy.is_some()
+            || self.cacert.is_some()
+            || self.cert.is_some()
+            || self.key.is_some()
+            || self.insecure
+            || self.http_version.is_some()
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub struct RedactionConfig {
+    #[serde(default = "default_redacted_headers")]
+    pub headers: Vec<String>,
+    #[serde(default = "default_redaction_replacement")]
+    pub replacement: String,
+    #[serde(default, rename = "env")]
+    pub env_vars: Vec<String>,
+    #[serde(default)]
+    pub captures: Vec<String>,
+}
+
+impl Default for RedactionConfig {
+    fn default() -> Self {
+        Self {
+            headers: default_redacted_headers(),
+            replacement: default_redaction_replacement(),
+            env_vars: Vec::new(),
+            captures: Vec::new(),
+        }
+    }
+}
+
+fn default_redacted_headers() -> Vec<String> {
+    vec![
+        "authorization".into(),
+        "cookie".into(),
+        "set-cookie".into(),
+        "x-api-key".into(),
+        "x-auth-token".into(),
+    ]
+}
+
+fn default_redaction_replacement() -> String {
+    "***".into()
+}
+
 /// Top-level test file structure matching .tarn.yaml format.
 ///
 /// Supports two modes:
@@ -25,6 +105,10 @@ pub struct TestFile {
     /// Inline environment variables with defaults
     #[serde(default)]
     pub env: HashMap<String, String>,
+
+    /// Report-time redaction settings for sensitive headers
+    #[serde(alias = "redact")]
+    pub redaction: Option<RedactionConfig>,
 
     /// Default headers/settings applied to every request
     pub defaults: Option<Defaults>,
@@ -82,6 +166,18 @@ pub struct Step {
     /// Step-level timeout in milliseconds (overrides defaults)
     pub timeout: Option<u64>,
 
+    /// Step-level connect timeout in milliseconds (overrides defaults)
+    #[serde(alias = "connect-timeout")]
+    pub connect_timeout: Option<u64>,
+
+    /// Whether this step should follow redirects (overrides defaults)
+    #[serde(alias = "follow-redirects")]
+    pub follow_redirects: Option<bool>,
+
+    /// Maximum redirects to follow for this step (overrides defaults)
+    #[serde(alias = "max-redirs")]
+    pub max_redirs: Option<u32>,
+
     /// Delay before executing this step (e.g., "500ms", "2s")
     pub delay: Option<String>,
 
@@ -133,13 +229,21 @@ pub enum CaptureSpec {
     Extended(ExtendedCapture),
 }
 
-/// Extended capture specification supporting headers and regex extraction.
+/// Extended capture specification supporting multiple response sources with optional regex extraction.
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExtendedCapture {
     /// Capture from a response header (case-insensitive lookup)
     pub header: Option<String>,
+    /// Capture from a response cookie by cookie name
+    pub cookie: Option<String>,
     /// Capture from body via JSONPath (explicit form)
     pub jsonpath: Option<String>,
+    /// Capture from the whole response body string
+    pub body: Option<bool>,
+    /// Capture from the HTTP response status code
+    pub status: Option<bool>,
+    /// Capture from the final response URL after redirects
+    pub url: Option<bool>,
     /// Optional regex to extract a sub-match (capture group 1)
     pub regex: Option<String>,
 }
@@ -164,14 +268,37 @@ pub struct Request {
     #[serde(default)]
     pub headers: HashMap<String, String>,
 
+    /// Optional auth helper. Explicit Authorization headers still win.
+    pub auth: Option<AuthConfig>,
+
     /// Request body — can be any JSON-compatible value
     pub body: Option<serde_json::Value>,
+
+    /// URL-encoded form body sent as application/x-www-form-urlencoded
+    #[serde(default)]
+    pub form: Option<IndexMap<String, String>>,
 
     /// GraphQL query (syntactic sugar; translates to JSON POST body)
     pub graphql: Option<GraphqlRequest>,
 
     /// Multipart form data for file uploads
     pub multipart: Option<MultipartBody>,
+}
+
+/// First-class auth helper for common bearer/basic cases.
+#[derive(Debug, Deserialize, Clone)]
+pub struct AuthConfig {
+    /// Bearer token value (without the `Bearer ` prefix)
+    pub bearer: Option<String>,
+    /// Basic auth credentials
+    pub basic: Option<BasicAuthConfig>,
+}
+
+/// Basic auth credentials.
+#[derive(Debug, Deserialize, Clone)]
+pub struct BasicAuthConfig {
+    pub username: String,
+    pub password: String,
 }
 
 /// GraphQL query definition.
@@ -223,8 +350,23 @@ pub struct Defaults {
     #[serde(default)]
     pub headers: HashMap<String, String>,
 
+    /// Default auth helper applied when a step does not set request.auth.
+    pub auth: Option<AuthConfig>,
+
     /// Default timeout in milliseconds
     pub timeout: Option<u64>,
+
+    /// Default connect timeout in milliseconds
+    #[serde(alias = "connect-timeout")]
+    pub connect_timeout: Option<u64>,
+
+    /// Default redirect-following behavior
+    #[serde(alias = "follow-redirects")]
+    pub follow_redirects: Option<bool>,
+
+    /// Default maximum redirects to follow
+    #[serde(alias = "max-redirs")]
+    pub max_redirs: Option<u32>,
 
     /// Default retries for all steps
     pub retries: Option<u32>,
@@ -242,11 +384,23 @@ pub struct Assertion {
     /// Response time assertion (e.g., "< 500ms")
     pub duration: Option<String>,
 
+    /// Redirect assertions against the final response URL and redirect count
+    pub redirect: Option<RedirectAssertion>,
+
     /// Header assertions
     pub headers: Option<HashMap<String, String>>,
 
     /// Body assertions via JSONPath
     pub body: Option<IndexMap<String, serde_yaml::Value>>,
+}
+
+/// Redirect assertions for a followed response chain.
+#[derive(Debug, Deserialize, Clone)]
+pub struct RedirectAssertion {
+    /// Expected final URL after redirects
+    pub url: Option<String>,
+    /// Expected number of followed redirects
+    pub count: Option<u32>,
 }
 
 /// Status code assertion: exact match, shorthand range, or complex spec.
@@ -427,6 +581,30 @@ steps:
     }
 
     #[test]
+    fn deserialize_redirect_assertion() {
+        let yaml = r#"
+name: Redirect assertions
+steps:
+  - name: Follow chain
+    request:
+      method: GET
+      url: "http://localhost:3000/redirect"
+    assert:
+      redirect:
+        url: "http://localhost:3000/final"
+        count: 2
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let redirect = tf.steps[0]
+            .assertions
+            .as_ref()
+            .and_then(|a| a.redirect.as_ref())
+            .unwrap();
+        assert_eq!(redirect.url.as_deref(), Some("http://localhost:3000/final"));
+        assert_eq!(redirect.count, Some(2));
+    }
+
+    #[test]
     fn deserialize_empty_optional_fields() {
         let yaml = r#"
 name: Minimal
@@ -474,6 +652,46 @@ steps:
         assert_eq!(body["name"], "Alice");
         assert_eq!(body["tags"][0], "a");
         assert_eq!(body["nested"]["key"], "value");
+    }
+
+    #[test]
+    fn deserialize_request_with_auth_helper() {
+        let yaml = r#"
+name: auth
+steps:
+  - name: GET
+    request:
+      method: GET
+      url: "http://localhost:3000/me"
+      auth:
+        bearer: "{{ env.token }}"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let auth = tf.steps[0].request.auth.as_ref().unwrap();
+        assert_eq!(auth.bearer.as_deref(), Some("{{ env.token }}"));
+        assert!(auth.basic.is_none());
+    }
+
+    #[test]
+    fn deserialize_defaults_with_basic_auth_helper() {
+        let yaml = r#"
+name: auth
+defaults:
+  auth:
+    basic:
+      username: "demo"
+      password: "{{ env.password }}"
+steps:
+  - name: GET
+    request:
+      method: GET
+      url: "http://localhost:3000/me"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let auth = tf.defaults.as_ref().unwrap().auth.as_ref().unwrap();
+        let basic = auth.basic.as_ref().unwrap();
+        assert_eq!(basic.username, "demo");
+        assert_eq!(basic.password, "{{ env.password }}");
     }
 
     #[test]
@@ -564,9 +782,115 @@ steps:
         match cap.get("session_token") {
             Some(CaptureSpec::Extended(ext)) => {
                 assert_eq!(ext.header.as_deref(), Some("set-cookie"));
+                assert_eq!(ext.cookie, None);
+                assert_eq!(ext.body, None);
+                assert_eq!(ext.status, None);
+                assert_eq!(ext.url, None);
                 assert_eq!(ext.regex.as_deref(), Some("session_token=([^;]+)"));
             }
             other => panic!("Expected Extended capture, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deserialize_status_capture() {
+        let yaml = r#"
+name: Status capture test
+steps:
+  - name: Health
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+    capture:
+      status_code:
+        status: true
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let cap = &tf.steps[0].capture;
+        match cap.get("status_code") {
+            Some(CaptureSpec::Extended(ext)) => {
+                assert_eq!(ext.header, None);
+                assert_eq!(ext.cookie, None);
+                assert_eq!(ext.jsonpath, None);
+                assert_eq!(ext.body, None);
+                assert_eq!(ext.status, Some(true));
+                assert_eq!(ext.url, None);
+                assert_eq!(ext.regex, None);
+            }
+            other => panic!("Expected Extended capture, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deserialize_url_capture() {
+        let yaml = r#"
+name: URL capture test
+steps:
+  - name: Follow redirect
+    request:
+      method: GET
+      url: "http://localhost:3000/redirect"
+    capture:
+      final_url:
+        url: true
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let cap = &tf.steps[0].capture;
+        match cap.get("final_url") {
+            Some(CaptureSpec::Extended(ext)) => {
+                assert_eq!(ext.header, None);
+                assert_eq!(ext.cookie, None);
+                assert_eq!(ext.jsonpath, None);
+                assert_eq!(ext.body, None);
+                assert_eq!(ext.status, None);
+                assert_eq!(ext.url, Some(true));
+                assert_eq!(ext.regex, None);
+            }
+            other => panic!("Expected Extended capture, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deserialize_cookie_and_body_capture() {
+        let yaml = r#"
+name: Cookie capture test
+steps:
+  - name: Cookies
+    request:
+      method: GET
+      url: "http://localhost:3000/cookies"
+    capture:
+      session_cookie:
+        cookie: "session"
+      body_word:
+        body: true
+        regex: "plain (text)"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let cap = &tf.steps[0].capture;
+        match cap.get("session_cookie") {
+            Some(CaptureSpec::Extended(ext)) => {
+                assert_eq!(ext.header, None);
+                assert_eq!(ext.cookie.as_deref(), Some("session"));
+                assert_eq!(ext.jsonpath, None);
+                assert_eq!(ext.body, None);
+                assert_eq!(ext.status, None);
+                assert_eq!(ext.url, None);
+                assert_eq!(ext.regex, None);
+            }
+            other => panic!("Expected cookie Extended capture, got {:?}", other),
+        }
+        match cap.get("body_word") {
+            Some(CaptureSpec::Extended(ext)) => {
+                assert_eq!(ext.header, None);
+                assert_eq!(ext.cookie, None);
+                assert_eq!(ext.jsonpath, None);
+                assert_eq!(ext.body, Some(true));
+                assert_eq!(ext.status, None);
+                assert_eq!(ext.url, None);
+                assert_eq!(ext.regex.as_deref(), Some("plain (text)"));
+            }
+            other => panic!("Expected body Extended capture, got {:?}", other),
         }
     }
 
@@ -668,6 +992,28 @@ steps:
         assert_eq!(mp.files[0].content_type.as_deref(), Some("image/jpeg"));
     }
 
+    #[test]
+    fn deserialize_form_request() {
+        let yaml = r#"
+name: Form test
+steps:
+  - name: Submit form
+    request:
+      method: POST
+      url: "http://localhost:3000/login"
+      form:
+        email: "user@example.com"
+        password: "secret"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let form = tf.steps[0].request.form.as_ref().unwrap();
+        assert_eq!(
+            form.get("email").map(String::as_str),
+            Some("user@example.com")
+        );
+        assert_eq!(form.get("password").map(String::as_str), Some("secret"));
+    }
+
     // --- Default delay ---
 
     #[test]
@@ -767,5 +1113,33 @@ steps:
 "#;
         let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(tf.cookies.as_deref(), Some("off"));
+    }
+
+    #[test]
+    fn deserialize_redaction_config() {
+        let yaml = r#"
+name: Redaction config
+redaction:
+  headers:
+    - authorization
+    - x-session-token
+  env:
+    - api_token
+  captures:
+    - session
+  replacement: "[redacted]"
+steps:
+  - name: test
+    request:
+      method: GET
+      url: "http://localhost:3000"
+"#;
+
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let redaction = tf.redaction.unwrap();
+        assert_eq!(redaction.headers, vec!["authorization", "x-session-token"]);
+        assert_eq!(redaction.env_vars, vec!["api_token"]);
+        assert_eq!(redaction.captures, vec!["session"]);
+        assert_eq!(redaction.replacement, "[redacted]");
     }
 }

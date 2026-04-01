@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Demo server form and text
+steps:
+  - name: Submit a form body
+    request:
+      method: POST
+      url: "{{ env.base_url }}/form-echo"
+      form:
+        email: "demo@example.com"
+        role: "reader"
+    assert:
+      status: 200
+      body:
+        "$.fields.email": "demo@example.com"
+        "$.fields.role": "reader"
+        "$.content_type": { contains: "application/x-www-form-urlencoded" }
+
+  - name: Assert a plain text response
+    request:
+      method: GET
+      url: "{{ env.base_url }}/plain-text"
+    assert:
+      status: 200
+      body:
+        "$": "plain text response"

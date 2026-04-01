@@ -1,23 +1,30 @@
 # Release Verification
 
-This checklist covers the remaining local verification steps before publishing a release.
+This checklist covers the local verification steps before publishing a release.
 
 ## Automated Checks
 
 Run these before tagging:
 
 ```bash
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p demo-server
 cargo test -q -p tarn --lib --bins
+cargo test -p tarn --test conformance_test
 cargo test -p tarn --test integration_test
+cargo test -p tarn-mcp
 bash scripts/ci/smoke.sh
 ```
 
 What these cover:
 - first-run scaffold via `tarn init`
-- runtime JSON failures
+- parser and formatter stability
+- runtime JSON failures and reporter surfaces
 - demo-server end-to-end flow
-- non-JSON, empty, redirect, Unicode, large body, and invalid TLS responses
-- large dry-run suites with parallel execution
+- conformance fixtures and example corpus
+- MCP tool behavior
+- release-path smoke checks
 
 ## Manual Checks
 
@@ -35,13 +42,31 @@ While `--watch` is running:
 - confirm Tarn reruns automatically after the debounce window
 - restore the passing assertion and confirm the next rerun goes green
 
+### HTML and curl Export Smoke
+
+```bash
+PORT=3000 cargo run -p demo-server &
+cargo run -p tarn -- run examples/demo-server/assertions.tarn.yaml \
+  --format html=reports/run.html \
+  --format curl=reports/failures.sh \
+  --format json=reports/run.json
+```
+
+Verify that:
+
+- the HTML report opens and renders assertion diffs
+- failed steps expose `Copy cURL`
+- `reports/failures.sh` contains replayable requests
+- JSON includes `failure_category`, `error_code`, and remediation hints on failures
+
 ### Installer Safety
 
 For a published release:
 
 ```bash
-curl -LO https://github.com/NazarKalytiuk/tarn/releases/download/v0.1.0/tarn-x86_64-unknown-linux-gnu.tar.gz
-curl -LO https://github.com/NazarKalytiuk/tarn/releases/download/v0.1.0/tarn-checksums.txt
+VERSION=vX.Y.Z
+curl -LO https://github.com/NazarKalytiuk/tarn/releases/download/${VERSION}/tarn-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/NazarKalytiuk/tarn/releases/download/${VERSION}/tarn-checksums.txt
 shasum -a 256 -c tarn-checksums.txt
 ```
 

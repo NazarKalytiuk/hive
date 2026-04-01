@@ -1,0 +1,168 @@
+{
+  "duration_ms": 321,
+  "files": [
+    {
+      "duration_ms": 321,
+      "file": "tests/report-golden.tarn.yaml",
+      "name": "Reporter Golden",
+      "setup": [
+        {
+          "assertions": {
+            "details": [
+              {
+                "actual": "200",
+                "assertion": "status",
+                "diff": null,
+                "expected": "200",
+                "message": "status: OK",
+                "passed": true
+              }
+            ],
+            "failed": 0,
+            "passed": 1,
+            "total": 1
+          },
+          "duration_ms": 12,
+          "name": "Authenticate",
+          "status": "PASSED"
+        }
+      ],
+      "status": "FAILED",
+      "summary": {
+        "failed": 1,
+        "passed": 3,
+        "total": 4
+      },
+      "teardown": [
+        {
+          "assertions": {
+            "details": [],
+            "failed": 0,
+            "passed": 0,
+            "total": 0
+          },
+          "duration_ms": 8,
+          "name": "Cleanup",
+          "status": "PASSED"
+        }
+      ],
+      "tests": [
+        {
+          "description": "Primary flow",
+          "duration_ms": 290,
+          "name": "smoke",
+          "status": "FAILED",
+          "steps": [
+            {
+              "assertions": {
+                "details": [
+                  {
+                    "actual": "201",
+                    "assertion": "status",
+                    "diff": null,
+                    "expected": "201",
+                    "message": "status: OK",
+                    "passed": true
+                  },
+                  {
+                    "actual": "\"it_123\"",
+                    "assertion": "body $.id",
+                    "diff": null,
+                    "expected": "\"it_123\"",
+                    "message": "body $.id: OK",
+                    "passed": true
+                  }
+                ],
+                "failed": 0,
+                "passed": 2,
+                "total": 2
+              },
+              "duration_ms": 34,
+              "name": "Create item",
+              "status": "PASSED"
+            },
+            {
+              "assertions": {
+                "details": [
+                  {
+                    "actual": "200",
+                    "assertion": "status",
+                    "diff": null,
+                    "expected": "200",
+                    "message": "status: OK",
+                    "passed": true
+                  },
+                  {
+                    "actual": "{\"id\":\"it_123\",\"token\":\"wrong-token\"}",
+                    "assertion": "body $",
+                    "diff": "--- expected\n+++ actual\n-  \"token\": \"[hidden]\"\n+  \"token\": \"wrong-token\"\n",
+                    "expected": "{\"id\":\"it_123\",\"token\":\"[hidden]\"}",
+                    "message": "body mismatch: expected [hidden] to match [hidden]",
+                    "passed": false
+                  }
+                ],
+                "failed": 1,
+                "failures": [
+                  {
+                    "actual": "{\"id\":\"it_123\",\"token\":\"wrong-token\"}",
+                    "assertion": "body $",
+                    "diff": "--- expected\n+++ actual\n-  \"token\": \"[hidden]\"\n+  \"token\": \"wrong-token\"\n",
+                    "expected": "{\"id\":\"it_123\",\"token\":\"[hidden]\"}",
+                    "message": "body mismatch: expected [hidden] to match [hidden]"
+                  }
+                ],
+                "passed": 1,
+                "total": 2
+              },
+              "duration_ms": 56,
+              "error_code": "assertion_mismatch",
+              "failure_category": "assertion_failed",
+              "name": "Fetch item",
+              "remediation_hints": [
+                "Inspect `assertions.failures` expected vs actual values and update the DSL or the service response.",
+                "Use the recorded `response` payload to realign assertions and captures with the actual API output."
+              ],
+              "request": {
+                "body": {
+                  "trace": "[hidden]"
+                },
+                "headers": {
+                  "Authorization": "[hidden]",
+                  "X-Session": "[hidden]"
+                },
+                "method": "GET",
+                "url": "https://api.example.test/items/it_123?token=[hidden]"
+              },
+              "response": {
+                "body": {
+                  "debug": "[hidden]",
+                  "id": "it_123",
+                  "token": "wrong-token"
+                },
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Set-Cookie": "[hidden]"
+                },
+                "status": 200
+              },
+              "status": "FAILED"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "files": 1,
+    "status": "FAILED",
+    "steps": {
+      "failed": 1,
+      "passed": 3,
+      "total": 4
+    },
+    "tests": 1
+  },
+  "timestamp": "<timestamp>",
+  "version": "1"
+}

@@ -1,0 +1,98 @@
+{
+  "tools": [
+    {
+      "description": "Run API tests defined in .tarn.yaml files and return structured JSON results. Use this to execute API tests and get detailed pass/fail information with assertion details.",
+      "inputSchema": {
+        "properties": {
+          "env": {
+            "description": "Environment name (loads tarn.env.{name}.yaml)",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to a .tarn.yaml test file or directory containing test files",
+            "type": "string"
+          },
+          "tag": {
+            "description": "Filter tests by tag (comma-separated)",
+            "type": "string"
+          },
+          "vars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Variable overrides as key-value pairs",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "tarn_run"
+    },
+    {
+      "description": "Validate .tarn.yaml test files without executing them. Checks YAML syntax and schema validity.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path to a .tarn.yaml file or directory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "tarn_validate"
+    },
+    {
+      "description": "List all available tests in .tarn.yaml files. Returns file names, test names, and step counts.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path to directory (defaults to current directory)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "tarn_list"
+    },
+    {
+      "description": "Analyze a Tarn JSON report and return a prioritized fix plan with next actions, evidence, and remediation hints. Accepts either a `report` object from `tarn_run` or the same inputs as `tarn_run` to execute first.",
+      "inputSchema": {
+        "properties": {
+          "env": {
+            "description": "Environment name used when `path` is provided",
+            "type": "string"
+          },
+          "max_items": {
+            "description": "Limit the number of failing steps included in the plan",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "description": "Optional .tarn.yaml path or directory to run before planning",
+            "type": "string"
+          },
+          "report": {
+            "description": "Structured JSON report from tarn_run",
+            "type": "object"
+          },
+          "tag": {
+            "description": "Tag filter used when `path` is provided",
+            "type": "string"
+          },
+          "vars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Variable overrides used when `path` is provided",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "tarn_fix_plan"
+    }
+  ]
+}

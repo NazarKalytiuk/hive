@@ -1,0 +1,89 @@
+{
+  "name": "tarn-vscode",
+  "displayName": "Tarn",
+  "description": "Syntax highlighting, schema wiring, and snippets for Tarn API test files.",
+  "version": "0.1.0",
+  "publisher": "nazarkalytiuk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NazarKalytiuk/tarn.git"
+  },
+  "homepage": "https://github.com/NazarKalytiuk/tarn",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "tarn",
+    "yaml",
+    "api",
+    "testing",
+    "json",
+    "mcp"
+  ],
+  "extensionDependencies": [
+    "redhat.vscode-yaml"
+  ],
+  "activationEvents": [
+    "onLanguage:tarn",
+    "onLanguage:json"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tarn",
+        "aliases": [
+          "Tarn",
+          "tarn"
+        ],
+        "extensions": [
+          ".tarn.yaml",
+          ".tarn.yml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tarn",
+        "scopeName": "source.tarn",
+        "path": "./syntaxes/tarn.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tarn",
+        "path": "./snippets/tarn.code-snippets"
+      }
+    ],
+    "configurationDefaults": {
+      "files.associations": {
+        "*.tarn.yaml": "tarn",
+        "*.tarn.yml": "tarn"
+      },
+      "[tarn]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2
+      },
+      "yaml.schemas": {
+        "https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json": [
+          "*.tarn.yaml",
+          "*.tarn.yml"
+        ]
+      },
+      "json.schemas": [
+        {
+          "fileMatch": [
+            "tarn-report.json",
+            "*.tarn-report.json"
+          ],
+          "url": "https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/report.json"
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,5 @@
 use crate::assert::types::RunResult;
+use crate::report::redaction::sanitize_assertion;
 
 /// Render test results in TAP (Test Anything Protocol) v13 format.
 pub fn render(result: &RunResult) -> String {
@@ -16,7 +17,7 @@ pub fn render(result: &RunResult) -> String {
         // Setup
         for step in &file.setup_results {
             test_num += 1;
-            render_step(&mut output, test_num, "setup", step);
+            render_step(&mut output, test_num, "setup", step, file);
         }
 
         // Tests
@@ -24,14 +25,14 @@ pub fn render(result: &RunResult) -> String {
             output.push_str(&format!("# {}\n", test.name));
             for step in &test.step_results {
                 test_num += 1;
-                render_step(&mut output, test_num, &test.name, step);
+                render_step(&mut output, test_num, &test.name, step, file);
             }
         }
 
         // Teardown
         for step in &file.teardown_results {
             test_num += 1;
-            render_step(&mut output, test_num, "teardown", step);
+            render_step(&mut output, test_num, "teardown", step, file);
         }
     }
 
@@ -43,6 +44,7 @@ fn render_step(
     num: usize,
     group: &str,
     step: &crate::assert::types::StepResult,
+    file: &crate::assert::types::FileResult,
 ) {
     if step.passed {
         output.push_str(&format!(
@@ -58,6 +60,7 @@ fn render_step(
         // YAML diagnostic block for failures
         output.push_str("  ---\n");
         for failure in step.failures() {
+            let failure = sanitize_assertion(failure, &file.redaction, &file.redacted_values);
             output.push_str(&format!("  message: \"{}\"\n", failure.message));
             output.push_str(&format!("  expected: {}\n", failure.expected));
             output.push_str(&format!("  actual: {}\n", failure.actual));
@@ -79,6 +82,8 @@ mod tests {
                 name: "Test Suite".into(),
                 passed,
                 duration_ms: 100,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
                 setup_results: vec![],
                 test_results: vec![TestResult {
                     name: "my_test".into(),
@@ -157,6 +162,8 @@ mod tests {
                 name: "Suite".into(),
                 passed: true,
                 duration_ms: 200,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
                 setup_results: vec![],
                 test_results: vec![TestResult {
                     name: "test".into(),
@@ -198,5 +205,49 @@ mod tests {
         let output = render(&make_result(true));
         assert!(output.contains("# Test Suite\n"));
         assert!(output.contains("# my_test\n"));
+    }
+
+    #[test]
+    fn tap_redacts_secret_values() {
+        let result = RunResult {
+            duration_ms: 10,
+            file_results: vec![FileResult {
+                file: "test.tarn.yaml".into(),
+                name: "Suite".into(),
+                passed: false,
+                duration_ms: 10,
+                redaction: crate::model::RedactionConfig {
+                    replacement: "[hidden]".into(),
+                    ..crate::model::RedactionConfig::default()
+                },
+                redacted_values: vec!["secret-token".into()],
+                setup_results: vec![],
+                test_results: vec![TestResult {
+                    name: "test".into(),
+                    description: None,
+                    passed: false,
+                    duration_ms: 10,
+                    step_results: vec![StepResult {
+                        name: "step".into(),
+                        passed: false,
+                        duration_ms: 10,
+                        assertion_results: vec![AssertionResult::fail(
+                            "status",
+                            "secret-token",
+                            "secret-token",
+                            "Expected secret-token",
+                        )],
+                        request_info: None,
+                        response_info: None,
+                        error_category: None,
+                    }],
+                }],
+                teardown_results: vec![],
+            }],
+        };
+
+        let output = render(&result);
+        assert!(!output.contains("secret-token"));
+        assert!(output.contains("[hidden]"));
     }
 }

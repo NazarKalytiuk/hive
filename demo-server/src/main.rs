@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Json, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Form, Json, Path, Query, State},
+    http::{header::SET_COOKIE, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect},
     routing::{delete, get, patch, post},
     Router,
@@ -73,6 +73,16 @@ struct PaginationParams {
     sort: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RedirectChainParams {
+    hops: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SlowParams {
+    ms: Option<u64>,
+}
+
 #[derive(Debug, Serialize)]
 struct PaginationMeta {
     page: u32,
@@ -135,6 +145,15 @@ async fn redirect_to_health() -> impl IntoResponse {
     Redirect::temporary("/health")
 }
 
+async fn redirect_chain(Query(params): Query<RedirectChainParams>) -> impl IntoResponse {
+    let hops = params.hops.unwrap_or(0);
+    if hops == 0 {
+        Redirect::temporary("/health")
+    } else {
+        Redirect::temporary(&format!("/redirect-chain?hops={}", hops - 1))
+    }
+}
+
 async fn large_response() -> impl IntoResponse {
     let blob = "x".repeat(1024 * 1024);
     (
@@ -142,6 +161,85 @@ async fn large_response() -> impl IntoResponse {
         Json(serde_json::json!({
             "blob": blob,
             "size": 1024 * 1024
+        })),
+    )
+}
+
+async fn slow_response(Query(params): Query<SlowParams>) -> impl IntoResponse {
+    let delay_ms = params.ms.unwrap_or(250);
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "slept_ms": delay_ms,
+            "status": "ok"
+        })),
+    )
+}
+
+async fn issue_cookies() -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_static("session=abc123; Path=/; HttpOnly"),
+    );
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_static("area=dashboard; Path=/cookies/area"),
+    );
+
+    (
+        StatusCode::OK,
+        headers,
+        Json(serde_json::json!({
+            "issued": true
+        })),
+    )
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    cookie_header.split(';').map(str::trim).find_map(|part| {
+        let (cookie_name, value) = part.split_once('=')?;
+        if cookie_name == name {
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+async fn check_cookies(headers: HeaderMap) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "session": cookie_value(&headers, "session"),
+            "area": cookie_value(&headers, "area"),
+        })),
+    )
+}
+
+async fn check_area_cookies(headers: HeaderMap) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "session": cookie_value(&headers, "session"),
+            "area": cookie_value(&headers, "area"),
+        })),
+    )
+}
+
+async fn echo_form(
+    headers: HeaderMap,
+    Form(body): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "fields": body,
+            "content_type": headers
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
         })),
     )
 }
@@ -445,7 +543,13 @@ pub fn create_app() -> Router {
         .route("/empty", get(empty_response))
         .route("/unicode", get(unicode_json))
         .route("/redirect-health", get(redirect_to_health))
+        .route("/redirect-chain", get(redirect_chain))
         .route("/large", get(large_response))
+        .route("/slow", get(slow_response))
+        .route("/cookies/set", get(issue_cookies))
+        .route("/cookies/check", get(check_cookies))
+        .route("/cookies/area/check", get(check_area_cookies))
+        .route("/form-echo", post(echo_form))
         .route("/html-error", get(html_error_page))
         .route("/auth/login", post(login))
         .route("/users", post(create_user))

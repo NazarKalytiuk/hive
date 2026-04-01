@@ -1,0 +1,14 @@
+TAP version 13
+1..4
+# Reporter Golden
+ok 1 - setup > Authenticate (12ms)
+# smoke
+ok 2 - smoke > Create item (34ms)
+not ok 3 - smoke > Fetch item (56ms)
+  ---
+  message: "body mismatch: expected [hidden] to match [hidden]"
+  expected: {"id":"it_123","token":"[hidden]"}
+  actual: {"id":"it_123","token":"wrong-token"}
+  ...
+ok 4 - teardown > Cleanup (8ms)
+

@@ -1,0 +1,33 @@
+{
+  "failed_steps": 1,
+  "items": [
+    {
+      "actions": [
+        "Inspect `assertions.failures` expected vs actual values and update the DSL or the service response.",
+        "Use the recorded `response` payload to realign assertions and captures with the actual API output."
+      ],
+      "error_code": "assertion_mismatch",
+      "evidence": {
+        "failed_assertions": [
+          {
+            "actual": "400",
+            "assertion": "status",
+            "expected": "201",
+            "message": "Expected HTTP status 201, got 400"
+          }
+        ],
+        "request_url": "https://api.example.test/users",
+        "response_status": 400
+      },
+      "failure_category": "assertion_failed",
+      "file": "tests/users.tarn.yaml",
+      "priority": "normal",
+      "priority_rank": 5,
+      "scope": "smoke",
+      "step": "Create user",
+      "summary": "Expected HTTP status 201, got 400"
+    }
+  ],
+  "next_action": "Expected HTTP status 201, got 400",
+  "status": "FAILED"
+}

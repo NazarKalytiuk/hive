@@ -1,0 +1,22 @@
+name: Scenario B - POST JSON
+env:
+  base_url: "https://jsonplaceholder.typicode.com"
+steps:
+  - name: Create post
+    request:
+      method: POST
+      url: "{{ env.base_url }}/posts"
+      headers:
+        Content-Type: "application/json"
+      body:
+        title: "tarn-vs-hurl"
+        body: "deep research"
+        userId: 42
+    assert:
+      status: 201
+      headers:
+        content-type: 'contains "application/json"'
+      body:
+        "$.title": "tarn-vs-hurl"
+        "$.body": "deep research"
+        "$.userId": 42

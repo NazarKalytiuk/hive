@@ -1,0 +1,10 @@
+name: Scenario E2 - Not Found
+env:
+  base_url: "http://127.0.0.1:3001"
+steps:
+  - name: Hit missing route
+    request:
+      method: GET
+      url: "{{ env.base_url }}/missing"
+    assert:
+      status: 404

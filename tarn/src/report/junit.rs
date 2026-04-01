@@ -1,4 +1,5 @@
 use crate::assert::types::{FileResult, RunResult, StepResult};
+use crate::report::redaction::sanitize_assertion;
 
 /// Render test results as JUnit XML.
 pub fn render(result: &RunResult) -> String {
@@ -37,25 +38,25 @@ fn render_file(xml: &mut String, file: &FileResult) {
 
     // Setup steps
     for step in &file.setup_results {
-        render_test_case(xml, "setup", step);
+        render_test_case(xml, "setup", step, file);
     }
 
     // Test steps
     for test in &file.test_results {
         for step in &test.step_results {
-            render_test_case(xml, &test.name, step);
+            render_test_case(xml, &test.name, step, file);
         }
     }
 
     // Teardown steps
     for step in &file.teardown_results {
-        render_test_case(xml, "teardown", step);
+        render_test_case(xml, "teardown", step, file);
     }
 
     xml.push_str("  </testsuite>\n");
 }
 
-fn render_test_case(xml: &mut String, classname: &str, step: &StepResult) {
+fn render_test_case(xml: &mut String, classname: &str, step: &StepResult, file: &FileResult) {
     let time_secs = step.duration_ms as f64 / 1000.0;
 
     if step.passed {
@@ -74,6 +75,7 @@ fn render_test_case(xml: &mut String, classname: &str, step: &StepResult) {
         ));
 
         for failure in step.failures() {
+            let failure = sanitize_assertion(failure, &file.redaction, &file.redacted_values);
             xml.push_str(&format!(
                 "      <failure message=\"{}\" type=\"AssertionFailure\">{}</failure>\n",
                 escape_xml(&failure.message),
@@ -109,6 +111,8 @@ mod tests {
                 name: "Test Suite".into(),
                 passed,
                 duration_ms: 500,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
                 setup_results: vec![],
                 test_results: vec![TestResult {
                     name: "my_test".into(),
@@ -202,6 +206,8 @@ mod tests {
                 name: "Suite".into(),
                 passed: true,
                 duration_ms: 300,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
                 setup_results: vec![StepResult {
                     name: "Auth".into(),
                     passed: true,
@@ -226,5 +232,49 @@ mod tests {
         let output = render(&result);
         assert!(output.contains("classname=\"setup\""));
         assert!(output.contains("classname=\"teardown\""));
+    }
+
+    #[test]
+    fn junit_redacts_secret_values() {
+        let result = RunResult {
+            duration_ms: 10,
+            file_results: vec![FileResult {
+                file: "test.tarn.yaml".into(),
+                name: "Suite".into(),
+                passed: false,
+                duration_ms: 10,
+                redaction: crate::model::RedactionConfig {
+                    replacement: "[hidden]".into(),
+                    ..crate::model::RedactionConfig::default()
+                },
+                redacted_values: vec!["secret-token".into()],
+                setup_results: vec![],
+                test_results: vec![TestResult {
+                    name: "test".into(),
+                    description: None,
+                    passed: false,
+                    duration_ms: 10,
+                    step_results: vec![StepResult {
+                        name: "step".into(),
+                        passed: false,
+                        duration_ms: 10,
+                        assertion_results: vec![AssertionResult::fail(
+                            "body",
+                            "secret-token",
+                            "secret-token",
+                            "Expected secret-token",
+                        )],
+                        request_info: None,
+                        response_info: None,
+                        error_category: None,
+                    }],
+                }],
+                teardown_results: vec![],
+            }],
+        };
+
+        let output = render(&result);
+        assert!(!output.contains("secret-token"));
+        assert!(output.contains("[hidden]"));
     }
 }

@@ -6,31 +6,94 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test
+  verify:
+    name: Verify (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+            run_smoke: true
+            run_extra_checks: true
+          - os: macos-latest
+            label: macOS
+            run_smoke: true
+            run_extra_checks: false
+          - os: windows-latest
+            label: Windows
+            run_smoke: false
+            run_extra_checks: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      - name: Format check
+        if: matrix.run_extra_checks
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: matrix.run_extra_checks
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Test demo-server
+        run: cargo test -p demo-server
+
+      - name: Test tarn libs and bins
+        run: cargo test -p tarn --lib --bins
+
+      - name: Compile tarn integration tests
+        run: cargo test -p tarn --test integration_test --no-run
+
+      - name: Test tarn-mcp
+        run: cargo test -p tarn-mcp
+
+      - name: Package tarn crate
+        if: matrix.run_extra_checks
+        run: cargo package -p tarn
+
+      - name: Build release binaries
+        run: cargo build --release -p tarn -p demo-server
+
+      - name: Release-path smoke test
+        if: matrix.run_smoke
+        shell: bash
+        run: bash scripts/ci/smoke.sh
+
+      - name: Tarn version smoke
+        if: ${{ !matrix.run_smoke }}
+        run: cargo run --quiet --release -p tarn -- --version
+
+  conformance:
+    name: Conformance
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
-      - run: cargo build --all
-      - run: cargo test --all
-      - run: cargo package -p tarn
-      - run: cargo build --release -p tarn
-      - run: bash scripts/ci/smoke.sh
 
-  macos-smoke:
-    name: macOS Smoke
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p tarn -p demo-server
-      - run: bash scripts/ci/smoke.sh
+        with:
+          key: conformance
+
+      - name: Run public conformance suite
+        run: cargo test -p tarn --test conformance_test

@@ -1,3 +1,4 @@
+use crate::config::NamedEnvironmentConfig;
 use crate::error::TarnError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +11,14 @@ pub fn resolve_env(
     cli_vars: &[(String, String)],
     base_dir: &Path,
 ) -> Result<HashMap<String, String>, TarnError> {
-    resolve_env_with_file(inline_env, env_name, cli_vars, base_dir, "tarn.env.yaml")
+    resolve_env_with_profiles(
+        inline_env,
+        env_name,
+        cli_vars,
+        base_dir,
+        "tarn.env.yaml",
+        &HashMap::new(),
+    )
 }
 
 /// Resolve environment variables using a configurable env file name.
@@ -20,6 +28,25 @@ pub fn resolve_env_with_file(
     cli_vars: &[(String, String)],
     base_dir: &Path,
     env_file_name: &str,
+) -> Result<HashMap<String, String>, TarnError> {
+    resolve_env_with_profiles(
+        inline_env,
+        env_name,
+        cli_vars,
+        base_dir,
+        env_file_name,
+        &HashMap::new(),
+    )
+}
+
+/// Resolve environment variables using a configurable env file name and named profiles.
+pub fn resolve_env_with_profiles(
+    inline_env: &HashMap<String, String>,
+    env_name: Option<&str>,
+    cli_vars: &[(String, String)],
+    base_dir: &Path,
+    env_file_name: &str,
+    profiles: &HashMap<String, NamedEnvironmentConfig>,
 ) -> Result<HashMap<String, String>, TarnError> {
     let mut env = HashMap::new();
 
@@ -39,11 +66,19 @@ pub fn resolve_env_with_file(
 
     // Layer 3: tarn.env.{name}.yaml (environment-specific)
     if let Some(name) = env_name {
-        let named_env_file = base_dir.join(env_variant_filename(env_file_name, name));
+        let named_env_file = profiles
+            .get(name)
+            .and_then(|profile| profile.env_file.as_ref().map(|path| base_dir.join(path)))
+            .unwrap_or_else(|| base_dir.join(env_variant_filename(env_file_name, name)));
         if named_env_file.exists() {
             let file_env = load_env_file(&named_env_file)?;
             for (k, v) in file_env {
                 env.insert(k, v);
+            }
+        }
+        if let Some(profile) = profiles.get(name) {
+            for (k, v) in &profile.vars {
+                env.insert(k.clone(), v.clone());
             }
         }
     }
@@ -206,6 +241,39 @@ mod tests {
 
         let env = resolve_env(&HashMap::new(), Some("staging"), &[], dir.path()).unwrap();
         assert_eq!(env.get("base_url").unwrap(), "http://staging");
+    }
+
+    #[test]
+    fn named_profile_uses_custom_env_file_and_vars() {
+        let dir = TempDir::new().unwrap();
+        setup_env_files(
+            &dir,
+            &[
+                ("tarn.env.yaml", "base_url: http://default\nregion: local"),
+                ("env.staging.yaml", "base_url: http://from-profile-file"),
+            ],
+        );
+
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "staging".into(),
+            NamedEnvironmentConfig {
+                env_file: Some("env.staging.yaml".into()),
+                vars: HashMap::from([("region".into(), "eu-west-1".into())]),
+            },
+        );
+
+        let env = resolve_env_with_profiles(
+            &HashMap::new(),
+            Some("staging"),
+            &[],
+            dir.path(),
+            "tarn.env.yaml",
+            &profiles,
+        )
+        .unwrap();
+        assert_eq!(env.get("base_url").unwrap(), "http://from-profile-file");
+        assert_eq!(env.get("region").unwrap(), "eu-west-1");
     }
 
     #[test]

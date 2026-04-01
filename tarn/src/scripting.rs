@@ -189,12 +189,27 @@ mod tests {
     use serde_json::json;
 
     fn make_response(status: u16, body: serde_json::Value) -> HttpResponse {
+        let body_bytes = match &body {
+            serde_json::Value::Null => Vec::new(),
+            serde_json::Value::String(text) => text.as_bytes().to_vec(),
+            other => serde_json::to_vec(other).unwrap(),
+        };
         HttpResponse {
             status,
+            url: "https://example.com/".to_string(),
+            redirect_count: 0,
             headers: HashMap::new(),
             raw_headers: vec![],
+            body_bytes,
             body,
             duration_ms: 50,
+            timings: crate::http::ResponseTimings {
+                total_ms: 50,
+                ttfb_ms: 25,
+                body_read_ms: 25,
+                connect_ms: None,
+                tls_ms: None,
+            },
         }
     }
 

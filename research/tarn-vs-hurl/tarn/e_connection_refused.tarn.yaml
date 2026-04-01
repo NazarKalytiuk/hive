@@ -1,0 +1,9 @@
+name: Scenario E1 - Connection Refused
+steps:
+  - name: Call closed port
+    request:
+      method: GET
+      url: "http://127.0.0.1:9/refused"
+    timeout: 1000
+    assert:
+      status: 200

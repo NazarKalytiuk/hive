@@ -24,6 +24,24 @@
       "type": "string",
       "enum": ["assertion_failed", "connection_error", "timeout", "parse_error", "capture_error"]
     },
+    "errorCode": {
+      "type": "string",
+      "enum": [
+        "assertion_mismatch",
+        "capture_extraction_failed",
+        "poll_condition_not_met",
+        "request_timed_out",
+        "connection_refused",
+        "dns_resolution_failed",
+        "tls_verification_failed",
+        "redirect_limit_exceeded",
+        "network_error",
+        "interpolation_failed",
+        "validation_failed",
+        "configuration_error",
+        "parse_error"
+      ]
+    },
     "requestInfo": {
       "type": "object",
       "required": ["method", "url", "headers", "body"],
@@ -57,7 +75,8 @@
         "passed": { "type": "boolean" },
         "expected": { "type": "string" },
         "actual": { "type": "string" },
-        "message": { "type": "string" }
+        "message": { "type": "string" },
+        "diff": { "type": ["string", "null"] }
       }
     },
     "assertionFailure": {
@@ -67,7 +86,8 @@
         "assertion": { "type": "string" },
         "expected": { "type": "string" },
         "actual": { "type": "string" },
-        "message": { "type": "string" }
+        "message": { "type": "string" },
+        "diff": { "type": ["string", "null"] }
       }
     },
     "assertionSummary": {
@@ -96,6 +116,11 @@
         "duration_ms": { "type": "integer", "minimum": 0 },
         "assertions": { "$ref": "#/$defs/assertionSummary" },
         "failure_category": { "$ref": "#/$defs/failureCategory" },
+        "error_code": { "$ref": "#/$defs/errorCode" },
+        "remediation_hints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "request": { "$ref": "#/$defs/requestInfo" },
         "response": { "$ref": "#/$defs/responseInfo" }
       }

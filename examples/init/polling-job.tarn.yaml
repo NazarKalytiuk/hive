@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Async job polling
+description: Kick off a background job, then poll until it becomes ready.
+tags: [polling, async]
+
+steps:
+  - name: Start export job
+    request:
+      method: POST
+      url: "{{ env.base_url }}/exports"
+      body:
+        report: "daily-summary"
+    capture:
+      job_id: "$.id"
+    assert:
+      status: 202
+
+  - name: Poll export job
+    request:
+      method: GET
+      url: "{{ env.base_url }}/exports/{{ capture.job_id }}"
+    poll:
+      interval: "2s"
+      max_attempts: 15
+      until:
+        status: 200
+        body:
+          "$.state": "ready"
+    capture:
+      download_url:
+        jsonpath: "$.download_url"
+    assert:
+      status: 200

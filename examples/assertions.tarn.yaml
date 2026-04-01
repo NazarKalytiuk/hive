@@ -49,26 +49,22 @@ steps:
       # Body assertions showcasing all operators
       body:
         # Simple equality
-        "$.name": "Assertion Test User"
+        "$.name": { eq: "Assertion Test User", type: string }
         "$.role": "editor"
-
-        # Type checks
-        "$.id": { type: string }
-        "$.name": { type: string }
-        "$.tags": { type: array }
 
         # String assertions
         "$.email": { contains: "@example.com" }
-        "$.id": { starts_with: "usr_" }
-        "$.id": { not_empty: true }
-        "$.id": { matches: "^usr_[a-f0-9]+$" }
+        "$.id": { type: string, is_uuid: true, not_empty: true }
 
         # Array assertions
-        "$.tags": { length: 3 }
-        "$.tags": { length_gte: 1 }
-        "$.tags": { length_lte: 10 }
-        "$.tags": { contains: "alpha" }
-        "$.tags": { not_contains: "delta" }
+        "$.tags": {
+          type: array,
+          length: 3,
+          length_gte: 1,
+          length_lte: 10,
+          contains: "alpha",
+          not_contains: "delta"
+        }
 
         # Existence
         "$.createdAt": { exists: true }

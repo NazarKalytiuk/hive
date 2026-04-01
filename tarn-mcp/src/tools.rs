@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::path::Path;
 use tarn::assert::types::RunResult;
 use tarn::env;
+use tarn::model::HttpTransportConfig;
 use tarn::parser;
 use tarn::report;
 use tarn::runner::{self, RunOptions};
@@ -49,6 +50,7 @@ pub fn tarn_run(params: &Value) -> Result<Value, String> {
     let opts = RunOptions {
         verbose: false,
         dry_run: false,
+        http: HttpTransportConfig::default(),
     };
 
     let start = std::time::Instant::now();
@@ -181,4 +183,238 @@ pub fn tarn_list(params: &Value) -> Result<Value, String> {
     Ok(serde_json::json!({
         "files": file_list,
     }))
+}
+
+pub fn tarn_fix_plan(params: &Value) -> Result<Value, String> {
+    let report = if let Some(report) = params.get("report") {
+        report.clone()
+    } else {
+        tarn_run(params)?
+    };
+
+    let files = report
+        .get("files")
+        .and_then(|value| value.as_array())
+        .ok_or("Invalid Tarn report: missing `files` array")?;
+    let max_items = params
+        .get("max_items")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(10) as usize;
+
+    let mut items = Vec::new();
+
+    for file in files {
+        let file_name = file
+            .get("file")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        for step in file
+            .get("setup")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if let Some(item) = plan_item(file_name, "setup", step) {
+                items.push(item);
+            }
+        }
+
+        for test in file
+            .get("tests")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+        {
+            let test_name = test
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("test");
+            for step in test
+                .get("steps")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+            {
+                if let Some(item) = plan_item(file_name, test_name, step) {
+                    items.push(item);
+                }
+            }
+        }
+
+        for step in file
+            .get("teardown")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if let Some(item) = plan_item(file_name, "teardown", step) {
+                items.push(item);
+            }
+        }
+    }
+
+    items.sort_by_key(|item| {
+        (
+            item.get("priority_rank")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(99),
+            item.get("file")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            item.get("step")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+        )
+    });
+    items.truncate(max_items);
+
+    let next_action = items
+        .first()
+        .and_then(|item| item.get("summary"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("No failing steps. The report is already passing.")
+        .to_string();
+
+    Ok(serde_json::json!({
+        "status": report
+            .get("summary")
+            .and_then(|summary| summary.get("status"))
+            .cloned()
+            .unwrap_or(Value::String("UNKNOWN".into())),
+        "failed_steps": items.len(),
+        "next_action": next_action,
+        "items": items,
+    }))
+}
+
+fn plan_item(file_name: &str, scope: &str, step: &Value) -> Option<Value> {
+    if step.get("status")?.as_str()? != "FAILED" {
+        return None;
+    }
+
+    let failure_category = step
+        .get("failure_category")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let error_code = step
+        .get("error_code")
+        .and_then(|value| value.as_str())
+        .unwrap_or(failure_category);
+    let failed_assertions = step
+        .get("assertions")
+        .and_then(|value| value.get("failures"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let remediation_hints = step
+        .get("remediation_hints")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    Some(serde_json::json!({
+        "file": file_name,
+        "scope": scope,
+        "step": step.get("name").cloned().unwrap_or(Value::String("unknown".into())),
+        "failure_category": failure_category,
+        "error_code": error_code,
+        "priority": priority_label(failure_category),
+        "priority_rank": priority_rank(failure_category),
+        "summary": summary_text(failure_category, error_code, &failed_assertions),
+        "actions": remediation_hints,
+        "evidence": {
+            "request_url": step.get("request").and_then(|request| request.get("url")).cloned(),
+            "response_status": step.get("response").and_then(|response| response.get("status")).cloned(),
+            "failed_assertions": failed_assertions,
+        }
+    }))
+}
+
+fn priority_rank(category: &str) -> u64 {
+    match category {
+        "parse_error" => 1,
+        "connection_error" => 2,
+        "timeout" => 3,
+        "capture_error" => 4,
+        "assertion_failed" => 5,
+        _ => 9,
+    }
+}
+
+fn priority_label(category: &str) -> &'static str {
+    match priority_rank(category) {
+        1 | 2 => "high",
+        3 | 4 => "medium",
+        _ => "normal",
+    }
+}
+
+fn summary_text(category: &str, error_code: &str, failed_assertions: &[Value]) -> String {
+    if let Some(message) = failed_assertions
+        .first()
+        .and_then(|failure| failure.get("message"))
+        .and_then(|value| value.as_str())
+    {
+        return message.to_string();
+    }
+
+    match category {
+        "connection_error" => format!("Connectivity issue detected ({error_code})."),
+        "timeout" => format!("Operation timed out ({error_code})."),
+        "capture_error" => format!("Capture extraction failed ({error_code})."),
+        "parse_error" => format!("Test definition or interpolation issue detected ({error_code})."),
+        _ => format!("Test step failed ({error_code})."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tarn_fix_plan_matches_golden_contract() {
+        let report: Value = serde_json::json!({
+            "summary": { "status": "FAILED" },
+            "files": [{
+                "file": "tests/users.tarn.yaml",
+                "setup": [],
+                "tests": [{
+                    "name": "smoke",
+                    "steps": [{
+                        "name": "Create user",
+                        "status": "FAILED",
+                        "failure_category": "assertion_failed",
+                        "error_code": "assertion_mismatch",
+                        "remediation_hints": [
+                            "Inspect `assertions.failures` expected vs actual values and update the DSL or the service response.",
+                            "Use the recorded `response` payload to realign assertions and captures with the actual API output."
+                        ],
+                        "assertions": {
+                            "failures": [{
+                                "assertion": "status",
+                                "expected": "201",
+                                "actual": "400",
+                                "message": "Expected HTTP status 201, got 400"
+                            }]
+                        },
+                        "request": {
+                            "url": "https://api.example.test/users"
+                        },
+                        "response": {
+                            "status": 400
+                        }
+                    }]
+                }],
+                "teardown": []
+            }]
+        });
+
+        let actual = tarn_fix_plan(&serde_json::json!({ "report": report })).unwrap();
+        let expected: Value =
+            serde_json::from_str(include_str!("../tests/golden/fix-plan.json.golden")).unwrap();
+        assert_eq!(actual, expected);
+    }
 }

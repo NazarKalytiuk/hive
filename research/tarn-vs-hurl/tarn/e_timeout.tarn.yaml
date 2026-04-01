@@ -1,0 +1,11 @@
+name: Scenario E3 - Timeout
+env:
+  base_url: "https://httpbin.org"
+steps:
+  - name: Delay longer than timeout
+    request:
+      method: GET
+      url: "{{ env.base_url }}/delay/3"
+    timeout: 1000
+    assert:
+      status: 200

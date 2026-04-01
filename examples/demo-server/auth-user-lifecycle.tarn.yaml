@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Demo server authenticated user lifecycle
+setup:
+  - name: Login
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      body:
+        email: "{{ env.admin_email }}"
+        password: "{{ env.admin_password }}"
+    capture:
+      token: "$.token"
+
+steps:
+  - name: Create a user
+    request:
+      method: POST
+      url: "{{ env.base_url }}/users"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+      body:
+        name: "Lifecycle User"
+        email: "lifecycle.{{ $random_hex(4) }}@example.com"
+        role: "reader"
+        tags: ["smoke", "demo"]
+    capture:
+      user_id: "$.id"
+      created_at: "$.createdAt"
+    assert:
+      status: 201
+      body:
+        "$.id": { is_uuid: true }
+        "$.createdAt": { is_date: true }
+        "$.tags": { length: 2 }
+
+  - name: Update the user role
+    request:
+      method: PATCH
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+      body:
+        role: "admin"
+    assert:
+      status: 200
+      body:
+        "$.role": "admin"
+
+  - name: Read the user back
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 200
+      body:
+        "$.id": "{{ capture.user_id }}"
+        "$.deletedAt": null
+
+teardown:
+  - name: Cleanup
+    request:
+      method: POST
+      url: "{{ env.base_url }}/test/cleanup"

@@ -7,6 +7,7 @@ pub mod cookie;
 pub mod env;
 pub mod error;
 pub mod http;
+pub mod hurl_import;
 pub mod interpolation;
 pub mod model;
 pub mod parser;

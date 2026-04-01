@@ -86,6 +86,7 @@ fn handle_tool_call(req: &JsonRpcRequest) -> JsonRpcResponse {
         "tarn_run" => tools::tarn_run(&arguments),
         "tarn_validate" => tools::tarn_validate(&arguments),
         "tarn_list" => tools::tarn_list(&arguments),
+        "tarn_fix_plan" => tools::tarn_fix_plan(&arguments),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
 

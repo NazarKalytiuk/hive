@@ -1,0 +1,65 @@
+name: Scenario D - Complex Assertions
+env:
+  base_url: "http://127.0.0.1:3001"
+setup:
+  - name: Cleanup state
+    request:
+      method: POST
+      url: "{{ env.base_url }}/test/cleanup"
+    assert:
+      status: 200
+  - name: Login
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      headers:
+        Content-Type: "application/json"
+      body:
+        email: "assertions@example.com"
+        password: "secret"
+    capture:
+      token: "$.token"
+    assert:
+      status: 200
+  - name: Seed user
+    request:
+      method: POST
+      url: "{{ env.base_url }}/users"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+        Content-Type: "application/json"
+      body:
+        name: "Assertion User"
+        email: "assertion.user@example.com"
+        role: "viewer"
+        tags:
+          - "alpha"
+          - "beta"
+    assert:
+      status: 201
+steps:
+  - name: List users with complex assertions
+    request:
+      method: GET
+      url: "{{ env.base_url }}/users?page=1&limit=10"
+      headers:
+        Authorization: "Bearer {{ capture.token }}"
+    assert:
+      status: 200
+      body:
+        "$.data[0].id":
+          type: string
+          matches: "^usr_[0-9a-f]+$"
+        "$.data[0].name":
+          type: string
+          not_empty: true
+          starts_with: "Assertion"
+        "$.data[0].email":
+          matches: "^[^@]+@[^@]+\\.[^@]+$"
+        "$.data[0].tags":
+          type: array
+          length: 2
+        "$.meta.totalCount":
+          type: number
+          gte: 1
+        "$.meta.page": 1

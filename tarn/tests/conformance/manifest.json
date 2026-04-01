@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    { "id": "example-minimal", "mode": "parse", "path": "examples/minimal.tarn.yaml" },
+    { "id": "example-auth", "mode": "parse", "path": "examples/auth.tarn.yaml" },
+    { "id": "example-assertions", "mode": "format", "path": "examples/assertions.tarn.yaml" },
+    { "id": "init-health", "mode": "parse", "path": "examples/init/health.tarn.yaml" },
+    { "id": "init-polling", "mode": "parse", "path": "examples/init/polling-job.tarn.yaml" },
+    { "id": "demo-cookies", "mode": "parse", "path": "examples/demo-server/cookies.tarn.yaml" },
+    { "id": "demo-redirects", "mode": "parse", "path": "examples/demo-server/redirects.tarn.yaml" },
+    { "id": "demo-form", "mode": "parse", "path": "examples/demo-server/form-and-text.tarn.yaml" }
+  ]
+}

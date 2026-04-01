@@ -5,6 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/NazarKalytiuk/tarn/actions/workflows/ci.yml"><img src="https://github.com/NazarKalytiuk/tarn/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/NazarKalytiuk/tarn/blob/main/docs/CONFORMANCE.md"><img src="https://img.shields.io/github/actions/workflow/status/NazarKalytiuk/tarn/ci.yml?branch=main&label=conformance" alt="Conformance"></a>
   <a href="https://github.com/NazarKalytiuk/tarn/releases/latest"><img src="https://img.shields.io/github/v/release/NazarKalytiuk/tarn" alt="Release"></a>
   <a href="https://github.com/NazarKalytiuk/tarn/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
 </p>
@@ -41,7 +42,7 @@ $ tarn run
 - **Structured JSON output** with request/response on failures &mdash; machines parse it, not regex
 - **Single binary** &mdash; `curl | sh` install, runs in any CI, no runtime needed
 - **MCP server** &mdash; direct integration with Claude Code, Cursor, Windsurf
-- **Everything you need** &mdash; REST, GraphQL, captures, cookies, multipart, includes, polling, Lua scripting, parallel execution, 5 output formats
+- **Everything you need** &mdash; REST, GraphQL, captures, cookies, multipart, includes, polling, Lua scripting, parallel execution, 7 output formats
 
 ## Install
 
@@ -56,8 +57,11 @@ TARN_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com
 cargo install --git https://github.com/NazarKalytiuk/tarn.git --bin tarn
 ```
 
-Binaries for **macOS** (Intel & Apple Silicon) and **Linux** (amd64 & arm64) on the [releases page](https://github.com/NazarKalytiuk/tarn/releases).
-Each release also includes `tarn-checksums.txt` for SHA256 verification.
+Binaries for **macOS** (Intel & Apple Silicon), **Linux** (amd64 & arm64), and **Windows** (amd64 zip) are published on the [releases page](https://github.com/NazarKalytiuk/tarn/releases).
+Each release also includes `tarn-checksums.txt` for SHA256 verification and a generated `tarn.rb` Homebrew formula artifact.
+
+Container path:
+- `ghcr.io/<owner>/tarn:<tag>` from the release workflow
 
 Installer notes:
 - `install.sh` verifies the downloaded archive against `tarn-checksums.txt`
@@ -68,10 +72,11 @@ Installer notes:
 ## Quick Start
 
 ```bash
-tarn init                              # scaffold tests/health.tarn.yaml + tarn.env.yaml
+tarn init                              # scaffold tests/health + advanced examples/ templates
 # Edit tarn.env.yaml to point at your API, or start one on http://localhost:3000
 tarn run                               # run all tests
 tarn run tests/health.tarn.yaml        # run the scaffolded test directly
+tarn fmt --check                       # verify canonical YAML formatting
 tarn run --env staging                 # use staging environment
 tarn run --format json                 # structured output for LLM/CI
 tarn run --watch                       # re-run on file changes
@@ -89,13 +94,16 @@ cargo run -p tarn -- run examples/demo-server/hello-world.tarn.yaml
 ```
 
 This exercises a local API with no external network dependency.
+There are more local scenarios in `examples/demo-server/` for redirects, cookies, forms, error responses, and authenticated CRUD flows.
 
 ## Table of Contents
 
+- [Docs Index](#docs-index)
 - [Test File Format](#test-file-format)
 - [Assertions](#assertions)
 - [Variables](#variables)
 - [Cookies](#cookies)
+- [Form URL-Encoding](#form-url-encoding)
 - [Multipart / File Upload](#multipart--file-upload)
 - [Includes](#includes)
 - [GraphQL](#graphql)
@@ -110,8 +118,22 @@ This exercises a local API with no external network dependency.
 - [Configuration](#configuration)
 - [Step Options](#step-options)
 - [JSON Schema](#json-schema)
+- [VS Code Extension](#vs-code-extension)
 - [Shell Completions](#shell-completions)
 - [Development](#development)
+
+## Docs Index
+
+Canonical project docs live in [`docs/INDEX.md`](./docs/INDEX.md).
+
+If you are looking for product direction or comparisons, start with:
+
+- [`docs/TARN_PRODUCT_STRATEGY.md`](./docs/TARN_PRODUCT_STRATEGY.md)
+- [`docs/TARN_VS_HURL_COMPARISON.md`](./docs/TARN_VS_HURL_COMPARISON.md)
+- [`docs/HURL_MIGRATION.md`](./docs/HURL_MIGRATION.md)
+- [`docs/TARN_COMPETITIVENESS_ROADMAP.md`](./docs/TARN_COMPETITIVENESS_ROADMAP.md)
+
+A lightweight static docs site now lives in [`docs/site/index.html`](./docs/site/index.html) and is deployable via GitHub Pages from `.github/workflows/docs-site.yml`.
 
 ## Test File Format
 
@@ -129,6 +151,8 @@ steps:
     assert:
       status: 200
 ```
+
+`request.method` accepts standard verbs and custom tokens such as `PURGE` or `PROPFIND`.
 
 ### Full Format
 
@@ -260,8 +284,28 @@ body:
   "$.email": { contains: "@example.com" }
   "$.id": { starts_with: "usr_", matches: "^usr_[a-z0-9]+$" }
   "$.name": { not_empty: true }
+  "$.notes": { empty: true }
   "$.code": { length: 6 }
   "$.msg": { not_contains: "error" }
+```
+
+**Format assertions:**
+
+```yaml
+body:
+  "$.request_id": { is_uuid: true }
+  "$.created_at": { is_date: true }
+  "$.client_ip": { is_ipv4: true }
+  "$.server_ip": { is_ipv6: true }
+```
+
+**Integrity assertions:**
+
+```yaml
+body:
+  "$": { bytes: 15 }                                # raw response body length
+  "$.payload": { sha256: "2cf24dba5fb0a30e..." }    # matched value digest
+  "$.legacy": { md5: "5d41402abc4b2a76..." }
 ```
 
 **Type checks:**
@@ -307,6 +351,17 @@ assert:
   duration: "< 500ms"
   duration: "<= 1s"
 ```
+
+### Redirects
+
+```yaml
+assert:
+  redirect:
+    url: "https://api.example.com/health"
+    count: 2
+```
+
+`redirect.url` checks the final response URL after following redirects. `redirect.count` checks how many redirects were actually followed.
 
 ## Variables
 
@@ -357,6 +412,30 @@ capture:
     header: "x-request-id"
 ```
 
+**Cookie capture** &mdash; capture a response cookie by name from `Set-Cookie`:
+
+```yaml
+capture:
+  session_cookie:
+    cookie: "session"
+```
+
+**Status capture** &mdash; capture the HTTP status code as a number:
+
+```yaml
+capture:
+  status_code:
+    status: true
+```
+
+**Final URL capture** &mdash; capture the final response URL after redirects:
+
+```yaml
+capture:
+  final_url:
+    url: true
+```
+
 **JSONPath with regex** &mdash; extract a sub-match from a body field:
 
 ```yaml
@@ -365,6 +444,32 @@ capture:
     jsonpath: "$.message"
     regex: "ID: (\\w+)"
 ```
+
+**Whole-body regex** &mdash; extract from the full response body string:
+
+```yaml
+capture:
+  body_word:
+    body: true
+    regex: "plain (text)"
+```
+
+**Transform-lite in interpolation** &mdash; reshape captured arrays and collections without dropping into Lua:
+
+```yaml
+request:
+  form:
+    first_tag: "{{ capture.tags | first }}"
+    last_tag: "{{ capture.tags | last }}"
+    tag_count: "{{ capture.tags | count }}"
+    joined_tags: "{{ capture.tags | join('|') }}"
+    words: "{{ capture.message | split(' ') | count }}"
+    normalized: "{{ capture.message | replace(' response', '') }}"
+    status_code: "{{ capture.status_text | to_int }}"
+    payload: "{{ capture.user | to_string }}"
+```
+
+`first` and `last` expect arrays. `count` works on arrays, objects, and strings. `join(...)` joins array items after converting each item to its string form. `split(...)` and `replace(..., ...)` operate on strings. `to_int` parses integer strings, and `to_string` stringifies any captured value.
 
 ### Built-in Functions
 
@@ -409,26 +514,29 @@ Disable automatic cookies per file:
 cookies: "off"
 ```
 
-## Auth Today
+## Auth
 
-Tarn does not ship first-class auth blocks yet. Today the intended path is explicit headers plus env or captured values:
+Tarn supports first-class `bearer` and `basic` auth helpers, while keeping explicit `Authorization` headers as the escape hatch:
 
 ```yaml
 request:
+  auth:
+    bearer: "{{ env.token }}"
   headers:
-    Authorization: "Bearer {{ env.token }}"
     X-API-Key: "{{ env.api_key }}"
 ```
 
-Basic auth works through a precomputed header:
+Basic auth:
 
 ```yaml
 request:
-  headers:
-    Authorization: "Basic {{ env.basic_auth_b64 }}"
+  auth:
+    basic:
+      username: "{{ env.username }}"
+      password: "{{ env.password }}"
 ```
 
-OAuth2 client-credentials is not built in yet. Fetch the token in a setup step, capture it, then reuse it in later requests.
+You can also set `defaults.auth` once per file. If `headers.Authorization` is already present, Tarn leaves it unchanged.
 
 ### Step-Level Cookie Control
 
@@ -498,6 +606,12 @@ steps:
 
 Each named jar is independent &mdash; cookies captured in `"admin"` are never sent with `"viewer"` requests. Steps without a `cookies:` field (or with `cookies: true`) use the default jar.
 
+### Persist Cookie Jars
+
+Use `tarn run --cookie-jar .tarn-cookies.json` to preload jars from disk and write back the updated state after the run. The file stores named jars too, so multi-user sessions can survive across runs.
+
+`--cookie-jar` currently works only with sequential execution. Combine it with `--parallel` only after jar sharing becomes deterministic.
+
 ### CSRF Protection
 
 When the cookie jar sends cookies automatically, frameworks with CSRF protection (e.g., Better Auth) may reject requests that lack an `Origin` header. Add it to `defaults` to fix:
@@ -516,6 +630,27 @@ defaults:
   headers:
     Origin: "{{ env.base_url }}"
 ```
+
+## Form URL-Encoding
+
+Send `application/x-www-form-urlencoded` payloads with `form:`:
+
+```yaml
+steps:
+  - name: Login form
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      form:
+        email: "user@example.com"
+        password: "{{ env.password }}"
+    assert:
+      status: 200
+```
+
+Tarn URL-encodes the fields and auto-sets `Content-Type: application/x-www-form-urlencoded` unless you override it explicitly.
+
+> Note: `form` cannot be combined with `body`, `graphql`, or `multipart` on the same step.
 
 ## Multipart / File Upload
 
@@ -546,7 +681,7 @@ steps:
       status: 201
 ```
 
-> Note: `multipart` cannot be combined with `body` or `graphql` on the same step.
+> Note: `multipart` cannot be combined with `body`, `form`, or `graphql` on the same step.
 
 ## Includes
 
@@ -566,6 +701,22 @@ steps:
 ```
 
 The included file's `setup` and `steps` are inlined at the include point. Includes work in `setup`, `teardown`, `steps`, and `tests.*.steps`. Circular includes are detected and rejected.
+
+Includes also support lightweight parametrization and deep overrides for reusable step packs:
+
+```yaml
+steps:
+  - include: ./shared/user-pack.tarn.yaml
+    with:
+      tenant: "acme"
+      user_id: 42
+    override:
+      request:
+        headers:
+          X-Tenant: "acme"
+```
+
+Inside the included file, use `{{ params.tenant }}` and `{{ params.user_id }}` placeholders.
 
 ## GraphQL
 
@@ -671,7 +822,9 @@ steps:
 tarn run [PATH] [OPTIONS]          Run test files
 tarn bench <PATH> [OPTIONS]        Benchmark a step
 tarn validate [PATH]               Validate YAML without running
+tarn fmt [PATH] [--check]          Normalize Tarn YAML
 tarn list                          List all tests
+tarn import-hurl <PATH>            Convert common-case Hurl files to Tarn
 tarn init                          Scaffold a new project
 tarn update                        Update to the latest version
 tarn update --check                Check for updates without installing
@@ -682,7 +835,8 @@ tarn completions <SHELL>           Generate shell completions
 
 | Flag | Description |
 |------|-------------|
-| `--format <FORMAT>` | `human` (default), `json`, `junit`, `tap`, `html` |
+| `--format <FORMAT>` | Repeatable. Supports `human`, `json`, `junit`, `tap`, `html`, `curl`, `curl-all`, or `FORMAT=PATH` |
+| `--json-mode <MODE>` | For JSON outputs: `verbose` (default) or `compact` |
 | `--tag <TAGS>` | Filter by tag (comma-separated, AND logic) |
 | `--var <KEY=VALUE>` | Override env variables (repeatable) |
 | `--env <NAME>` | Load `tarn.env.{name}.yaml` |
@@ -701,11 +855,18 @@ tarn run --tag smoke                            # filter by tag
 tarn run --env staging                          # staging env
 tarn run --var base_url=http://localhost:8080    # override var
 tarn run --format json                          # JSON for LLM/CI
+tarn run --format json --json-mode compact     # smaller JSON for automation loops
 tarn run --format html                          # HTML dashboard
+tarn run --format curl                          # failed requests as curl
+tarn run --format curl-all=reports/replay.sh    # full suite replay script
+tarn run --format human --format json=reports/run.json --format junit=reports/junit.xml
+tarn run --format human,json=reports/run.json   # comma-separated also works
 tarn run --watch                                # re-run on changes
 tarn run --parallel --jobs 4                    # parallel execution
 tarn run -v                                     # verbose
 tarn run --dry-run                              # preview only
+tarn fmt tests/                                  # rewrite a directory in place
+tarn fmt tests/auth.tarn.yaml --check            # CI-style formatting check
 ```
 
 ### Exit Codes
@@ -719,13 +880,27 @@ tarn run --dry-run                              # preview only
 
 ## Output Formats
 
+You can emit multiple formats in one run. Keep at most one bare non-HTML format for stdout and send the rest to files:
+
+```bash
+tarn run \
+  --format human \
+  --format json=reports/run.json \
+  --format junit=reports/junit.xml \
+  --format html=reports/run.html \
+  --format curl=reports/failures.sh \
+  --format curl-all=reports/replay.sh
+```
+
 ### JSON (`--format json`)
 
 Structured JSON with versioned schema. Key design:
 - `schema_version: 1` for forward compatibility
 - Full request/response included **only for failed steps**
 - `failure_category` on failures: `assertion_failed`, `connection_error`, `timeout`, `parse_error`, `capture_error`
-- Secrets redacted to `***`
+- Stable `error_code` and `remediation_hints` are included on failed steps for automation-friendly diagnostics
+- `--json-mode compact` keeps the same top-level schema but drops passed assertion details to reduce payload size
+- Sensitive headers are redacted by default and can be customized per file with top-level `redaction:`
 - `request` is present for failed executed steps; `response` is omitted for connection/setup failures where no response exists
 
 Schema files:
@@ -742,6 +917,8 @@ Schema files:
         "name": "Create user",
         "status": "FAILED",
         "failure_category": "assertion_failed",
+        "error_code": "assertion_mismatch",
+        "remediation_hints": ["..."],
         "assertions": {
           "failures": [{ "assertion": "status", "expected": "201", "actual": "400", "message": "..." }]
         },
@@ -753,7 +930,30 @@ Schema files:
 }
 ```
 
+### Curl (`--format curl`, `--format curl-all`)
+
+`curl` exports only failed executed requests. `curl-all` exports every executed request in run order, including setup and teardown.
+
+```bash
+tarn run --format human --format curl=reports/failures.sh
+tarn run --format curl-all=reports/replay.sh
+```
+
 Also supports: **Human** (colored terminal), **JUnit XML**, **TAP**, **HTML** (self-contained dashboard).
+
+Example:
+
+```yaml
+redaction:
+  headers:
+    - authorization
+    - x-session-token
+  env:
+    - api_token
+  captures:
+    - session_token
+  replacement: "[redacted]"
+```
 
 ## Performance Testing
 
@@ -763,6 +963,8 @@ Reuses your existing test files for benchmarking.
 tarn bench tests/health.tarn.yaml -n 1000 -c 50
 tarn bench tests/health.tarn.yaml -n 500 -c 25 --ramp-up 5s
 tarn bench tests/health.tarn.yaml --format json     # for CI thresholds
+tarn bench tests/health.tarn.yaml --format csv --export json=reports/bench.json
+tarn bench tests/health.tarn.yaml --fail-under-rps 200 --fail-above-p95-ms 80
 ```
 
 ```
@@ -817,6 +1019,7 @@ For Cursor, add to `.cursor/mcp.json`:
 | `tarn_run` | Run tests, returns structured JSON results |
 | `tarn_validate` | Validate YAML syntax without executing |
 | `tarn_list` | List all tests and their steps |
+| `tarn_fix_plan` | Analyze a Tarn JSON report and return prioritized next actions |
 
 The MCP server lets your AI agent write `.tarn.yaml` tests, execute them, parse structured results, and iterate &mdash; all without leaving the editor.
 
@@ -825,11 +1028,12 @@ Typical agent loop:
 1. `tarn_list` to discover tests and steps
 2. `tarn_validate` after generating YAML
 3. `tarn_run` to get structured failures
-4. inspect `failure_category`, `assertions.failures`, and optional `request`/`response`
-5. patch the test or application code
-6. rerun until summary status is `PASSED`
+4. `tarn_fix_plan` to turn the latest report into machine-friendly next steps
+5. inspect `failure_category`, `error_code`, `assertions.failures`, and optional `request`/`response`
+6. patch the test or application code
+7. rerun until summary status is `PASSED`
 
-See [docs/MCP_WORKFLOW.md](/Users/nazarkalituk/Documents/hive-api-test/docs/MCP_WORKFLOW.md) and [docs/AI_WORKFLOW_DEMO.md](/Users/nazarkalituk/Documents/hive-api-test/docs/AI_WORKFLOW_DEMO.md).
+See [docs/MCP_WORKFLOW.md](/Users/nazarkalituk/Documents/hive-api-test/docs/MCP_WORKFLOW.md), [docs/AI_WORKFLOW_DEMO.md](/Users/nazarkalituk/Documents/hive-api-test/docs/AI_WORKFLOW_DEMO.md), and [docs/CONFORMANCE.md](/Users/nazarkalituk/Documents/hive-api-test/docs/CONFORMANCE.md).
 
 ## Troubleshooting
 
@@ -854,13 +1058,14 @@ Non-JSON bodies:
 - Tarn preserves plain text / HTML responses as JSON strings in the structured report
 - use `body: { "$": "plain text response" }` to assert the whole root string when needed
 
-## Not Yet Shipped
+## Intentional Gaps
 
-Tracked, but intentionally deferred from the first public release:
+Tarn does not aim for full Hurl parity. The main intentionally unclosed gaps are:
 
-- OpenAPI import / scaffold generation
-- first-class auth helpers beyond manual headers and env vars
-- Windows release artifacts
+- XPath / HTML assertions and captures
+- full Hurl-style filter DSL
+- exotic auth and libcurl-specific transport features
+- OpenAPI-first generation workflows
 
 ## GitHub Action
 
@@ -893,12 +1098,24 @@ env_file: "tarn.env.yaml"
 timeout: 10000
 retries: 0
 parallel: false
+defaults:
+  connect_timeout: 1000
+  follow_redirects: true
+redaction:
+  headers: ["authorization", "cookie"]
+environments:
+  staging:
+    env_file: "env/staging.yaml"
+    vars:
+      base_url: "https://staging.example.com"
 ```
 
 Behavior:
 - `test_dir` sets the default discovery directory for `tarn run`, `tarn validate`, and `tarn list`
 - `env_file` changes the root env file name; Tarn also checks `.{name}` and `.local` variants
-- `timeout` and `retries` act as project defaults when a test file does not set `defaults.timeout` or `defaults.retries`
+- `defaults` acts as project-wide request policy for headers/auth/timeouts/retries/redirects/delay
+- `redaction` provides a project-wide default report sanitization policy
+- `environments` makes named `--env` profiles first-class and powers `tarn env`
 - `parallel: true` makes parallel file execution the default for `tarn run`
 
 ### File-level defaults
@@ -944,6 +1161,16 @@ steps: ...
 
 The schema is bundled at `schemas/v1/testfile.json` in the repository.
 The structured report schema is bundled at `schemas/v1/report.json`.
+
+## VS Code Extension
+
+An editor extension now lives in [`editors/vscode`](./editors/vscode). It provides:
+
+- Tarn file association for `*.tarn.yaml` and `*.tarn.yml`
+- schema defaults for Tarn test files and `tarn-report.json`
+- snippets for test skeletons, polling, multipart, GraphQL, form requests, and includes
+
+Local install is documented in [`editors/vscode/README.md`](./editors/vscode/README.md).
 
 ## Shell Completions
 

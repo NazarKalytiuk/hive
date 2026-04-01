@@ -1,16 +1,13 @@
 use crate::builtin;
 use crate::capture;
+use indexmap::IndexMap;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 fn interpolation_regex() -> &'static regex::Regex {
     static REGEX: OnceLock<regex::Regex> = OnceLock::new();
     REGEX.get_or_init(|| regex::Regex::new(r"\{\{\s*(.+?)\s*\}\}").unwrap())
-}
-
-fn typed_capture_regex() -> &'static regex::Regex {
-    static REGEX: OnceLock<regex::Regex> = OnceLock::new();
-    REGEX.get_or_init(|| regex::Regex::new(r"^\{\{\s*capture\.(\w+)\s*\}\}$").unwrap())
 }
 
 /// Interpolation context holding all available variables.
@@ -76,14 +73,26 @@ pub fn interpolate_headers(
         .collect()
 }
 
+/// Interpolate all strings in an ordered string map.
+pub fn interpolate_string_map(
+    values: &IndexMap<String, String>,
+    ctx: &Context,
+) -> IndexMap<String, String> {
+    values
+        .iter()
+        .map(|(k, v)| (interpolate(k, ctx), interpolate(v, ctx)))
+        .collect()
+}
+
 /// Try to resolve a string as a single typed capture expression.
-/// Returns the typed JSON value if the string is exactly `{{ capture.name }}`.
-fn try_resolve_typed(s: &str, ctx: &Context) -> Option<serde_json::Value> {
-    if let Some(caps) = typed_capture_regex().captures(s) {
-        let name = &caps[1];
-        return ctx.captures.get(name).cloned();
+/// Returns the typed JSON value if the string is exactly `{{ capture.name }}` or a transformed variant.
+fn try_resolve_typed(s: &str, ctx: &Context) -> Option<Value> {
+    let caps = interpolation_regex().captures(s)?;
+    let whole = caps.get(0)?;
+    if whole.start() != 0 || whole.end() != s.len() {
+        return None;
     }
-    None
+    resolve_capture_expression(caps.get(1)?.as_str().trim(), ctx).ok()
 }
 
 /// Resolve a single expression (the content inside `{{ ... }}`).
@@ -98,12 +107,10 @@ fn resolve_expression(expr: &str, ctx: &Context) -> String {
     }
 
     // capture.var_name — convert typed value to string for string contexts
-    if let Some(var_name) = expr.strip_prefix("capture.") {
-        return ctx
-            .captures
-            .get(var_name)
-            .map(capture::value_to_string)
-            .unwrap_or_else(|| format!("{{{{ capture.{} }}}}", var_name));
+    if expr.starts_with("capture.") {
+        return resolve_capture_expression(expr, ctx)
+            .map(|value| capture::value_to_string(&value))
+            .unwrap_or_else(|_| format!("{{{{ {} }}}}", expr));
     }
 
     // Built-in function ($uuid, $random_hex, etc.)
@@ -115,6 +122,67 @@ fn resolve_expression(expr: &str, ctx: &Context) -> String {
 
     // Unknown expression: leave as-is
     format!("{{{{ {} }}}}", expr)
+}
+
+fn resolve_capture_expression(expr: &str, ctx: &Context) -> Result<Value, String> {
+    let Some(rest) = expr.strip_prefix("capture.") else {
+        return Err("Not a capture expression".to_string());
+    };
+
+    let parts = split_capture_pipeline(rest);
+    let Some(name) = parts.first().map(|part| part.trim()) else {
+        return Err("Missing capture name".to_string());
+    };
+    if name.is_empty() {
+        return Err("Missing capture name".to_string());
+    }
+
+    let Some(value) = ctx.captures.get(name) else {
+        return Err(format!("Unknown capture '{}'", name));
+    };
+
+    let transforms: Result<Vec<_>, _> = parts
+        .iter()
+        .skip(1)
+        .map(|part| capture::parse_transform(part))
+        .collect();
+    capture::apply_transforms(value, &transforms?)
+}
+
+fn split_capture_pipeline(expr: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut paren_depth = 0usize;
+
+    for ch in expr.chars() {
+        match ch {
+            '\'' | '"' => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+                current.push(ch);
+            }
+            '(' if quote.is_none() => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' if quote.is_none() => {
+                paren_depth = paren_depth.saturating_sub(1);
+                current.push(ch);
+            }
+            '|' if quote.is_none() && paren_depth == 0 => {
+                parts.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    parts.push(current.trim().to_string());
+    parts
 }
 
 #[cfg(test)]
@@ -324,6 +392,77 @@ mod tests {
         assert_eq!(result, "/users/42");
     }
 
+    #[test]
+    fn interpolate_json_preserves_count_transform_number() {
+        let ctx = make_ctx(&[], &[("tags", json!(["alpha", "beta", "gamma"]))]);
+        let val = json!({"count": "{{ capture.tags | count }}"});
+        let result = interpolate_json(&val, &ctx);
+        assert_eq!(result["count"], json!(3));
+        assert!(result["count"].is_number());
+    }
+
+    #[test]
+    fn interpolate_json_preserves_first_transform_type() {
+        let ctx = make_ctx(&[], &[("users", json!([{"id": "usr_1"}, {"id": "usr_2"}]))]);
+        let val = json!({"user": "{{ capture.users | first }}"});
+        let result = interpolate_json(&val, &ctx);
+        assert_eq!(result["user"], json!({"id": "usr_1"}));
+        assert!(result["user"].is_object());
+    }
+
+    #[test]
+    fn interpolate_json_preserves_split_transform_array() {
+        let ctx = make_ctx(&[], &[("body", json!("plain text response"))]);
+        let val = json!({"words": "{{ capture.body | split(' ') }}"});
+        let result = interpolate_json(&val, &ctx);
+        assert_eq!(result["words"], json!(["plain", "text", "response"]));
+        assert!(result["words"].is_array());
+    }
+
+    #[test]
+    fn interpolate_json_preserves_to_int_transform_number() {
+        let ctx = make_ctx(&[], &[("status_text", json!("204"))]);
+        let val = json!({"status": "{{ capture.status_text | to_int }}"});
+        let result = interpolate_json(&val, &ctx);
+        assert_eq!(result["status"], json!(204));
+        assert!(result["status"].is_number());
+    }
+
+    #[test]
+    fn interpolate_join_transform_in_string_context() {
+        let ctx = make_ctx(&[], &[("tags", json!(["alpha", "beta", "gamma"]))]);
+        let result = interpolate("tags={{ capture.tags | join('|') }}", &ctx);
+        assert_eq!(result, "tags=alpha|beta|gamma");
+    }
+
+    #[test]
+    fn interpolate_replace_and_to_string_in_string_context() {
+        let ctx = make_ctx(
+            &[],
+            &[("body", json!("plain text response")), ("code", json!(204))],
+        );
+        let result = interpolate(
+            "body={{ capture.body | replace(' response', '') }} code={{ capture.code | to_string }}",
+            &ctx,
+        );
+        assert_eq!(result, "body=plain text code=204");
+    }
+
+    #[test]
+    fn invalid_capture_transform_is_preserved() {
+        let ctx = make_ctx(&[], &[("name", json!("alice"))]);
+        let result = interpolate("{{ capture.name | first }}", &ctx);
+        assert_eq!(result, "{{ capture.name | first }}");
+    }
+
+    #[test]
+    fn split_pipeline_ignores_pipes_inside_join_arguments() {
+        assert_eq!(
+            split_capture_pipeline("tags | join('|') | count"),
+            vec!["tags", "join('|')", "count"]
+        );
+    }
+
     // --- Header interpolation ---
 
     #[test]
@@ -336,6 +475,29 @@ mod tests {
         let result = interpolate_headers(&headers, &ctx);
         assert_eq!(result.get("Authorization").unwrap(), "Bearer xyz");
         assert_eq!(result.get("Accept").unwrap(), "application/json");
+    }
+
+    #[test]
+    fn interpolate_string_map_preserves_order() {
+        let ctx = make_string_ctx(&[("prefix", "user"), ("value", "ok")], &[("name", "alice")]);
+        let values = IndexMap::from([
+            (
+                "{{ env.prefix }}_name".to_string(),
+                "{{ capture.name }}".to_string(),
+            ),
+            ("static".to_string(), "{{ env.value }}".to_string()),
+        ]);
+
+        let result = interpolate_string_map(&values, &ctx);
+        let pairs: Vec<_> = result.into_iter().collect();
+
+        assert_eq!(
+            pairs,
+            vec![
+                ("user_name".to_string(), "alice".to_string()),
+                ("static".to_string(), "ok".to_string()),
+            ]
+        );
     }
 
     // --- Unknown expressions ---

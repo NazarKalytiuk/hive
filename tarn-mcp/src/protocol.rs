@@ -126,7 +126,56 @@ pub fn tools_list() -> Value {
                         }
                     }
                 }
+            },
+            {
+                "name": "tarn_fix_plan",
+                "description": "Analyze a Tarn JSON report and return a prioritized fix plan with next actions, evidence, and remediation hints. Accepts either a `report` object from `tarn_run` or the same inputs as `tarn_run` to execute first.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "report": {
+                            "type": "object",
+                            "description": "Structured JSON report from tarn_run"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Optional .tarn.yaml path or directory to run before planning"
+                        },
+                        "env": {
+                            "type": "string",
+                            "description": "Environment name used when `path` is provided"
+                        },
+                        "vars": {
+                            "type": "object",
+                            "description": "Variable overrides used when `path` is provided",
+                            "additionalProperties": { "type": "string" }
+                        },
+                        "tag": {
+                            "type": "string",
+                            "description": "Tag filter used when `path` is provided"
+                        },
+                        "max_items": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Limit the number of failing steps included in the plan"
+                        }
+                    }
+                }
             }
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tools_list_matches_golden_contract() {
+        let actual: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string_pretty(&tools_list()).unwrap()).unwrap();
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/golden/tools-list.json.golden")).unwrap();
+        assert_eq!(actual, expected);
+    }
 }

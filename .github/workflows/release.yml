@@ -3,9 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,15 +23,28 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: tarn-linux-amd64
+            binary: tarn
+            archive: tar.gz
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: tarn-linux-arm64
+            binary: tarn
+            archive: tar.gz
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact: tarn-darwin-amd64
+            binary: tarn
+            archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: tarn-darwin-arm64
+            binary: tarn
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: tarn-windows-amd64
+            binary: tarn.exe
+            archive: zip
 
     steps:
       - uses: actions/checkout@v4
@@ -51,17 +66,27 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p tarn
 
-      - name: Package
+      - name: Package unix archives
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/tarn ${{ matrix.artifact }}
-          chmod +x ${{ matrix.artifact }}
-          tar czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+          mkdir package
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} package/tarn
+          chmod +x package/tarn
+          tar czf ${{ matrix.artifact }}.tar.gz -C package tarn
+
+      - name: Package windows archives
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "package/tarn.exe"
+          Compress-Archive -Path package/tarn.exe -DestinationPath "${{ matrix.artifact }}.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.tar.gz
+          path: ${{ matrix.artifact }}.${{ matrix.archive }}
 
   release:
     name: Create Release
@@ -78,7 +103,22 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum *.tar.gz > tarn-checksums.txt
+          sha256sum *.tar.gz *.zip > tarn-checksums.txt
+
+      - name: Render Homebrew formula
+        run: |
+          TAG="${GITHUB_REF_NAME}" \
+          LINUX_AMD64_SHA="$(awk '/tarn-linux-amd64.tar.gz$/ {print $1}' artifacts/tarn-checksums.txt)" \
+          LINUX_ARM64_SHA="$(awk '/tarn-linux-arm64.tar.gz$/ {print $1}' artifacts/tarn-checksums.txt)" \
+          DARWIN_AMD64_SHA="$(awk '/tarn-darwin-amd64.tar.gz$/ {print $1}' artifacts/tarn-checksums.txt)" \
+          DARWIN_ARM64_SHA="$(awk '/tarn-darwin-arm64.tar.gz$/ {print $1}' artifacts/tarn-checksums.txt)" \
+          bash scripts/release/render-homebrew-formula.sh artifacts/tarn.rb
+
+      - name: Upload Homebrew formula artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarn-homebrew-formula
+          path: artifacts/tarn.rb
 
       - name: Create release
         env:
@@ -88,4 +128,104 @@ jobs:
             --title "${{ github.ref_name }}" \
             --generate-notes \
             artifacts/*.tar.gz \
+            artifacts/*.zip \
+            artifacts/tarn.rb \
             artifacts/tarn-checksums.txt
+
+      - name: Publish Homebrew tap
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' && secrets.HOMEBREW_TAP_REPO != '' }}
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_REPO: ${{ secrets.HOMEBREW_TAP_REPO }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+          cp artifacts/tarn.rb tap/Formula/tarn.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/tarn.rb
+          git commit -m "Update tarn formula for ${GITHUB_REF_NAME}" || exit 0
+          git push
+
+  publish-crates:
+    name: Publish crates.io packages
+    needs: build
+    if: ${{ secrets.CRATES_IO_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish tarn
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p tarn
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish tarn-mcp
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p tarn-mcp
+
+  docker:
+    name: Publish Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image names
+        id: images
+        shell: bash
+        run: |
+          {
+            echo 'images<<EOF'
+            echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/tarn"
+            if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+              echo "${{ secrets.DOCKERHUB_USERNAME }}/tarn"
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.images.outputs.images }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

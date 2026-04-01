@@ -1,0 +1,88 @@
+{
+  "name": "Tarn",
+  "scopeName": "source.tarn",
+  "patterns": [
+    {
+      "include": "#interpolation"
+    },
+    {
+      "include": "#jsonpath"
+    },
+    {
+      "include": "#dslKeys"
+    },
+    {
+      "include": "#assertOperators"
+    },
+    {
+      "include": "source.yaml"
+    }
+  ],
+  "repository": {
+    "interpolation": {
+      "patterns": [
+        {
+          "name": "meta.interpolation.tarn",
+          "begin": "\\{\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template.begin.tarn"
+            }
+          },
+          "end": "\\}\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template.end.tarn"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\b(env|capture)\\.[A-Za-z0-9_.-]+\\b",
+              "name": "variable.other.readwrite.tarn"
+            },
+            {
+              "match": "\\$(uuid|timestamp|now_iso|random_hex|random_int)\\b",
+              "name": "support.function.builtin.tarn"
+            },
+            {
+              "match": "\\b(first|last|count|join|split|replace|to_int|to_string)\\b",
+              "name": "support.function.transform.tarn"
+            },
+            {
+              "match": "\\|",
+              "name": "keyword.operator.pipeline.tarn"
+            }
+          ]
+        }
+      ]
+    },
+    "jsonpath": {
+      "patterns": [
+        {
+          "match": "\"\\$(?:\\.[A-Za-z0-9_-]+|\\[(?:\\d+|\\*)\\]|\\.\\*)*\"",
+          "name": "constant.other.jsonpath.tarn"
+        }
+      ]
+    },
+    "dslKeys": {
+      "patterns": [
+        {
+          "match": "^(\\s*)(name|description|tags|env|defaults|setup|teardown|tests|steps|request|capture|assert|poll|headers|body|form|graphql|multipart|include|cookies|redaction|status|duration|redirect|timeout|connect_timeout|follow_redirects|max_redirs|delay|retries)\\s*:",
+          "captures": {
+            "2": {
+              "name": "keyword.control.tarn"
+            }
+          }
+        }
+      ]
+    },
+    "assertOperators": {
+      "patterns": [
+        {
+          "match": "\\b(eq|not_eq|type|contains|not_contains|starts_with|ends_with|matches|exists|not_empty|empty|is_empty|length|gt|gte|lt|lte|bytes|sha256|md5|is_uuid|is_date|is_ipv4|is_ipv6)\\b",
+          "name": "keyword.operator.assertion.tarn"
+        }
+      ]
+    }
+  }
+}

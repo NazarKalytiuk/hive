@@ -38,6 +38,10 @@
       "enum": ["auto", "off"],
       "default": "auto"
     },
+    "redaction": {
+      "$ref": "#/$defs/RedactionConfig",
+      "description": "Report-time redaction policy for sensitive headers"
+    },
     "defaults": { "$ref": "#/$defs/Defaults" },
     "setup": {
       "type": "array",
@@ -74,9 +78,27 @@
           "description": "Headers added to every request",
           "additionalProperties": { "type": "string" }
         },
+        "auth": {
+          "$ref": "#/$defs/AuthConfig",
+          "description": "Optional default auth helper. Explicit Authorization headers still win."
+        },
         "timeout": {
           "type": "integer",
           "description": "Default timeout in milliseconds",
+          "minimum": 0
+        },
+        "connect_timeout": {
+          "type": "integer",
+          "description": "Default connect timeout in milliseconds",
+          "minimum": 0
+        },
+        "follow_redirects": {
+          "type": "boolean",
+          "description": "Whether requests should follow redirects by default"
+        },
+        "max_redirs": {
+          "type": "integer",
+          "description": "Default maximum redirects to follow",
           "minimum": 0
         },
         "retries": {
@@ -89,6 +111,36 @@
           "description": "Default delay before each request (e.g., '100ms', '2s')",
           "pattern": "^\\d+(ms|s)$",
           "examples": ["100ms", "1s"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RedactionConfig": {
+      "type": "object",
+      "description": "Configurable header redaction policy for JSON report output",
+      "properties": {
+        "headers": {
+          "type": "array",
+          "description": "Case-insensitive header names to redact",
+          "items": { "type": "string", "minLength": 1 },
+          "default": ["authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token"]
+        },
+        "replacement": {
+          "type": "string",
+          "description": "Replacement string used for redacted header values",
+          "default": "***"
+        },
+        "env": {
+          "type": "array",
+          "description": "Environment variable names whose interpolated values should be redacted in reports",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "captures": {
+          "type": "array",
+          "description": "Capture names whose extracted/interpolated values should be redacted in reports",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
         }
       },
       "additionalProperties": false
@@ -130,6 +182,14 @@
           "type": "string",
           "description": "Relative path to .tarn.yaml file to include",
           "examples": ["./shared/auth-setup.tarn.yaml"]
+        },
+        "with": {
+          "type": "object",
+          "description": "Parameter values injected into the included file via {{ params.name }} placeholders"
+        },
+        "override": {
+          "type": "object",
+          "description": "Deep override merged into every imported step from the included file"
         }
       },
       "additionalProperties": false
@@ -147,7 +207,7 @@
         "request": { "$ref": "#/$defs/Request" },
         "capture": {
           "type": "object",
-          "description": "Capture values from the response. Values can be JSONPath strings or extended capture objects with header/jsonpath/regex fields.",
+          "description": "Capture values from the response. Values can be JSONPath strings or extended capture objects with header/cookie/jsonpath/body/status/url/regex fields.",
           "additionalProperties": {
             "oneOf": [
               {
@@ -159,7 +219,11 @@
           },
           "examples": [
             { "user_id": "$.id", "token": "$.auth.token" },
-            { "session": { "header": "set-cookie", "regex": "session=([^;]+)" } }
+            { "session": { "header": "set-cookie", "regex": "session=([^;]+)" } },
+            { "session_cookie": { "cookie": "session" } },
+            { "status_code": { "status": true } },
+            { "final_url": { "url": true } },
+            { "body_word": { "body": true, "regex": "plain (text)" } }
           ]
         },
         "assert": { "$ref": "#/$defs/Assertion" },
@@ -171,6 +235,20 @@
         "timeout": {
           "type": "integer",
           "description": "Step-level timeout in milliseconds (overrides defaults)",
+          "minimum": 0
+        },
+        "connect_timeout": {
+          "type": "integer",
+          "description": "Step-level connect timeout in milliseconds (overrides defaults.connect_timeout)",
+          "minimum": 0
+        },
+        "follow_redirects": {
+          "type": "boolean",
+          "description": "Whether this step should follow redirects (overrides defaults.follow_redirects)"
+        },
+        "max_redirs": {
+          "type": "integer",
+          "description": "Maximum redirects to follow for this step (overrides defaults.max_redirs)",
           "minimum": 0
         },
         "delay": {
@@ -197,15 +275,31 @@
     },
     "ExtendedCapture": {
       "type": "object",
-      "description": "Extended capture specification supporting headers and regex extraction",
+      "description": "Extended capture specification supporting cookies, status, final URL, headers, body JSONPath, whole-body capture, and optional regex extraction",
       "properties": {
         "header": {
           "type": "string",
           "description": "Capture from a response header (case-insensitive)"
         },
+        "cookie": {
+          "type": "string",
+          "description": "Capture from a response cookie by cookie name"
+        },
         "jsonpath": {
           "type": "string",
           "description": "Capture from body via JSONPath (explicit form)"
+        },
+        "body": {
+          "type": "boolean",
+          "description": "Capture from the whole response body string. Use `true` to enable this source."
+        },
+        "status": {
+          "type": "boolean",
+          "description": "Capture from the HTTP response status code. Use `true` to enable this source."
+        },
+        "url": {
+          "type": "boolean",
+          "description": "Capture from the final response URL after redirects. Use `true` to enable this source."
         },
         "regex": {
           "type": "string",
@@ -214,7 +308,11 @@
       },
       "oneOf": [
         { "required": ["header"] },
-        { "required": ["jsonpath"] }
+        { "required": ["cookie"] },
+        { "required": ["jsonpath"] },
+        { "required": ["body"] },
+        { "required": ["status"] },
+        { "required": ["url"] }
       ],
       "additionalProperties": false
     },
@@ -249,7 +347,8 @@
         "method": {
           "type": "string",
           "description": "HTTP method",
-          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+          "minLength": 1,
+          "examples": ["GET", "POST", "PROPFIND", "PURGE"]
         },
         "url": {
           "type": "string",
@@ -260,13 +359,53 @@
           "description": "Request headers. Supports interpolation: {{ capture.token }}",
           "additionalProperties": { "type": "string" }
         },
+        "auth": {
+          "$ref": "#/$defs/AuthConfig",
+          "description": "Optional auth helper for bearer/basic flows. Explicit Authorization headers still win."
+        },
         "body": {
           "description": "Request body sent as JSON. Can be any valid JSON value (object, array, string, number, boolean, null)"
+        },
+        "form": {
+          "$ref": "#/$defs/FormBody",
+          "description": "URL-encoded form body sent as application/x-www-form-urlencoded"
         },
         "graphql": { "$ref": "#/$defs/GraphqlRequest" },
         "multipart": { "$ref": "#/$defs/MultipartBody" }
       },
       "additionalProperties": false
+    },
+    "AuthConfig": {
+      "type": "object",
+      "properties": {
+        "bearer": {
+          "type": "string",
+          "description": "Bearer token value without the 'Bearer ' prefix"
+        },
+        "basic": {
+          "$ref": "#/$defs/BasicAuthConfig"
+        }
+      },
+      "oneOf": [
+        { "required": ["bearer"] },
+        { "required": ["basic"] }
+      ],
+      "additionalProperties": false
+    },
+    "BasicAuthConfig": {
+      "type": "object",
+      "required": ["username", "password"],
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "FormBody": {
+      "type": "object",
+      "description": "URL-encoded form body",
+      "additionalProperties": { "type": "string" },
+      "default": {}
     },
     "GraphqlRequest": {
       "type": "object",
@@ -364,6 +503,9 @@
           "pattern": "^[<>]=?\\s*\\d+(ms|s)?$",
           "examples": ["< 500ms", "<= 1s", "> 100ms", ">= 200ms"]
         },
+        "redirect": {
+          "$ref": "#/$defs/RedirectAssertion"
+        },
         "headers": {
           "type": "object",
           "description": "Header assertions. Values can be exact match, 'contains \"substring\"', or 'matches \"regex\"'. Header names are case-insensitive.",
@@ -392,11 +534,40 @@
             "$.age": { "gt": 18, "lt": 100 },
             "$.tags": { "type": "array", "length": 2, "contains": "admin" },
             "$.email": { "matches": "^[^@]+@[^@]+$" },
+            "$.notes": { "empty": true },
+            "$": { "bytes": 15 },
+            "$.payload": { "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" },
+            "$.legacy": { "md5": "5d41402abc4b2a76b9719d911017c592" },
+            "$.requestId": { "is_uuid": true },
+            "$.createdAt": { "is_date": true },
+            "$.clientIp": { "is_ipv4": true },
+            "$.serverIp": { "is_ipv6": true },
             "$.deletedAt": null
           }]
         }
       },
       "additionalProperties": false
+    },
+    "RedirectAssertion": {
+      "type": "object",
+      "description": "Assertions against the final redirect target and the number of followed redirects",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Expected final response URL after following redirects"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Expected number of followed redirects"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": false,
+      "examples": [{
+        "url": "https://api.example.com/health",
+        "count": 2
+      }]
     },
     "BodyAssertionOperators": {
       "type": "object",
@@ -441,10 +612,53 @@
           "type": "string",
           "description": "Assert string matches regex pattern"
         },
+        "is_uuid": {
+          "type": "boolean",
+          "description": "Assert value is a valid UUID",
+          "const": true
+        },
+        "is_date": {
+          "type": "boolean",
+          "description": "Assert value is a valid date or datetime string",
+          "const": true
+        },
+        "is_ipv4": {
+          "type": "boolean",
+          "description": "Assert value is a valid IPv4 address",
+          "const": true
+        },
+        "is_ipv6": {
+          "type": "boolean",
+          "description": "Assert value is a valid IPv6 address",
+          "const": true
+        },
+        "empty": {
+          "type": "boolean",
+          "description": "Assert value is empty (strings, arrays, objects, or null)",
+          "const": true
+        },
+        "is_empty": {
+          "type": "boolean",
+          "description": "Alias for empty; assert value is empty (strings, arrays, objects, or null)",
+          "const": true
+        },
         "not_empty": {
           "type": "boolean",
           "description": "Assert value is not empty (strings, arrays, objects)",
           "const": true
+        },
+        "bytes": {
+          "type": "integer",
+          "description": "Assert byte length of the matched value. For `$`, uses the raw response body bytes.",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "description": "Assert SHA-256 hex digest of the matched value. For `$`, uses the raw response body bytes."
+        },
+        "md5": {
+          "type": "string",
+          "description": "Assert MD5 hex digest of the matched value. For `$`, uses the raw response body bytes."
         },
         "exists": {
           "type": "boolean",

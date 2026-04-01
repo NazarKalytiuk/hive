@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Demo server cookies
+steps:
+  - name: Issue cookies
+    request:
+      method: GET
+      url: "{{ env.base_url }}/cookies/set"
+    capture:
+      session_cookie:
+        cookie: "session"
+      area_cookie:
+        cookie: "area"
+    assert:
+      status: 200
+      body:
+        "$.issued": true
+
+  - name: Cookies attach on matching path
+    request:
+      method: GET
+      url: "{{ env.base_url }}/cookies/check"
+    assert:
+      status: 200
+      body:
+        "$.session": "abc123"
+        "$.area": null
+
+  - name: Path-scoped cookie only appears under /cookies/area
+    request:
+      method: GET
+      url: "{{ env.base_url }}/cookies/area/check"
+    assert:
+      status: 200
+      body:
+        "$.session": "abc123"
+        "$.area": "dashboard"
