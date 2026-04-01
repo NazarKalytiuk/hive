@@ -11,10 +11,7 @@ use crate::http::HttpResponse;
 use crate::model::Assertion;
 
 /// Run all assertions for a step and return results.
-pub fn run_assertions(
-    assertion: &Assertion,
-    response: &HttpResponse,
-) -> Vec<AssertionResult> {
+pub fn run_assertions(assertion: &Assertion, response: &HttpResponse) -> Vec<AssertionResult> {
     let mut results = Vec::new();
 
     // Status assertion
@@ -24,7 +21,10 @@ pub fn run_assertions(
 
     // Duration assertion
     if let Some(ref duration_spec) = assertion.duration {
-        results.push(duration::assert_duration(duration_spec, response.duration_ms));
+        results.push(duration::assert_duration(
+            duration_spec,
+            response.duration_ms,
+        ));
     }
 
     // Redirect assertions

@@ -758,12 +758,7 @@ fn run_step(
             jar.capture_from_response(&response.url, &response.raw_headers);
         }
 
-        record_redacted_capture_candidates(
-            &response,
-            &step.capture,
-            redaction,
-            redacted_values,
-        );
+        record_redacted_capture_candidates(&response, &step.capture, redaction, redacted_values);
 
         if opts.verbose {
             eprintln!("  <-- {} ({}ms)", response.status, response.duration_ms);
@@ -935,12 +930,7 @@ fn run_step_poll(
             jar.capture_from_response(&response.url, &response.raw_headers);
         }
 
-        record_redacted_capture_candidates(
-            &response,
-            &step.capture,
-            redaction,
-            redacted_values,
-        );
+        record_redacted_capture_candidates(&response, &step.capture, redaction, redacted_values);
 
         // Check poll.until condition
         let until_interpolated = interpolate_assertion(&poll.until, &request.ctx);
@@ -1357,12 +1347,7 @@ steps:
         };
         let mut values = BTreeSet::new();
 
-        record_redacted_capture_candidates(
-            &response,
-            &capture_map,
-            &redaction,
-            &mut values,
-        );
+        record_redacted_capture_candidates(&response, &capture_map, &redaction, &mut values);
 
         assert_eq!(
             values.into_iter().collect::<Vec<_>>(),
@@ -1526,13 +1511,7 @@ steps:
         email: "user@example.com"
 "#;
         let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
-        let request = prepare_request(
-            &tf.steps[0],
-            &HashMap::new(),
-            &HashMap::new(),
-            &tf,
-            None,
-        );
+        let request = prepare_request(&tf.steps[0], &HashMap::new(), &HashMap::new(), &tf, None);
 
         assert_eq!(
             request.headers.get("Content-Type"),
