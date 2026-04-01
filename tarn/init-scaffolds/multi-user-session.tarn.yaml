@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Multi-user session flow
+description: Use named cookie jars to model two different browser sessions.
+tags: [cookies, multi-user]
+
+steps:
+  - name: Login as Alice
+    cookies: "alice"
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      form:
+        email: "{{ env.alice_email }}"
+        password: "{{ env.alice_password }}"
+    assert:
+      status: 200
+
+  - name: Login as Bob
+    cookies: "bob"
+    request:
+      method: POST
+      url: "{{ env.base_url }}/auth/login"
+      form:
+        email: "{{ env.bob_email }}"
+        password: "{{ env.bob_password }}"
+    assert:
+      status: 200
+
+  - name: Alice sees her dashboard
+    cookies: "alice"
+    request:
+      method: GET
+      url: "{{ env.base_url }}/dashboard"
+    assert:
+      status: 200
+
+  - name: Bob sees his dashboard
+    cookies: "bob"
+    request:
+      method: GET
+      url: "{{ env.base_url }}/dashboard"
+    assert:
+      status: 200

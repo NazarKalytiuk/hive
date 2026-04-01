@@ -1396,27 +1396,27 @@ parallel: false
     let files = [
         (
             "tests/health.tarn.yaml",
-            include_str!("../../examples/init/health.tarn.yaml"),
+            include_str!("../init-scaffolds/health.tarn.yaml"),
         ),
         (
             "examples/auth-flow.tarn.yaml",
-            include_str!("../../examples/init/auth-flow.tarn.yaml"),
+            include_str!("../init-scaffolds/auth-flow.tarn.yaml"),
         ),
         (
             "examples/polling-job.tarn.yaml",
-            include_str!("../../examples/init/polling-job.tarn.yaml"),
+            include_str!("../init-scaffolds/polling-job.tarn.yaml"),
         ),
         (
             "examples/multipart-upload.tarn.yaml",
-            include_str!("../../examples/init/multipart-upload.tarn.yaml"),
+            include_str!("../init-scaffolds/multipart-upload.tarn.yaml"),
         ),
         (
             "examples/multi-user-session.tarn.yaml",
-            include_str!("../../examples/init/multi-user-session.tarn.yaml"),
+            include_str!("../init-scaffolds/multi-user-session.tarn.yaml"),
         ),
         (
             "fixtures/upload-demo.txt",
-            include_str!("../../examples/init/fixtures/upload-demo.txt"),
+            include_str!("../init-scaffolds/fixtures/upload-demo.txt"),
         ),
         ("tarn.env.yaml", env_file),
         ("tarn.config.yaml", config_file),

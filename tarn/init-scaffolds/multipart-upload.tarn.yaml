@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/tarn/main/schemas/v1/testfile.json
+name: Multipart upload
+description: Upload a file with extra form fields.
+tags: [multipart, upload]
+
+steps:
+  - name: Upload sample document
+    request:
+      method: POST
+      url: "{{ env.base_url }}/upload"
+      multipart:
+        fields:
+          - name: "title"
+            value: "Quarterly report"
+          - name: "folder"
+            value: "incoming"
+        files:
+          - name: "file"
+            path: "./fixtures/upload-demo.txt"
+            content_type: "text/plain"
+    assert:
+      status: 201
