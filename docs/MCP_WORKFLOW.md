@@ -2,6 +2,27 @@
 
 Tarn's MCP server exists to keep the agent on a structured tool surface instead of asking it to parse shell output.
 
+## Setup
+
+The recommended setup is a project-level `.mcp.json` in the repo root:
+
+```json
+{
+  "mcpServers": {
+    "tarn": {
+      "command": "tarn-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+This is portable across Claude Code and other MCP-compatible tools. See `skills/tarn-api-testing/references/mcp-integration.md` for editor-specific alternatives (`.claude/settings.json`, `.cursor/mcp.json`, `.windsurf/mcp.json`).
+
+## Claude Code Skill
+
+The `skills/tarn-api-testing/` directory provides a Claude Code skill that gives the agent structured knowledge about Tarn's workflow, commands, test file format, assertions, captures, and failure diagnosis. When the skill is loaded, the agent can write, run, and debug Tarn tests without needing external documentation.
+
 ## Available Tools
 
 - `tarn_list`

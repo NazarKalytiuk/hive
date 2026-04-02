@@ -113,6 +113,8 @@ There are more local scenarios in `examples/demo-server/` for redirects, cookies
 - [Output Formats](#output-formats)
 - [Performance Testing](#performance-testing)
 - [MCP Server](#mcp-server)
+- [Claude Code Plugin](#claude-code-plugin)
+- [Claude Code Skill](#claude-code-skill)
 - [Troubleshooting](#troubleshooting)
 - [GitHub Action](#github-action)
 - [Configuration](#configuration)
@@ -132,6 +134,11 @@ If you are looking for product direction or comparisons, start with:
 - [`docs/TARN_VS_HURL_COMPARISON.md`](./docs/TARN_VS_HURL_COMPARISON.md)
 - [`docs/HURL_MIGRATION.md`](./docs/HURL_MIGRATION.md)
 - [`docs/TARN_COMPETITIVENESS_ROADMAP.md`](./docs/TARN_COMPETITIVENESS_ROADMAP.md)
+
+For AI-assisted workflows, see also:
+- [Claude Code Plugin](#claude-code-plugin) &mdash; install Tarn as a Claude Code plugin
+- [Claude Code Skill](#claude-code-skill) &mdash; structured knowledge for AI agents
+- [`docs/MCP_WORKFLOW.md`](./docs/MCP_WORKFLOW.md) &mdash; MCP server usage patterns
 
 A lightweight static docs site now lives in [`docs/site/index.html`](./docs/site/index.html) and is deployable via GitHub Pages from `.github/workflows/docs-site.yml`.
 
@@ -987,7 +994,20 @@ Tarn includes an MCP (Model Context Protocol) server for direct integration with
 
 ### Setup
 
-Add to your Claude Code project settings (`.claude/settings.json`):
+The simplest approach is a project-level `.mcp.json` in the repo root (works with Claude Code and other MCP-compatible tools):
+
+```json
+{
+  "mcpServers": {
+    "tarn": {
+      "command": "tarn-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Alternatively, add to your Claude Code project settings (`.claude/settings.json`):
 
 ```json
 {
@@ -1033,7 +1053,58 @@ Typical agent loop:
 6. patch the test or application code
 7. rerun until summary status is `PASSED`
 
-See [docs/MCP_WORKFLOW.md](/Users/nazarkalituk/Documents/hive-api-test/docs/MCP_WORKFLOW.md), [docs/AI_WORKFLOW_DEMO.md](/Users/nazarkalituk/Documents/hive-api-test/docs/AI_WORKFLOW_DEMO.md), and [docs/CONFORMANCE.md](/Users/nazarkalituk/Documents/hive-api-test/docs/CONFORMANCE.md).
+See [docs/MCP_WORKFLOW.md](./docs/MCP_WORKFLOW.md), [docs/AI_WORKFLOW_DEMO.md](./docs/AI_WORKFLOW_DEMO.md), and [docs/CONFORMANCE.md](./docs/CONFORMANCE.md).
+
+## Claude Code Plugin
+
+Tarn is available as a Claude Code plugin. The plugin bundles the MCP server and the Tarn skill, so installing it gives your agent structured API testing capabilities out of the box.
+
+The plugin metadata lives in `.claude-plugin/`:
+
+- **`plugin.json`** &mdash; name, version, description, author, and repository URL
+- **`marketplace.json`** &mdash; marketplace listing with owner info and plugin registry
+
+To use the plugin in a project, add the MCP server to your project-level `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "tarn": {
+      "command": "tarn-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+This is equivalent to configuring the MCP server in `.claude/settings.json` but is portable across editors and tools that support MCP.
+
+## Claude Code Skill
+
+The `skills/tarn-api-testing/` directory contains a Claude Code skill that teaches AI agents how to write, run, debug, and iterate on Tarn tests. The skill is automatically loaded when an agent encounters API testing tasks.
+
+**What the skill provides:**
+
+- Core workflow (write &rarr; validate &rarr; run &rarr; inspect &rarr; fix &rarr; rerun)
+- Complete command reference with all CLI flags
+- Test file format with minimal and full-featured examples
+- Environment variable resolution chain
+- Capture formats (JSONPath, headers, cookies, URL, status, body)
+- Assertion operator quick reference
+- JSON output schema and failure category taxonomy
+- Diagnosis loop for structured failure triage
+- MCP integration setup for Claude Code, Cursor, and Windsurf
+
+**Reference docs** in `skills/tarn-api-testing/references/`:
+
+| File | Contents |
+|------|----------|
+| `yaml-format.md` | Complete `.tarn.yaml` schema with all properties |
+| `assertion-reference.md` | Every assertion operator with examples |
+| `json-output.md` | Structured JSON report schema and diagnosis algorithm |
+| `mcp-integration.md` | MCP server setup and tool reference |
+
+The skill triggers on keywords like "API test", "tarn", ".tarn.yaml", "test this endpoint", "smoke test", and "integration test for API".
 
 ## Troubleshooting
 

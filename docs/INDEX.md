@@ -34,6 +34,25 @@ This index lists the canonical repository markdown after the roadmap cleanup.
 
 - `docs/LAUNCH_PLAYBOOK.md`
 
+### AI Integration
+
+- `.claude-plugin/plugin.json`
+  - Claude Code plugin metadata (name, version, description, repository)
+- `.claude-plugin/marketplace.json`
+  - marketplace listing with owner info and plugin registry
+- `skills/tarn-api-testing/SKILL.md`
+  - Claude Code skill: teaches AI agents Tarn's workflow, commands, file format, and diagnosis loop
+- `skills/tarn-api-testing/references/yaml-format.md`
+  - complete `.tarn.yaml` schema reference
+- `skills/tarn-api-testing/references/assertion-reference.md`
+  - every assertion operator with examples
+- `skills/tarn-api-testing/references/json-output.md`
+  - structured JSON report schema and diagnosis algorithm
+- `skills/tarn-api-testing/references/mcp-integration.md`
+  - MCP server setup and tool reference for Claude Code, Cursor, and Windsurf
+- `.mcp.json`
+  - project-level MCP server configuration (portable across MCP-compatible tools)
+
 ### Workflow and Operations
 
 - `docs/MCP_WORKFLOW.md`
