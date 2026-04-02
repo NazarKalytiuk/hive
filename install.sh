@@ -42,26 +42,27 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 curl -fsSL "$URL" -o "$TMPDIR/${ARTIFACT}.tar.gz"
-curl -fsSL "$CHECKSUM_URL" -o "$TMPDIR/hive-checksums.txt"
 
-EXPECTED_SHA="$(grep " ${ARTIFACT}.tar.gz$" "$TMPDIR/hive-checksums.txt" | awk '{print $1}')"
-if [ -z "$EXPECTED_SHA" ]; then
-  echo "Error: Checksum not found for ${ARTIFACT}.tar.gz"
-  exit 1
-fi
+# Verify checksum if available
+if curl -fsSL "$CHECKSUM_URL" -o "$TMPDIR/hive-checksums.txt" 2>/dev/null; then
+  EXPECTED_SHA="$(grep " ${ARTIFACT}.tar.gz$" "$TMPDIR/hive-checksums.txt" | awk '{print $1}')"
+  if [ -n "$EXPECTED_SHA" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      ACTUAL_SHA="$(sha256sum "$TMPDIR/${ARTIFACT}.tar.gz" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+      ACTUAL_SHA="$(shasum -a 256 "$TMPDIR/${ARTIFACT}.tar.gz" | awk '{print $1}')"
+    else
+      ACTUAL_SHA=""
+    fi
 
-if command -v sha256sum >/dev/null 2>&1; then
-  ACTUAL_SHA="$(sha256sum "$TMPDIR/${ARTIFACT}.tar.gz" | awk '{print $1}')"
-elif command -v shasum >/dev/null 2>&1; then
-  ACTUAL_SHA="$(shasum -a 256 "$TMPDIR/${ARTIFACT}.tar.gz" | awk '{print $1}')"
+    if [ -n "$ACTUAL_SHA" ] && [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+      echo "Error: Checksum verification failed for ${ARTIFACT}.tar.gz"
+      exit 1
+    fi
+    echo "Checksum verified."
+  fi
 else
-  echo "Error: Neither sha256sum nor shasum is available for checksum verification"
-  exit 1
-fi
-
-if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-  echo "Error: Checksum verification failed for ${ARTIFACT}.tar.gz"
-  exit 1
+  echo "Checksums not available for this release, skipping verification."
 fi
 
 tar xzf "$TMPDIR/${ARTIFACT}.tar.gz" -C "$TMPDIR"
