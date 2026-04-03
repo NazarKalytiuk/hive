@@ -43,6 +43,7 @@ class Tarn < Formula
 
   def install
     bin.install "tarn"
+    bin.install "tarn-mcp"
   end
 
   test do

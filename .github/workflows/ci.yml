@@ -72,7 +72,7 @@ jobs:
         run: cargo package -p tarn
 
       - name: Build release binaries
-        run: cargo build --release -p tarn -p demo-server
+        run: cargo build --release -p tarn -p tarn-mcp -p demo-server
 
       - name: Release-path smoke test
         if: matrix.run_smoke

@@ -64,24 +64,26 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p tarn
+        run: cargo build --release --target ${{ matrix.target }} -p tarn -p tarn-mcp
 
       - name: Package unix archives
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir package
-          cp target/${{ matrix.target }}/release/${{ matrix.binary }} package/tarn
-          chmod +x package/tarn
-          tar czf ${{ matrix.artifact }}.tar.gz -C package tarn
+          cp target/${{ matrix.target }}/release/tarn package/tarn
+          cp target/${{ matrix.target }}/release/tarn-mcp package/tarn-mcp
+          chmod +x package/tarn package/tarn-mcp
+          tar czf ${{ matrix.artifact }}.tar.gz -C package tarn tarn-mcp
 
       - name: Package windows archives
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path package | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "package/tarn.exe"
-          Compress-Archive -Path package/tarn.exe -DestinationPath "${{ matrix.artifact }}.zip" -Force
+          Copy-Item "target/${{ matrix.target }}/release/tarn.exe" "package/tarn.exe"
+          Copy-Item "target/${{ matrix.target }}/release/tarn-mcp.exe" "package/tarn-mcp.exe"
+          Compress-Archive -Path package/tarn.exe,package/tarn-mcp.exe -DestinationPath "${{ matrix.artifact }}.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:

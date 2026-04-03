@@ -68,17 +68,33 @@ fi
 tar xzf "$TMPDIR/${ARTIFACT}.tar.gz" -C "$TMPDIR"
 
 # Install
-if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMPDIR/tarn" "$INSTALL_DIR/tarn" 2>/dev/null || mv "$TMPDIR/$ARTIFACT" "$INSTALL_DIR/tarn"
-else
-  echo "Need sudo to install to $INSTALL_DIR"
-  sudo mv "$TMPDIR/tarn" "$INSTALL_DIR/tarn" 2>/dev/null || sudo mv "$TMPDIR/$ARTIFACT" "$INSTALL_DIR/tarn"
-fi
+for BIN in tarn tarn-mcp; do
+  if [ -f "$TMPDIR/$BIN" ]; then
+    if [ -w "$INSTALL_DIR" ]; then
+      mv "$TMPDIR/$BIN" "$INSTALL_DIR/$BIN"
+    else
+      echo "Need sudo to install to $INSTALL_DIR"
+      sudo mv "$TMPDIR/$BIN" "$INSTALL_DIR/$BIN"
+    fi
+    chmod +x "$INSTALL_DIR/$BIN"
+  fi
+done
 
-chmod +x "$INSTALL_DIR/tarn"
+# Fallback for older releases that used the artifact name as the binary
+if [ ! -f "$INSTALL_DIR/tarn" ] && [ -f "$TMPDIR/$ARTIFACT" ]; then
+  if [ -w "$INSTALL_DIR" ]; then
+    mv "$TMPDIR/$ARTIFACT" "$INSTALL_DIR/tarn"
+  else
+    sudo mv "$TMPDIR/$ARTIFACT" "$INSTALL_DIR/tarn"
+  fi
+  chmod +x "$INSTALL_DIR/tarn"
+fi
 
 echo ""
 echo "  Tarn ${TAG} installed to ${INSTALL_DIR}/tarn"
+if [ -f "$INSTALL_DIR/tarn-mcp" ]; then
+  echo "  Tarn MCP ${TAG} installed to ${INSTALL_DIR}/tarn-mcp"
+fi
 echo ""
 echo "  Run 'tarn --help' to get started"
 echo ""
