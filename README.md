@@ -1074,11 +1074,17 @@ Tarn is available as a Claude Code plugin. The plugin bundles the MCP server and
 
 ### Install the plugin
 
+Tarn is published as a Claude Code **marketplace** (a registry that can contain multiple plugins). Installation is two steps:
+
 ```bash
-claude plugin add NazarKalytiuk/hive
+# 1. Register the marketplace
+claude plugin marketplace add NazarKalytiuk/hive
+
+# 2. Install the Tarn plugin from it
+claude plugin install tarn@tarn
 ```
 
-This registers the Tarn MCP server and skill in your project. After installing, Claude Code can write, run, and debug `.tarn.yaml` tests directly.
+After installing, Claude Code can write, run, and debug `.tarn.yaml` tests directly via the bundled MCP server and skill.
 
 ### Manual setup
 
