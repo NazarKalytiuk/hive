@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.10.0 — Phase 3 complete: YAML grammar injection for interpolation
+
+Seventh and final Phase 3 feature: the TextMate grammar shipped in
+`syntaxes/tarn.tmLanguage.json` now assigns distinct scope names to
+every part of a `{{ ... }}` interpolation so themes and the language
+providers can discriminate between env keys, capture names, and
+built-in functions.
+
+### Changed
+
+- **`meta.template.tarn`** is the wrapper scope on the entire
+  `{{ ... }}` range (previously `meta.interpolation.tarn`).
+- **`keyword.control.template.begin.tarn`** and
+  **`keyword.control.template.end.tarn`** scopes are added to the
+  `{{` / `}}` delimiters alongside the standard
+  `punctuation.definition.template.begin/end.tarn` names so both
+  theme families highlight the braces.
+- **`variable.other.env.tarn`** now scopes `env.KEY` references
+  (was grouped with captures under `variable.other.readwrite.tarn`).
+  The rule splits into two capture groups — the `env` namespace
+  token and the key identifier — so themes that distinguish
+  namespace from identifier render correctly.
+- **`variable.other.capture.tarn`** does the same for
+  `capture.NAME` references.
+- **`support.function.builtin.tarn`** (unchanged) matches every
+  Tarn runtime built-in: `$uuid`, `$timestamp`, `$now_iso`,
+  `$random_hex`, `$random_int`.
+- `support.function.transform.tarn` and
+  `keyword.operator.pipeline.tarn` are preserved from the
+  previous grammar for the transform-lite pipeline.
+
+### Tests
+
+- **10 new unit tests** in `grammar.test.ts` load the grammar JSON,
+  walk every pattern + capture entry, flatten space-separated scope
+  names, and assert the expected scopes are declared. The tests
+  also exercise the actual regexes against realistic tokens
+  (`env.base_url`, `capture.auth_token`, every `$builtin` name) so
+  regressions on the underlying matching rules surface immediately.
+- Extension unit tests: **121 → 131 passing**.
+- Integration tests unchanged: 37/37 passing.
+
+### Manual verification
+
+The grammar's theme rendering is intentionally not covered by
+automated tests (VS Code does not expose tokenization via a public
+API). Visual verification on the Default Dark+ and Default Light+
+themes stays the responsibility of the release smoke-test.
+
+### Phase 3 status
+
+Phase 3 is now complete (NAZ-263 through NAZ-269). The extension
+has a full authoring surface: diagnostics on save, environments
+tree view, completion, hover, go-to-definition / references /
+rename, `tarn fmt` format provider, and distinct grammar scopes.
+Next up: Phase 4 rich-UX features (NAZ-270 through NAZ-278), with
+NAZ-272 Request/Response Inspector as the highest priority.
+
 ## 0.9.0 — Phase 3: `tarn fmt` format provider
 
 Sixth Phase 3 feature: VS Code's Format Document action now

@@ -22,23 +22,41 @@
     "interpolation": {
       "patterns": [
         {
-          "name": "meta.interpolation.tarn",
+          "name": "meta.template.tarn",
           "begin": "\\{\\{",
           "beginCaptures": {
             "0": {
-              "name": "punctuation.definition.template.begin.tarn"
+              "name": "keyword.control.template.begin.tarn punctuation.definition.template.begin.tarn"
             }
           },
           "end": "\\}\\}",
           "endCaptures": {
             "0": {
-              "name": "punctuation.definition.template.end.tarn"
+              "name": "keyword.control.template.end.tarn punctuation.definition.template.end.tarn"
             }
           },
           "patterns": [
             {
-              "match": "\\b(env|capture)\\.[A-Za-z0-9_.-]+\\b",
-              "name": "variable.other.readwrite.tarn"
+              "match": "\\b(env)\\.([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": {
+                  "name": "variable.other.env.tarn support.type.env.tarn"
+                },
+                "2": {
+                  "name": "variable.other.env.tarn entity.name.variable.env.tarn"
+                }
+              }
+            },
+            {
+              "match": "\\b(capture)\\.([A-Za-z_][A-Za-z0-9_]*)",
+              "captures": {
+                "1": {
+                  "name": "variable.other.capture.tarn support.type.capture.tarn"
+                },
+                "2": {
+                  "name": "variable.other.capture.tarn entity.name.variable.capture.tarn"
+                }
+              }
             },
             {
               "match": "\\$(uuid|timestamp|now_iso|random_hex|random_int)\\b",
