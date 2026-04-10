@@ -1,0 +1,14 @@
+version: "1"
+name: "Fixture: health check"
+description: "Integration test fixture"
+
+tests:
+  service_is_up:
+    description: "Pings the public httpbin 200 endpoint"
+    steps:
+      - name: GET /status/200
+        request:
+          method: GET
+          url: "https://httpbin.org/status/200"
+        assert:
+          status: 200
