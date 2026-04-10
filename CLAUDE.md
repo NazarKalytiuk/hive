@@ -21,6 +21,40 @@ cargo clippy                   # lint
 cargo fmt                      # format
 ```
 
+## Mandatory Pre-Commit Checks
+
+Always run these commands before every commit and push. Do not skip them — CI will fail otherwise. This has caused repeated CI failures across multiple sessions.
+
+```bash
+cargo fmt                      # fix formatting FIRST
+cargo clippy -- -D warnings    # then fix all warnings
+cargo test                     # then verify tests pass
+```
+
+Do not commit or push if any of these fail. Fix the issue, then commit.
+
+## Rules Learned From Past Mistakes
+
+### Quality gates
+- Never suppress linter/clippy warnings with `#[allow(...)]`. Always fix the root cause — refactor functions, extract structs, simplify signatures. Suppression is not a fix. (User explicitly rejected this approach.)
+- Never dismiss a failing test as "flaky" or "pre-existing" without investigating. Read the test, understand why it fails, fix it. Every test failure is a real signal until proven otherwise.
+- Do not commit/push with known failing tests. If tests fail, fix them first — even if they look unrelated to your changes.
+
+### Verification
+- Always verify artifacts from the real production URL/endpoint, never from local files. For install scripts: `curl <url> | sh`, not `sh ./local/path/install.sh`. For release assets: download from GitHub releases, not from the local build. (User was frustrated twice by this.)
+- When writing or updating docs (README, install instructions), verify every command and URL actually works end-to-end before committing. If a doc references a binary or asset, confirm it exists in the release pipeline.
+
+### Bulk operations (renames, URL changes)
+- After any bulk rename or URL change, run a project-wide grep to verify zero remaining references to the old name. Check: source code (struct/enum names, string literals), documentation (*.md), CI/CD configs (*.yml), scripts (*.sh), Cargo.toml, and schemas. One pass is never enough — always verify with grep.
+
+### Releases and versioning
+- When shipping a new binary, changing distribution channels, or making breaking changes: always bump the version in Cargo.toml (and any other version references). Do not wait to be asked.
+- Think from the user's perspective when shipping: "How does a user get this fix?" Create a proper release — do not replace local binaries or suggest manual workarounds.
+
+### Documentation accuracy
+- Never reference URLs, domains, or external resources without verifying they exist. Do not fabricate domains (e.g., `tarn.dev` was invented and does not exist).
+- When documenting features, verify the feature is actually shipped in the release pipeline. If `tarn-mcp` is not in the release workflow, do not document it as available to users.
+
 ## Architecture
 
 The codebase follows a pipeline architecture: **parse YAML -> resolve env/variables -> execute HTTP -> assert responses -> report results**.
