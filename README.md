@@ -855,6 +855,7 @@ tarn completions <SHELL>           Generate shell completions
 | `-v, --verbose` | Print full request/response for every step |
 | `--only-failed` | Show only failed tests and steps (summary counts stay accurate) |
 | `--no-progress` | Disable streaming progress output; print the final report in one batch |
+| `--ndjson` | Stream machine-readable NDJSON events to stdout (for editor integrations, MCP, structured CI) |
 | `--dry-run` | Show interpolated requests without sending |
 | `-w, --watch` | Re-run on file changes |
 | `--parallel` | Run test files in parallel |
@@ -899,6 +900,32 @@ By default `tarn run` streams per-test output as each test finishes instead of d
 - **Stdout is a structured format** (`json`, `junit`, `tap`, `html`, `curl`) &mdash; progress streams to stderr so stdout stays pure and parseable.
 
 Pass `--no-progress` to disable streaming entirely and restore the old "batch at end" behaviour (useful for CI logs that already capture per-line timestamps).
+
+### NDJSON Streaming (`--ndjson`)
+
+`tarn run --ndjson` streams machine-readable events to stdout, one JSON object per line. Designed for editor integrations (live Test Explorer updates), MCP clients, and CI pipelines that want structured progress without post-processing the final report.
+
+Event types, in order:
+
+- `file_started` &mdash; a test file has begun running
+- `step_finished` &mdash; one step finished (with `phase: "setup" | "test" | "teardown"`). On failure, also carries `failure_category`, `error_code`, and `assertion_failures[]`
+- `test_finished` &mdash; a named test finished, with per-step counts
+- `file_finished` &mdash; a file finished, with its own summary
+- `done` &mdash; emitted once at the very end, carrying the aggregated summary for the whole run
+
+`--ndjson` composes with file-bound `--format` targets, so you can stream live progress **and** write a final report at the same time:
+
+```bash
+# Stream NDJSON to stdout, final JSON report to disk
+tarn run --ndjson --format json=reports/run.json | jq '.event'
+
+# Pure NDJSON (default human output is silently dropped on stdout)
+tarn run --ndjson
+```
+
+`--ndjson` collides with any other structured format writing to stdout (e.g. `--format json`). Route the other format to a file, or pick one of the two streams.
+
+In parallel mode (`--parallel`), each file's event stream is emitted atomically on `file_finished` so events from concurrently running files never interleave.
 
 `--only-failed` works with both streaming and batch modes: passing tests and steps are omitted everywhere, but the final summary still reports total passed/failed counts.
 

@@ -15,7 +15,7 @@ use tarn::model::{HttpTransportConfig, HttpVersionPreference, TestFile};
 use tarn::model::Defaults;
 use tarn::parser;
 use tarn::report::json::JsonOutputMode;
-use tarn::report::progress::{HumanProgress, ProgressMode, ProgressReporter};
+use tarn::report::progress::{HumanProgress, NdjsonProgress, ProgressMode, ProgressReporter};
 use tarn::report::{self, OutputFormat, OutputTarget, RenderOptions};
 use tarn::runner;
 use tarn::selector::{self, Selector};
@@ -71,6 +71,11 @@ enum Commands {
         /// Disable streaming progress output (print the final report in one batch)
         #[arg(long = "no-progress")]
         no_progress: bool,
+
+        /// Stream NDJSON events to stdout for machine-readable progress.
+        /// Mutually exclusive with any --format target that writes to stdout.
+        #[arg(long = "ndjson", conflicts_with = "no_progress")]
+        ndjson: bool,
 
         /// Show interpolated requests without sending them
         #[arg(long)]
@@ -284,6 +289,7 @@ fn main() {
             verbose,
             only_failed,
             no_progress,
+            ndjson,
             dry_run,
             watch,
             parallel,
@@ -308,6 +314,7 @@ fn main() {
             verbose,
             only_failed,
             no_progress,
+            ndjson,
             dry_run,
             watch,
             parallel,
@@ -399,6 +406,7 @@ fn run_command(
     verbose: bool,
     only_failed: bool,
     no_progress: bool,
+    ndjson: bool,
     dry_run: bool,
     watch: bool,
     parallel: bool,
@@ -477,6 +485,23 @@ fn run_command(
 
     let render_opts = RenderOptions { only_failed };
 
+    // Validate --ndjson does not collide with a non-human stdout format.
+    // A stdout-bound `human` target is the default and gets silently
+    // dropped by the NDJSON emitter (handled via suppress_stdout_outputs
+    // inside execute_run). Any other structured format on stdout would
+    // tear the NDJSON stream, so refuse the run.
+    if ndjson {
+        let conflicting_stdout_format = output_targets.iter().any(|t| {
+            t.writes_to_stdout() && t.path.is_none() && !matches!(t.format, OutputFormat::Human)
+        });
+        if conflicting_stdout_format {
+            eprintln!(
+                "Error: --ndjson writes to stdout and conflicts with another --format target that also writes to stdout. Route the other format to a file (e.g. --format json=run.json)."
+            );
+            return 2;
+        }
+    }
+
     // Build the run closure (used by both normal and watch mode)
     let do_run = |run_files: &[String]| {
         execute_run(
@@ -490,6 +515,7 @@ fn run_command(
             json_output_mode,
             render_opts,
             no_progress,
+            ndjson,
             cookie_jar_path,
             effective_parallel,
             jobs,
@@ -515,6 +541,7 @@ fn execute_run(
     json_output_mode: JsonOutputMode,
     render_opts: RenderOptions,
     no_progress: bool,
+    ndjson: bool,
     cookie_jar_path: Option<&str>,
     parallel: bool,
     jobs: Option<usize>,
@@ -525,12 +552,22 @@ fn execute_run(
         matches!(t.format, OutputFormat::Human) && t.writes_to_stdout() && t.path.is_none()
     });
 
-    let progress = if no_progress {
+    let progress: Option<Box<dyn ProgressReporter + Send + Sync>> = if ndjson {
+        let mode = if parallel {
+            ProgressMode::Parallel
+        } else {
+            ProgressMode::Sequential
+        };
+        Some(Box::new(NdjsonProgress::new(
+            Box::new(std::io::stdout()),
+            mode,
+        )))
+    } else if no_progress {
         None
     } else {
         build_progress_reporter(parallel, human_on_stdout, render_opts)
     };
-    let streamed_human_to_stdout = progress.is_some() && human_on_stdout;
+    let streamed_human_to_stdout = progress.is_some() && !ndjson && human_on_stdout;
     let progress_ref: Option<&(dyn ProgressReporter + Send + Sync)> = progress
         .as_ref()
         .map(|p| p.as_ref() as &(dyn ProgressReporter + Send + Sync));
@@ -572,12 +609,21 @@ fn execute_run(
         duration_ms: start.elapsed().as_millis() as u64,
     };
 
+    if let Some(p) = progress_ref {
+        p.run_finished(&run_result);
+    }
+
+    // Suppress batch outputs to stdout when --ndjson owns stdout. The final
+    // JSON report is still emitted to any file-bound --format target.
+    let suppress_stdout_outputs = ndjson;
+
     if let Err(e) = emit_run_outputs(
         &run_result,
         output_targets,
         json_output_mode,
         render_opts,
         streamed_human_to_stdout,
+        suppress_stdout_outputs,
     ) {
         eprintln!("Error: {}", e);
         return 3;
@@ -634,8 +680,12 @@ fn emit_run_outputs(
     json_output_mode: JsonOutputMode,
     render_opts: RenderOptions,
     streamed_human_to_stdout: bool,
+    suppress_stdout_outputs: bool,
 ) -> Result<(), String> {
     for target in output_targets {
+        if suppress_stdout_outputs && target.writes_to_stdout() && target.path.is_none() {
+            continue;
+        }
         let is_stdout_human = matches!(target.format, OutputFormat::Human)
             && target.writes_to_stdout()
             && target.path.is_none();
@@ -1804,6 +1854,7 @@ steps:
             ],
             JsonOutputMode::Verbose,
             RenderOptions::default(),
+            false,
             false,
         )
         .unwrap();

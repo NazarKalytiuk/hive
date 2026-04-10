@@ -2361,3 +2361,222 @@ fn selector_file_mismatch_skips_file() {
     let tests = parsed["files"][0]["tests"].as_array().unwrap();
     assert!(tests.is_empty(), "no tests should run: {:?}", tests);
 }
+
+// ============================================================================
+// T53: --ndjson streaming reporter
+// ============================================================================
+
+#[test]
+fn ndjson_streams_events_to_stdout_and_emits_done() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "ndjson.tarn.yaml",
+        &format!(
+            r#"
+name: NDJSON fixture
+tests:
+  good:
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+  bad:
+    steps:
+      - name: wrong status
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 418
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn().args(["run", &file, "--ndjson"]).output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1), "suite has a failing test");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("every ndjson line must parse"))
+        .collect();
+
+    let names: Vec<&str> = events
+        .iter()
+        .map(|e| e["event"].as_str().unwrap())
+        .collect();
+
+    assert!(
+        names.contains(&"file_started"),
+        "missing file_started: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"step_finished"),
+        "missing step_finished: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"test_finished"),
+        "missing test_finished: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"file_finished"),
+        "missing file_finished: {:?}",
+        names
+    );
+    assert_eq!(
+        names.last().copied(),
+        Some("done"),
+        "done must be the final event: {:?}",
+        names
+    );
+
+    let done = events.iter().find(|e| e["event"] == "done").unwrap();
+    assert_eq!(done["summary"]["status"], "FAILED");
+    assert_eq!(done["summary"]["files"], 1);
+    assert_eq!(done["summary"]["steps"]["total"], 2);
+    assert_eq!(done["summary"]["steps"]["passed"], 1);
+    assert_eq!(done["summary"]["steps"]["failed"], 1);
+
+    // Failed step carries failure category and assertion details.
+    let failing_step = events
+        .iter()
+        .find(|e| e["event"] == "step_finished" && e["status"] == "FAILED")
+        .expect("missing failed step_finished event");
+    assert_eq!(failing_step["test"], "bad");
+    assert_eq!(failing_step["failure_category"], "assertion_failed");
+    assert_eq!(failing_step["error_code"], "assertion_mismatch");
+    let failures = failing_step["assertion_failures"].as_array().unwrap();
+    assert_eq!(failures[0]["assertion"], "status");
+}
+
+#[test]
+fn ndjson_conflicts_with_non_human_stdout_format() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "x.tarn.yaml",
+        r#"
+name: Stub
+tests:
+  t:
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: "http://127.0.0.1:1/"
+"#,
+    );
+
+    // --ndjson + --format json on stdout is a hard conflict — two
+    // different structured streams cannot share stdout. Expect exit 2.
+    let output = tarn()
+        .args(["run", &file, "--ndjson", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--ndjson") && stderr.contains("stdout"),
+        "expected stdout-conflict error, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn ndjson_silently_suppresses_default_human_on_stdout() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "default_human.tarn.yaml",
+        &format!(
+            r#"
+name: Default human
+tests:
+  t:
+    steps:
+      - name: ping
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn().args(["run", &file, "--ndjson"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // Every non-empty line must be a JSON object.
+    for line in stdout.lines().filter(|l| !l.is_empty()) {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|e| panic!("non-JSON line leaked into stdout: {} ({})", line, e));
+    }
+}
+
+#[test]
+fn ndjson_composes_with_file_bound_json_format() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "compose.tarn.yaml",
+        &format!(
+            r#"
+name: Compose
+tests:
+  t:
+    steps:
+      - name: ping
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+    let report_path = dir.path().join("run.json");
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--ndjson",
+            "--format",
+            &format!("json={}", report_path.display()),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+
+    // stdout should be NDJSON.
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert!(events.iter().any(|e| e["event"] == "done"));
+
+    // Final JSON report should still be written to the file.
+    let report = std::fs::read_to_string(&report_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&report).unwrap();
+    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["summary"]["status"], "PASSED");
+}
