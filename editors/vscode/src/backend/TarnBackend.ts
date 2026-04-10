@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { Report } from "../util/schemaGuards";
+import type { Report, ValidateReport } from "../util/schemaGuards";
 
 export interface RunOptions {
   files: string[];
@@ -81,6 +81,17 @@ export interface TarnBackend {
     cwd: string,
     token: vscode.CancellationToken,
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
+  /**
+   * Structured validate: spawns `tarn validate --format json` and parses
+   * the output. Returns `undefined` if the process failed or the stdout
+   * could not be parsed as a valid report (e.g., older Tarn versions
+   * without T52).
+   */
+  validateStructured(
+    files: string[],
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<ValidateReport | undefined>;
   exportCurl(
     files: string[],
     cwd: string,

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.0 — Phase 3 kick-off: diagnostics on save
+
+First Phase 3 feature: the extension now surfaces Tarn parse errors as
+inline diagnostics on every save, powered by `tarn validate --format json`
+(Tarn T52). This turns VS Code into a real linter for `.tarn.yaml` files.
+
+### Added
+
+- **`TarnDiagnosticsProvider`** (NAZ-263). On every save of a `.tarn.yaml`,
+  spawns `tarn validate --format json <file>` via the backend, parses the
+  structured output with a new `parseValidateReport` zod schema, and
+  publishes `vscode.Diagnostic` entries into a dedicated
+  `DiagnosticCollection('tarn')`.
+  - YAML syntax errors anchor on the exact line/column reported by
+    `serde_yaml` (converted from 1-based to 0-based and clamped to the
+    document bounds).
+  - Parser semantic errors without location fall back to a line-0
+    marker so the Problems panel still shows them.
+  - Diagnostics clear the moment the file becomes valid again.
+  - Closing a document clears its diagnostics.
+  - In-flight validations for a document are cancelled and replaced when
+    a new save races ahead of the previous one — no stale diagnostics.
+- **`tarn.validateOnSave`** setting (default `true`). Flip it to `false`
+  to disable the behavior without uninstalling.
+- **`backend.validateStructured`** method on the `TarnBackend` interface.
+  Returns `ValidateReport | undefined` so callers don't have to parse
+  stdout themselves. `TarnProcessRunner` implements it by invoking
+  `tarn validate --format json`; returns `undefined` on stale Tarn
+  versions so the fallback path is graceful.
+- **`TarnExtensionApi.testing.validateDocument(uri)`** — test-only hook
+  that awaits a validate run synchronously so integration tests can
+  assert on diagnostics deterministically without polling.
+
+### Tests
+
+- Extension integration tests: **7 → 12 passing** against a real `tarn`
+  binary. New `diagnostics.test.ts` covers valid file (no diagnostics),
+  YAML syntax error (line/column preserved, source set to `tarn`),
+  unknown-field semantic error, fix cycle (diagnostic clears when
+  content becomes valid), and the `tarn.validateOnSave: false` toggle.
+- Extension unit tests: still 76/76 passing (no regressions).
+
+### Dependencies
+
+- Tarn T52 (`tarn validate --format json`), shipped in `cfffb69`.
+
 ## 0.3.0 — Phase 2: live streaming and selective execution
 
 Cashes in the Tarn-side `T51` (`--select`) and `T53` (NDJSON reporter) so

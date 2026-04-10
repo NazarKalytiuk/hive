@@ -3,6 +3,7 @@ import { WorkspaceIndex } from "./workspace/WorkspaceIndex";
 import { createTarnTestController } from "./testing/TestController";
 import { TestCodeLensProvider } from "./codelens/TestCodeLensProvider";
 import { TarnDocumentSymbolProvider } from "./language/DocumentSymbolProvider";
+import { TarnDiagnosticsProvider } from "./language/DiagnosticsProvider";
 import { TarnStatusBar } from "./statusBar";
 import { registerCommands } from "./commands";
 import { TarnProcessRunner } from "./backend/TarnProcessRunner";
@@ -18,9 +19,10 @@ export interface TarnExtensionApi {
   readonly testControllerId: string;
   readonly indexedFileCount: number;
   readonly commands: readonly string[];
-  /** Opaque backend handle exposed for integration tests only. Do not use from production code. */
+  /** Opaque handles exposed for integration tests only. Do not use from production code. */
   readonly testing: {
     readonly backend: import("./backend/TarnBackend").TarnBackend;
+    readonly validateDocument: (uri: vscode.Uri) => Promise<void>;
   };
 }
 
@@ -72,6 +74,9 @@ export async function activate(
     ),
   );
 
+  const diagnostics = new TarnDiagnosticsProvider(backend);
+  context.subscriptions.push(diagnostics);
+
   const statusBar = new TarnStatusBar(tarnController.state);
   context.subscriptions.push(statusBar);
 
@@ -119,7 +124,13 @@ export async function activate(
       "tarn.initProject",
       "tarn.refreshDiscovery",
     ],
-    testing: { backend },
+    testing: {
+      backend,
+      validateDocument: async (uri: vscode.Uri) => {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        await diagnostics.validate(doc);
+      },
+    },
   };
 }
 

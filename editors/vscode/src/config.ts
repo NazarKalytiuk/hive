@@ -11,6 +11,7 @@ export interface TarnConfig {
   requestTimeoutMs: number;
   showCodeLens: boolean;
   statusBarEnabled: boolean;
+  validateOnSave: boolean;
 }
 
 export function readConfig(scope?: vscode.Uri): TarnConfig {
@@ -30,6 +31,7 @@ export function readConfig(scope?: vscode.Uri): TarnConfig {
     requestTimeoutMs: cfg.get<number>("requestTimeoutMs", 120000),
     showCodeLens: cfg.get<boolean>("showCodeLens", true),
     statusBarEnabled: cfg.get<boolean>("statusBar.enabled", true),
+    validateOnSave: cfg.get<boolean>("validateOnSave", true),
   };
 }
 

@@ -123,3 +123,29 @@ export function parseReport(raw: string): Report {
   const json = JSON.parse(raw);
   return reportSchema.parse(json);
 }
+
+const validateErrorSchema = z.object({
+  message: z.string(),
+  line: z.number().int().nonnegative().optional(),
+  column: z.number().int().nonnegative().optional(),
+});
+
+const validateFileSchema = z.object({
+  file: z.string(),
+  valid: z.boolean(),
+  errors: z.array(validateErrorSchema),
+});
+
+export const validateReportSchema = z.object({
+  files: z.array(validateFileSchema),
+  error: z.string().optional(),
+});
+
+export type ValidateReport = z.infer<typeof validateReportSchema>;
+export type ValidateFileResult = z.infer<typeof validateFileSchema>;
+export type ValidateError = z.infer<typeof validateErrorSchema>;
+
+export function parseValidateReport(raw: string): ValidateReport {
+  const json = JSON.parse(raw);
+  return validateReportSchema.parse(json);
+}

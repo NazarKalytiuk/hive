@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -356,6 +356,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show the Tarn status bar entry.",
+          "scope": "resource"
+        },
+        "tarn.validateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run `tarn validate --format json` on every save of a .tarn.yaml and surface parse errors as diagnostics in the Problems panel.",
           "scope": "resource"
         }
       }

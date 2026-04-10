@@ -6,7 +6,7 @@ import * as readline from "readline";
 import * as vscode from "vscode";
 import { getOutputChannel } from "../outputChannel";
 import { formatCommandForLog } from "../util/shellEscape";
-import { parseReport } from "../util/schemaGuards";
+import { parseReport, parseValidateReport, type ValidateReport } from "../util/schemaGuards";
 import type { NdjsonEvent, RunOptions, RunOutcome, TarnBackend } from "./TarnBackend";
 import { readConfig } from "../config";
 
@@ -41,6 +41,29 @@ export class TarnProcessRunner implements TarnBackend {
       stdout: collected.stdout,
       stderr: collected.stderr,
     };
+  }
+
+  async validateStructured(
+    files: string[],
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<ValidateReport | undefined> {
+    const args = ["validate", "--format", "json", ...files];
+    const collected = await this.spawnAndCollect(args, cwd, token);
+    if (token.isCancellationRequested || collected.timedOut) {
+      return undefined;
+    }
+    if (collected.stdout.length === 0) {
+      return undefined;
+    }
+    try {
+      return parseValidateReport(collected.stdout);
+    } catch (err) {
+      getOutputChannel().appendLine(
+        `[tarn] failed to parse validate JSON (exit ${collected.exitCode}): ${String(err)}`,
+      );
+      return undefined;
+    }
   }
 
   async exportCurl(
