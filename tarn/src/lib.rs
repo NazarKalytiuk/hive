@@ -11,6 +11,7 @@ pub mod hurl_import;
 pub mod interpolation;
 pub mod model;
 pub mod parser;
+pub(crate) mod parser_locations;
 pub mod regex_cache;
 pub mod report;
 pub mod runner;

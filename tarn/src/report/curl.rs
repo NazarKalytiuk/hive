@@ -225,6 +225,7 @@ mod tests {
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: None,
             })],
         };
 
@@ -254,6 +255,7 @@ mod tests {
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: None,
             })],
         };
 

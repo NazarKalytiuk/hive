@@ -1969,6 +1969,7 @@ steps:
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
 
         let make_file = |step| FileResult {

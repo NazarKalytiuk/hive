@@ -1,4 +1,4 @@
-use crate::model::{MultipartBody, RedactionConfig};
+use crate::model::{Location, MultipartBody, RedactionConfig};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -48,6 +48,11 @@ pub struct AssertionResult {
     pub message: String,
     /// Optional unified diff for whole-body mismatches
     pub diff: Option<String>,
+    /// Source location of the assertion operator key in the originating
+    /// YAML file. Optional for backwards compatibility and because not
+    /// every assertion originates from a YAML node (e.g. the synthetic
+    /// `runtime`/`interpolation` assertions manufactured by the runner).
+    pub location: Option<Location>,
 }
 
 impl AssertionResult {
@@ -66,6 +71,7 @@ impl AssertionResult {
             expected,
             actual,
             diff: None,
+            location: None,
         }
     }
 
@@ -82,6 +88,7 @@ impl AssertionResult {
             actual: actual.into(),
             message: message.into(),
             diff: None,
+            location: None,
         }
     }
 
@@ -99,7 +106,17 @@ impl AssertionResult {
             actual: actual.into(),
             message: message.into(),
             diff: Some(diff.into()),
+            location: None,
         }
+    }
+
+    /// Attach a source location to this assertion result. Used by the
+    /// runner to stamp each assertion with the position of its YAML
+    /// operator key so downstream consumers can anchor failures on
+    /// the exact source range.
+    pub fn with_location(mut self, location: Option<Location>) -> Self {
+        self.location = location;
+        self
     }
 }
 
@@ -122,6 +139,11 @@ pub struct StepResult {
     pub response_summary: Option<String>,
     /// Names of captures set by this step
     pub captures_set: Vec<String>,
+    /// Source location of the step's `name:` node in the originating
+    /// YAML file. Optional for backwards compatibility (e.g. steps
+    /// expanded from an `include:` directive do not carry locations in
+    /// the first iteration of this feature).
+    pub location: Option<Location>,
 }
 
 impl StepResult {
@@ -362,6 +384,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(sr.total_assertions(), 3);
         assert_eq!(sr.passed_assertions(), 2);
@@ -388,6 +411,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(
             poll_timeout.error_code(),
@@ -410,6 +434,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(
             request_timeout.error_code(),
@@ -435,6 +460,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(refused.error_code(), Some(ErrorCode::ConnectionRefused));
 
@@ -454,6 +480,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(tls.error_code(), Some(ErrorCode::TlsVerificationFailed));
     }
@@ -476,6 +503,7 @@ mod tests {
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: None,
         };
         assert_eq!(sr.error_code(), Some(ErrorCode::InterpolationFailed));
     }
@@ -499,6 +527,7 @@ mod tests {
                     response_status: None,
                     response_summary: None,
                     captures_set: vec![],
+                    location: None,
                 },
                 StepResult {
                     name: "verify".into(),
@@ -516,6 +545,7 @@ mod tests {
                     response_status: None,
                     response_summary: None,
                     captures_set: vec![],
+                    location: None,
                 },
             ],
             captures: HashMap::new(),
@@ -545,6 +575,7 @@ mod tests {
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: None,
             }],
             test_results: vec![TestResult {
                 name: "t1".into(),
@@ -563,6 +594,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     },
                     StepResult {
                         name: "s2".into(),
@@ -575,6 +607,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     },
                 ],
                 captures: HashMap::new(),
@@ -614,6 +647,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         }],
                         captures: HashMap::new(),
                     }],
@@ -643,6 +677,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         }],
                         captures: HashMap::new(),
                     }],

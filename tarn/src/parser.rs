@@ -1,6 +1,7 @@
 use crate::assert::body::ASSERTION_OPERATORS;
 use crate::error::TarnError;
-use crate::model::{CaptureSpec, TestFile};
+use crate::model::{CaptureSpec, Location, Step, TestFile};
+use crate::parser_locations::{self, FileLocations, StepLocations};
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -144,6 +145,17 @@ pub fn parse_str(content: &str, path: &Path) -> Result<TestFile, TarnError> {
     let mut raw_value: serde_yaml::Value = serde_yaml::from_str(content)
         .map_err(|e| TarnError::Parse(enhance_parse_error(content, &e, path)))?;
 
+    // Extract source locations from the ORIGINAL content (before
+    // include expansion), keyed by the display path we will put on
+    // every `Location.file` for this file. If a file pulls in includes
+    // we fall back to leaving locations as `None` for the included
+    // steps — the `location` field on the JSON report is optional and
+    // include expansion is best-effort in this first iteration
+    // (T55 / NAZ-260). The common case (no includes) gets full
+    // coverage.
+    let location_file = location_file_display(path);
+    let pre_include_locations = parser_locations::extract(content, &location_file);
+
     if content.contains("include:") {
         let base_dir = path.parent().unwrap_or(Path::new("."));
         let mut visited = HashSet::new();
@@ -157,10 +169,66 @@ pub fn parse_str(content: &str, path: &Path) -> Result<TestFile, TarnError> {
 
     validate_yaml_shape(&raw_value, path)?;
 
-    let test_file: TestFile = serde_yaml::from_value(raw_value)
+    let mut test_file: TestFile = serde_yaml::from_value(raw_value)
         .map_err(|e| TarnError::Parse(format!("{}: {}", path.display(), e)))?;
     validate_test_file(&test_file, path)?;
+
+    if let Some(locations) = pre_include_locations {
+        attach_locations(&mut test_file, &locations);
+    }
+
     Ok(test_file)
+}
+
+/// Resolve the path we surface on `Location.file` for a freshly
+/// parsed test file. We canonicalize when possible so downstream
+/// consumers (VS Code, CI) can anchor results unambiguously, but we
+/// fall back to the original display path when canonicalization fails
+/// (e.g. when the file only lives in memory during tests).
+fn location_file_display(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+/// Copy step locations gathered from the pre-include YAML text onto
+/// each parsed `Step`. Sections whose length no longer matches the
+/// deserialized `TestFile` (because an `include:` directive expanded
+/// into additional steps) are skipped; the `location` field on each
+/// `StepResult` is documented as optional for exactly this reason.
+fn attach_locations(test_file: &mut TestFile, locations: &FileLocations) {
+    attach_section_locations(&mut test_file.setup, &locations.setup);
+    attach_section_locations(&mut test_file.teardown, &locations.teardown);
+    attach_section_locations(&mut test_file.steps, &locations.flat_steps);
+    for (name, group) in test_file.tests.iter_mut() {
+        if let Some(group_locations) = locations.tests.get(name) {
+            attach_section_locations(&mut group.steps, group_locations);
+        }
+    }
+}
+
+fn attach_section_locations(steps: &mut [Step], locations: &[StepLocations]) {
+    if steps.len() != locations.len() {
+        // Include expansion (or some other transformation) changed
+        // the step count — leave locations as None rather than
+        // guessing at a misalignment.
+        return;
+    }
+    for (step, loc) in steps.iter_mut().zip(locations.iter()) {
+        if let Some(name_location) = &loc.name {
+            step.location = Some(name_location.clone());
+        }
+        if !loc.assertions.is_empty() {
+            step.assertion_locations = loc.assertions.clone();
+        }
+    }
+}
+
+/// Resolve a `Location` for any assertion whose label matches one in
+/// the step's `assertion_locations` map. Used by the runner to stamp
+/// every `AssertionResult` with its source range.
+pub(crate) fn assertion_location(step: &Step, label: &str) -> Option<Location> {
+    step.assertion_locations.get(label).cloned()
 }
 
 /// Format Tarn YAML into a normalized, canonical layout without expanding include directives.

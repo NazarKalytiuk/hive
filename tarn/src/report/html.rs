@@ -807,6 +807,7 @@ mod tests {
                     response_status: None,
                     response_summary: None,
                     captures_set: vec![],
+                    location: None,
                 }],
                 test_results: vec![TestResult {
                     name: "my_test".into(),
@@ -828,6 +829,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         },
                         StepResult {
                             name: "POST /users".into(),
@@ -840,6 +842,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         },
                     ],
                     captures: HashMap::new(),
@@ -855,6 +858,7 @@ mod tests {
                     response_status: None,
                     response_summary: None,
                     captures_set: vec![],
+                    location: None,
                 }],
             }],
         }
@@ -891,6 +895,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         },
                         StepResult {
                             name: "Verify user".into(),
@@ -921,6 +926,7 @@ mod tests {
                             response_status: None,
                             response_summary: None,
                             captures_set: vec![],
+                            location: None,
                         },
                     ],
                     captures: HashMap::new(),

@@ -67,6 +67,16 @@
         "body": {}
       }
     },
+    "location": {
+      "type": "object",
+      "description": "Source position of the originating YAML node. Emitted by Tarn for steps and for every assertion that maps back to a YAML operator key. Line and column are 1-based and `file` matches the path tarn prints in other report fields. Optional for backwards compatibility.",
+      "required": ["file", "line", "column"],
+      "properties": {
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    },
     "assertionDetail": {
       "type": "object",
       "required": ["assertion", "passed", "expected", "actual", "message"],
@@ -76,7 +86,8 @@
         "expected": { "type": "string" },
         "actual": { "type": "string" },
         "message": { "type": "string" },
-        "diff": { "type": ["string", "null"] }
+        "diff": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/location" }
       }
     },
     "assertionFailure": {
@@ -87,7 +98,8 @@
         "expected": { "type": "string" },
         "actual": { "type": "string" },
         "message": { "type": "string" },
-        "diff": { "type": ["string", "null"] }
+        "diff": { "type": ["string", "null"] },
+        "location": { "$ref": "#/$defs/location" }
       }
     },
     "assertionSummary": {
@@ -127,6 +139,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "location": { "$ref": "#/$defs/location" },
         "request": { "$ref": "#/$defs/requestInfo" },
         "response": { "$ref": "#/$defs/responseInfo" }
       }

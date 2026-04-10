@@ -1,6 +1,22 @@
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Source location pointing at a YAML node (a step's `name:` key or an
+/// assertion operator key). All fields are 1-based so they line up with
+/// what editors and JSON reports already use elsewhere.
+///
+/// The field name and shape are fixed by the public JSON report schema and
+/// consumed by the VS Code extension via `schemaGuards.ts`; do not rename.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Location {
+    /// Absolute path of the source file (matches `FileResult.file`).
+    pub file: String,
+    /// 1-based line number.
+    pub line: usize,
+    /// 1-based column number.
+    pub column: usize,
+}
 
 /// Runtime HTTP transport settings shared by run and bench commands.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -226,6 +242,19 @@ pub struct Step {
     /// - `false`: skip cookies entirely for this step
     /// - `"jar-name"`: use a named cookie jar (for multi-user scenarios)
     pub cookies: Option<StepCookies>,
+
+    /// Source location of the step's `name:` node in the original YAML.
+    /// Populated by `parser::parse_str` after deserialization so downstream
+    /// consumers can anchor runtime results on the exact source range.
+    #[serde(skip)]
+    pub location: Option<Location>,
+
+    /// Source locations of individual assertion keys, indexed by the same
+    /// string used in `AssertionResult::assertion` (e.g. `"status"`,
+    /// `"duration"`, `"headers.content-type"`, `"body $.name"`).
+    /// Populated by `parser::parse_str` after deserialization.
+    #[serde(skip)]
+    pub assertion_locations: HashMap<String, Location>,
 }
 
 /// Step-level cookie control.

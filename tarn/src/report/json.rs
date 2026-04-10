@@ -1,10 +1,22 @@
 use crate::assert::types::{ErrorCode, FileResult, RunResult, StepResult};
+use crate::model::Location;
 use crate::report::redaction::{
     redact_headers, sanitize_assertion, sanitize_json, sanitize_string,
 };
 use crate::report::RenderOptions;
 use serde_json::{json, Value};
 use std::str::FromStr;
+
+/// Serialize a `Location` into the `{ file, line, column }` shape that
+/// `schemas/v1/report.json` documents and the VS Code extension's
+/// `schemaGuards.ts` (NAZ-281) expects.
+fn location_json(location: &Location) -> Value {
+    json!({
+        "file": location.file,
+        "line": location.line,
+        "column": location.column,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonOutputMode {
@@ -143,14 +155,18 @@ fn render_step(
         .into_iter()
         .map(|a| {
             let a = sanitize_assertion(a, redaction, secret_values);
-            json!({
+            let mut obj = json!({
                 "assertion": a.assertion,
                 "passed": a.passed,
                 "expected": a.expected,
                 "actual": a.actual,
                 "message": a.message,
                 "diff": a.diff,
-            })
+            });
+            if let Some(location) = &a.location {
+                obj["location"] = location_json(location);
+            }
+            obj
         })
         .collect();
 
@@ -165,6 +181,10 @@ fn render_step(
             "details": details,
         },
     });
+
+    if let Some(location) = &step.location {
+        obj["location"] = location_json(location);
+    }
 
     // Always include response_status and response_summary when available
     if let Some(status) = step.response_status {
@@ -184,13 +204,17 @@ fn render_step(
             .iter()
             .map(|f| {
                 let f = sanitize_assertion(f, redaction, secret_values);
-                json!({
+                let mut obj = json!({
                     "assertion": f.assertion,
                     "expected": f.expected,
                     "actual": f.actual,
                     "message": f.message,
                     "diff": f.diff,
-                })
+                });
+                if let Some(location) = &f.location {
+                    obj["location"] = location_json(location);
+                }
+                obj
             })
             .collect();
 
@@ -430,6 +454,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     }],
                     captures: HashMap::new(),
                 }],
@@ -484,6 +509,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     }],
                     captures: HashMap::new(),
                 }],
@@ -590,6 +616,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     }],
                     captures: HashMap::new(),
                 }],
@@ -716,6 +743,7 @@ mod tests {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     }],
                     captures: HashMap::new(),
                 }],

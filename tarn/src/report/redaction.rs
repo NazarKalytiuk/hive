@@ -18,6 +18,7 @@ pub fn sanitize_assertion(
             .diff
             .as_ref()
             .map(|diff| sanitize_string(diff, &redaction.replacement, secret_values)),
+        location: assertion.location.clone(),
     }
 }
 

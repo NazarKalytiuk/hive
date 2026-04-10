@@ -353,6 +353,7 @@ fn golden_run_result() -> RunResult {
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: None,
             }],
             test_results: vec![TestResult {
                 name: "smoke".into(),
@@ -374,6 +375,7 @@ fn golden_run_result() -> RunResult {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     },
                     StepResult {
                         name: "Fetch item".into(),
@@ -412,6 +414,7 @@ fn golden_run_result() -> RunResult {
                         response_status: None,
                         response_summary: None,
                         captures_set: vec![],
+                        location: None,
                     },
                 ],
                 captures: HashMap::new(),
@@ -427,6 +430,7 @@ fn golden_run_result() -> RunResult {
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: None,
             }],
         }],
     }
@@ -3150,4 +3154,158 @@ environments:
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Named environments:"));
     assert!(stdout.contains("staging"));
+}
+
+/// NAZ-260 / T55: every `StepResult` (setup, named test step, teardown)
+/// and every `AssertionFailure` must carry a
+/// `location: { file, line, column }` object pointing at the YAML node
+/// that defined it. The file path must be absolute (or at least match
+/// what tarn prints in other report fields), and line/column must be
+/// 1-based. The field is optional for backwards compatibility but MUST
+/// be present whenever the parser can resolve the source position —
+/// which is the case for files without `include:` expansion.
+#[test]
+fn json_output_includes_source_locations_for_steps_and_assertions() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "locations.tarn.yaml",
+        &format!(
+            r#"name: Location metadata
+setup:
+  - name: warm up
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 200
+tests:
+  check:
+    steps:
+      - name: expect failure
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 418
+          duration: "< 10000ms"
+teardown:
+  - name: cool down
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    // At least one assertion fails (status 200 vs expected 418), so
+    // the overall exit code is 1 — not 0 — but the JSON payload is
+    // still well-formed.
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    let file = &json["files"][0];
+    let setup_step = &file["setup"][0];
+    let teardown_step = &file["teardown"][0];
+    let test_step = &file["tests"][0]["steps"][0];
+
+    // Every executed step surfaces a location object.
+    for (label, step) in [
+        ("setup", setup_step),
+        ("test", test_step),
+        ("teardown", teardown_step),
+    ] {
+        let loc = &step["location"];
+        assert!(
+            loc.is_object(),
+            "{}: step location should be an object, got {:?}",
+            label,
+            loc
+        );
+        assert!(
+            loc["file"]
+                .as_str()
+                .unwrap()
+                .ends_with("locations.tarn.yaml"),
+            "{}: file should end with locations.tarn.yaml, got {:?}",
+            label,
+            loc["file"]
+        );
+        assert!(
+            loc["line"].as_u64().unwrap() >= 1,
+            "{}: line must be 1-based",
+            label
+        );
+        assert!(
+            loc["column"].as_u64().unwrap() >= 1,
+            "{}: column must be 1-based",
+            label
+        );
+    }
+
+    // Setup and teardown name nodes live on different source lines.
+    let setup_line = setup_step["location"]["line"].as_u64().unwrap();
+    let test_line = test_step["location"]["line"].as_u64().unwrap();
+    let teardown_line = teardown_step["location"]["line"].as_u64().unwrap();
+    assert!(setup_line < test_line);
+    assert!(test_line < teardown_line);
+
+    // The failing assertion (status mismatch) must carry a location
+    // that points at the `status:` key — which sits on the line after
+    // the step's `assert:` key, not the step's `name:` line.
+    let failures = test_step["assertions"]["failures"]
+        .as_array()
+        .expect("failures array");
+    assert!(!failures.is_empty(), "expected at least one failure");
+    let status_failure = failures
+        .iter()
+        .find(|f| f["assertion"].as_str() == Some("status"))
+        .expect("status failure");
+    let status_loc = &status_failure["location"];
+    assert!(
+        status_loc.is_object(),
+        "status failure should have a location object"
+    );
+    assert!(status_loc["file"]
+        .as_str()
+        .unwrap()
+        .ends_with("locations.tarn.yaml"));
+    let status_line = status_loc["line"].as_u64().unwrap();
+    assert!(
+        status_line > test_line,
+        "status assertion should be below its step name line ({} > {})",
+        status_line,
+        test_line
+    );
+
+    // The detailed assertion entries also carry locations for both
+    // status and duration (operator keys that the parser recognises).
+    let details = test_step["assertions"]["details"]
+        .as_array()
+        .expect("details array");
+    let status_detail = details
+        .iter()
+        .find(|d| d["assertion"].as_str() == Some("status"))
+        .expect("status detail");
+    assert!(status_detail["location"].is_object());
+    let duration_detail = details
+        .iter()
+        .find(|d| d["assertion"].as_str() == Some("duration"))
+        .expect("duration detail");
+    assert!(duration_detail["location"].is_object());
+    assert_eq!(
+        duration_detail["location"]["line"].as_u64().unwrap(),
+        status_line + 1,
+        "duration key is one line below status key"
+    );
 }

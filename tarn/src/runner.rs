@@ -11,6 +11,7 @@ use crate::model::{
     Assertion, AuthConfig, CookieMode, HttpTransportConfig, PollConfig, RedactionConfig, Step,
     StepCookies, TestFile,
 };
+use crate::parser;
 use crate::report::progress::{ProgressReporter, ReportContext};
 use crate::scripting;
 use crate::selector::{self, Selector};
@@ -407,6 +408,24 @@ fn run_steps(
     Ok(results)
 }
 
+/// Stamp each `AssertionResult` with its source `Location` (if the
+/// parser recorded one for that operator key on this step). The lookup
+/// is keyed on the same label the assertion modules emit — `"status"`,
+/// `"duration"`, `"redirect.url"`, `"header <Name>"`, `"body <path>"`
+/// — so there is no risk of mis-attribution across operators.
+fn stamp_assertion_locations(step: &Step, results: Vec<AssertionResult>) -> Vec<AssertionResult> {
+    if step.assertion_locations.is_empty() {
+        return results;
+    }
+    results
+        .into_iter()
+        .map(|result| {
+            let location = parser::assertion_location(step, &result.assertion);
+            result.with_location(location)
+        })
+        .collect()
+}
+
 fn runtime_failure_step(
     step: &Step,
     duration_ms: u64,
@@ -440,6 +459,7 @@ fn runtime_failure_step(
         response_status: None,
         response_summary: None,
         captures_set: vec![],
+        location: step.location.clone(),
     }
 }
 
@@ -868,6 +888,7 @@ fn run_step(
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: step.location.clone(),
         });
     }
 
@@ -898,6 +919,7 @@ fn run_step(
             response_status: None,
             response_summary: None,
             captures_set: vec![],
+            location: step.location.clone(),
         });
     }
 
@@ -945,7 +967,7 @@ fn run_step(
 
         let assertion_results = if let Some(ref assertion) = step.assertions {
             let interpolated = interpolate_assertion(assertion, &request.ctx);
-            assert::run_assertions(&interpolated, &response)
+            stamp_assertion_locations(step, assert::run_assertions(&interpolated, &response))
         } else {
             vec![]
         };
@@ -1003,6 +1025,7 @@ fn run_step(
                     response_status: Some(resp_status),
                     response_summary: Some(resp_summary),
                     captures_set: vec![],
+                    location: step.location.clone(),
                 });
             }
 
@@ -1027,6 +1050,7 @@ fn run_step(
                 response_status: Some(resp_status),
                 response_summary: Some(resp_summary),
                 captures_set: captured_keys,
+                location: step.location.clone(),
             });
         }
 
@@ -1057,6 +1081,7 @@ fn run_step(
         response_status: Some(resp_status),
         response_summary: Some(resp_summary),
         captures_set: vec![],
+        location: step.location.clone(),
     })
 }
 
@@ -1130,6 +1155,7 @@ fn run_step_poll(
                 response_status: None,
                 response_summary: None,
                 captures_set: vec![],
+                location: step.location.clone(),
             });
         }
 
@@ -1167,7 +1193,7 @@ fn run_step_poll(
             // Condition met — run the step's own assertions
             let assertion_results = if let Some(ref assertion) = step.assertions {
                 let interpolated = interpolate_assertion(assertion, &request.ctx);
-                assert::run_assertions(&interpolated, &response)
+                stamp_assertion_locations(step, assert::run_assertions(&interpolated, &response))
             } else {
                 vec![]
             };
@@ -1216,6 +1242,7 @@ fn run_step_poll(
                             response_status: Some(resp_status),
                             response_summary: Some(resp_summary),
                             captures_set: vec![],
+                            location: step.location.clone(),
                         });
                     }
                 }
@@ -1242,6 +1269,7 @@ fn run_step_poll(
                 response_status: Some(resp_status),
                 response_summary: Some(resp_summary),
                 captures_set: captured_keys,
+                location: step.location.clone(),
             });
         }
     }
@@ -1266,6 +1294,7 @@ fn run_step_poll(
         response_status: None,
         response_summary: None,
         captures_set: vec![],
+        location: step.location.clone(),
     })
 }
 
