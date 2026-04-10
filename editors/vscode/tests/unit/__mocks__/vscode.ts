@@ -32,6 +32,27 @@ export const Uri = {
   },
 };
 
+export const workspace = {
+  getConfiguration(_section?: string): {
+    get<T>(key: string, defaultValue?: T): T | undefined;
+  } {
+    return {
+      get<T>(_key: string, defaultValue?: T): T | undefined {
+        return defaultValue;
+      },
+    };
+  },
+};
+
+export const window = {
+  async showWarningMessage(
+    _message: string,
+    ..._items: string[]
+  ): Promise<string | undefined> {
+    return undefined;
+  },
+};
+
 export default {
   Position,
   Range,
@@ -39,4 +60,6 @@ export default {
   MarkdownString,
   TestMessage,
   Uri,
+  workspace,
+  window,
 };

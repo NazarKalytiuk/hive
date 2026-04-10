@@ -30,6 +30,7 @@ import { FixPlanView } from "./views/FixPlanView";
 import { ReportWebview } from "./views/ReportWebview";
 import { BenchRunnerPanel } from "./views/BenchRunnerPanel";
 import { runImportHurl } from "./commands/importHurl";
+import { FailureNotifier } from "./notifications";
 
 export interface TarnExtensionApi {
   readonly testControllerId: string;
@@ -90,6 +91,17 @@ export interface TarnExtensionApi {
       readonly getFilter: () =>
         import("./views/RunHistoryView").RunHistoryFilter;
     };
+    readonly notifier: {
+      readonly isTarnViewFocused: () => boolean;
+      readonly wouldNotify: (
+        report: import("./util/schemaGuards").Report,
+        options: { dryRun: boolean },
+      ) => boolean;
+      readonly maybeNotify: (
+        report: import("./util/schemaGuards").Report,
+        options: { dryRun: boolean; files: string[] },
+      ) => Promise<boolean>;
+    };
   };
 }
 
@@ -134,10 +146,18 @@ export async function activate(
   );
 
   const fixPlanView = new FixPlanView(index);
-  context.subscriptions.push(
-    fixPlanView,
-    vscode.window.registerTreeDataProvider("tarn.fixPlan", fixPlanView),
-  );
+  const fixPlanTree = vscode.window.createTreeView("tarn.fixPlan", {
+    treeDataProvider: fixPlanView,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(fixPlanView, fixPlanTree);
+
+  // "Tarn view focused" = any of our activity-bar tree views is
+  // currently visible. They all flip together when the user selects
+  // the Tarn container, so checking one is enough — we use the Fix
+  // Plan tree since it's the most relevant target for the
+  // notification's "Show Fix Plan" action.
+  const failureNotifier = new FailureNotifier(() => fixPlanTree.visible);
 
   const reportWebview = new ReportWebview(index);
   context.subscriptions.push(reportWebview);
@@ -152,6 +172,7 @@ export async function activate(
     lastRunCache,
     capturesInspector,
     fixPlanView,
+    failureNotifier,
     () => historyTree.refresh(),
   );
   context.subscriptions.push(tarnController);
@@ -336,6 +357,13 @@ export async function activate(
         clear: () => history.clear(),
         setFilter: (filter) => historyTree.setFilter(filter),
         getFilter: () => historyTree.getFilter(),
+      },
+      notifier: {
+        isTarnViewFocused: () => fixPlanTree.visible,
+        wouldNotify: (report, options) =>
+          failureNotifier.wouldNotify(report, options),
+        maybeNotify: (report, options) =>
+          failureNotifier.maybeNotify(report, options),
       },
     },
   };

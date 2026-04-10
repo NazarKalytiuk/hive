@@ -7,6 +7,7 @@ import type { RunHistoryStore } from "../views/RunHistoryView";
 import type { LastRunCache } from "./LastRunCache";
 import type { CapturesInspector } from "../views/CapturesInspector";
 import type { FixPlanView } from "../views/FixPlanView";
+import type { FailureNotifier } from "../notifications";
 
 export interface TarnTestController extends vscode.Disposable {
   controller: vscode.TestController;
@@ -24,6 +25,7 @@ export function createTarnTestController(
   lastRunCache: LastRunCache,
   capturesInspector: CapturesInspector,
   fixPlanView: FixPlanView,
+  failureNotifier: FailureNotifier,
   onHistoryChanged: () => void,
 ): TarnTestController {
   const controller = vscode.tests.createTestController("tarn", "Tarn");
@@ -45,6 +47,7 @@ export function createTarnTestController(
     lastRunCache,
     capturesInspector,
     fixPlanView,
+    failureNotifier,
     onHistoryChanged,
   };
   const runHandler = createRunHandler(deps, false);

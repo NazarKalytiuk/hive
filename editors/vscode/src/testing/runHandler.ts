@@ -10,6 +10,7 @@ import { getItemMeta, ids } from "./discovery";
 import type { LastRunCache } from "./LastRunCache";
 import type { CapturesInspector } from "../views/CapturesInspector";
 import type { FixPlanView } from "../views/FixPlanView";
+import type { FailureNotifier } from "../notifications";
 
 export interface RunState {
   activeEnvironment: string | null;
@@ -29,6 +30,7 @@ export interface HandlerDeps {
   lastRunCache: LastRunCache;
   capturesInspector: CapturesInspector;
   fixPlanView: FixPlanView;
+  failureNotifier: FailureNotifier;
   onHistoryChanged: () => void;
 }
 
@@ -151,15 +153,23 @@ async function executeRun(
     `[tarn] Done. ${summary.steps.passed}/${summary.steps.total} steps passed across ${summary.files} file(s).\r\n`,
   );
 
+  const relativeFiles = filesToRun.map((f) => path.relative(cwd, f.uri.fsPath));
   const entry = RunHistoryStore.entryFromReport(outcome.report, {
     environment: deps.state.activeEnvironment ?? config.defaultEnvironment,
     tags: deps.state.activeTags.length > 0 ? deps.state.activeTags : config.defaultTags,
-    files: filesToRun.map((f) => path.relative(cwd, f.uri.fsPath)),
+    files: relativeFiles,
     selectors,
     dryRun,
   });
   await deps.history.add(entry);
   deps.onHistoryChanged();
+
+  // Only surface a toast after the store + views are updated so the
+  // "Show Fix Plan" action lands on fresh data.
+  await deps.failureNotifier.maybeNotify(outcome.report, {
+    dryRun,
+    files: relativeFiles,
+  });
 }
 
 interface RunPlan {

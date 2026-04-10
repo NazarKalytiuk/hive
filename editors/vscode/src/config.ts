@@ -12,6 +12,7 @@ export interface TarnConfig {
   showCodeLens: boolean;
   statusBarEnabled: boolean;
   validateOnSave: boolean;
+  notificationsFailure: "always" | "focused" | "off";
 }
 
 export function readConfig(scope?: vscode.Uri): TarnConfig {
@@ -32,6 +33,10 @@ export function readConfig(scope?: vscode.Uri): TarnConfig {
     showCodeLens: cfg.get<boolean>("showCodeLens", true),
     statusBarEnabled: cfg.get<boolean>("statusBar.enabled", true),
     validateOnSave: cfg.get<boolean>("validateOnSave", true),
+    notificationsFailure: cfg.get<"always" | "focused" | "off">(
+      "notifications.failure",
+      "focused",
+    ),
   };
 }
 

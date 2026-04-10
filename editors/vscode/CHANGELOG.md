@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.18.0 — Phase 4: Failure notifications with inline actions
+
+Eighth Phase 4 feature: a warning toast that pops after a failing
+run with three one-click actions (Show Fix Plan, Open Report, Rerun
+Failed), gated on whether the Tarn activity bar is already visible.
+
+### Added
+
+- **`FailureNotifier`** (NAZ-277) in `src/notifications.ts`.
+  Constructor-injected `isTarnViewFocused` signal and
+  `FailureActionHandlers` so tests can stub every dependency.
+  Exposes `wouldNotify(report, {dryRun})` for pure decision checks
+  and `maybeNotify(report, {dryRun, files})` which shows the
+  `vscode.window.showWarningMessage` toast and dispatches the
+  picked action.
+- **`shouldNotifyOnFailure`** pure helper that resolves the
+  `mode × dryRun × failedSteps × tarnViewVisible` decision matrix.
+  Unit-tested independently of the class.
+- **`formatFailureMessage`** pure helper that produces a
+  "Tarn: N failed steps in a, b, c" summary, inlines up to three
+  file names, and collapses to a count when more than three
+  files failed.
+- **Inline actions** wired to existing commands:
+  - **Show Fix Plan** → `tarn.fixPlan.focus` (auto-registered by
+    VS Code for every contributed tree view).
+  - **Open Report** → `tarn.openHtmlReport` with the run's files
+    passed through so the report covers exactly what just failed.
+  - **Rerun Failed** → `tarn.runFailed` shipped in Phase 2.
+  Errors from the dispatched commands are swallowed so a
+  mis-wired action can't crash the run handler after the toast.
+- **`tarn.notifications.failure`** setting with an enum of
+  `"always" | "focused" | "off"`, default `"focused"`. `focused`
+  suppresses the toast when any Tarn activity-bar tree view is
+  visible (they all flip together when the container is
+  selected). Dry runs never trigger the notification regardless
+  of mode.
+- **`tarn.fixPlan`** tree view now registered via
+  `vscode.window.createTreeView` instead of
+  `registerTreeDataProvider` so the extension can read
+  `TreeView.visible` as the "Tarn focused" signal.
+- **`tarn.openHtmlReport`** command extended to accept an optional
+  `files: readonly string[]` argument. When provided, the command
+  runs the HTML report against those files instead of the active
+  editor. This is what the "Open Report" notification action uses
+  to stay in scope with the run that just failed.
+- **Extension host API**: `testing.notifier.{isTarnViewFocused,
+  wouldNotify, maybeNotify}` for integration tests.
+
+### Changed
+
+- **`runHandler`** now calls
+  `failureNotifier.maybeNotify(report, {dryRun, files})` after
+  the report has been applied and the history has been written,
+  so any action fired from the toast lands on fresh data.
+- **`createTarnTestController`** signature accepts a
+  `FailureNotifier` parameter so the run handler can reach it
+  without extra plumbing.
+- **Unit vscode mock** (`tests/unit/__mocks__/vscode.ts`) gained
+  minimal `workspace.getConfiguration` and `window.showWarningMessage`
+  stubs so pure helpers that touch the config boundary can be
+  exercised in vitest.
+
+### Tests
+
+- **Unit** (`tests/unit/notifications.test.ts`, 13 tests). Covers
+  every branch of `shouldNotifyOnFailure` (off / dry / no-failures
+  / focused+visible / focused+hidden / always+visible), every
+  branch of `formatFailureMessage` (singular/plural, 1/2/3/4+
+  files, empty file list, mixed pass/fail), and two
+  `FailureNotifier.maybeNotify` short-circuit paths (dry run and
+  no failures) so handlers are never invoked on those.
+- **Integration**
+  (`tests/integration/suite/notifications.test.ts`, 6 tests).
+  Asserts the `tarn.notifications.failure` setting is contributed
+  with `"focused"` as the default, exercises the
+  `isTarnViewFocused` signal, drives every decision path through
+  `wouldNotify` (passing report / dry run / always-fail / off),
+  and verifies that flipping the setting to `"off"` immediately
+  suppresses the decision. The toast-showing `maybeNotify` path
+  is not exercised in integration because
+  `showWarningMessage` blocks until an action is clicked — the
+  unit tests cover it through the injected `FailureActionHandlers`
+  instead.
+
+Total: 225 unit tests, 77 integration tests passing.
+
 ## 0.17.0 — Phase 4: Run History pinning, filtering, delta rerun
 
 Seventh Phase 4 feature: the existing Run History tree view now

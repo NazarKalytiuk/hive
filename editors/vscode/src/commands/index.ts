@@ -381,69 +381,87 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
   );
 
   registrations.push(
-    vscode.commands.registerCommand("tarn.openHtmlReport", async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showInformationMessage(
-          "Tarn: open a .tarn.yaml file first to generate its HTML report.",
-        );
-        return;
-      }
-      const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-      if (!folder) {
-        vscode.window.showInformationMessage(
-          "Tarn: no workspace folder for the active file.",
-        );
-        return;
-      }
-      const relFile = path.relative(folder.uri.fsPath, editor.document.uri.fsPath);
-      const config = readConfig();
-      const cts = new vscode.CancellationTokenSource();
-      const out = getOutputChannel();
-      const activeEnv = deps.tarnController.state.activeEnvironment;
-      const activeTags = deps.tarnController.state.activeTags;
-      const outcome = await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: "Tarn: generating HTML report…",
-          cancellable: true,
-        },
-        async (_progress, token) => {
-          token.onCancellationRequested(() => cts.cancel());
-          return deps.backend.runHtmlReport({
-            files: [relFile],
-            cwd: folder.uri.fsPath,
-            environment: activeEnv ?? config.defaultEnvironment,
-            tags: activeTags.length > 0 ? activeTags : config.defaultTags,
-            token: cts.token,
-          });
-        },
-      );
-      cts.dispose();
-      if (!outcome.htmlPath) {
-        vscode.window.showErrorMessage(
-          `Tarn: HTML report not generated (exit ${outcome.exitCode}).`,
-        );
-        if (outcome.stderr) {
-          out.appendLine(outcome.stderr);
-          out.show(true);
+    vscode.commands.registerCommand(
+      "tarn.openHtmlReport",
+      async (filesOverride?: readonly string[]) => {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder) {
+          vscode.window.showInformationMessage(
+            "Tarn: no workspace folder available.",
+          );
+          return;
         }
-        return;
-      }
-      try {
-        const html = await fs.promises.readFile(outcome.htmlPath, "utf8");
-        const title = `Tarn Report — ${path.basename(relFile)}`;
-        deps.reportWebview.show(html, title);
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Tarn: failed to read HTML report: ${String(err)}`,
+        let targetFiles: string[];
+        if (filesOverride && filesOverride.length > 0) {
+          targetFiles = [...filesOverride];
+        } else {
+          const editor = vscode.window.activeTextEditor;
+          if (!editor) {
+            vscode.window.showInformationMessage(
+              "Tarn: open a .tarn.yaml file first to generate its HTML report.",
+            );
+            return;
+          }
+          const editorFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+          if (!editorFolder) {
+            vscode.window.showInformationMessage(
+              "Tarn: no workspace folder for the active file.",
+            );
+            return;
+          }
+          targetFiles = [
+            path.relative(editorFolder.uri.fsPath, editor.document.uri.fsPath),
+          ];
+        }
+        const relFile = targetFiles[0];
+        const config = readConfig();
+        const cts = new vscode.CancellationTokenSource();
+        const out = getOutputChannel();
+        const activeEnv = deps.tarnController.state.activeEnvironment;
+        const activeTags = deps.tarnController.state.activeTags;
+        const outcome = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: "Tarn: generating HTML report…",
+            cancellable: true,
+          },
+          async (_progress, token) => {
+            token.onCancellationRequested(() => cts.cancel());
+            return deps.backend.runHtmlReport({
+              files: targetFiles,
+              cwd: folder.uri.fsPath,
+              environment: activeEnv ?? config.defaultEnvironment,
+              tags: activeTags.length > 0 ? activeTags : config.defaultTags,
+              token: cts.token,
+            });
+          },
         );
-      } finally {
-        // The HTML is self-contained and already loaded into the webview;
-        // drop the tmp file immediately to avoid littering /tmp.
-        fs.promises.unlink(outcome.htmlPath).catch(() => {});
-      }
-    }),
+        cts.dispose();
+        if (!outcome.htmlPath) {
+          vscode.window.showErrorMessage(
+            `Tarn: HTML report not generated (exit ${outcome.exitCode}).`,
+          );
+          if (outcome.stderr) {
+            out.appendLine(outcome.stderr);
+            out.show(true);
+          }
+          return;
+        }
+        try {
+          const html = await fs.promises.readFile(outcome.htmlPath, "utf8");
+          const title = `Tarn Report — ${path.basename(relFile)}`;
+          deps.reportWebview.show(html, title);
+        } catch (err) {
+          vscode.window.showErrorMessage(
+            `Tarn: failed to read HTML report: ${String(err)}`,
+          );
+        } finally {
+          // The HTML is self-contained and already loaded into the webview;
+          // drop the tmp file immediately to avoid littering /tmp.
+          fs.promises.unlink(outcome.htmlPath).catch(() => {});
+        }
+      },
+    ),
   );
 
   registrations.push(

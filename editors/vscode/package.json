@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -550,6 +550,18 @@
           "type": "boolean",
           "default": true,
           "description": "Run `tarn validate --format json` on every save of a .tarn.yaml and surface parse errors as diagnostics in the Problems panel.",
+          "scope": "resource"
+        },
+        "tarn.notifications.failure": {
+          "type": "string",
+          "enum": ["always", "focused", "off"],
+          "enumDescriptions": [
+            "Always show a warning toast after a failing run",
+            "Only show when the Tarn activity bar is not focused (default)",
+            "Never show a failure toast"
+          ],
+          "default": "focused",
+          "description": "When to show a warning notification after a failing Tarn run. Dry runs never trigger this notification.",
           "scope": "resource"
         }
       }
