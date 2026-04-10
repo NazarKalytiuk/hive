@@ -15,5 +15,6 @@ pub mod regex_cache;
 pub mod report;
 pub mod runner;
 pub mod scripting;
+pub mod selector;
 pub mod update;
 pub mod watch;

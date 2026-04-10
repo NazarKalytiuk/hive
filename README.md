@@ -849,6 +849,7 @@ tarn completions <SHELL>           Generate shell completions
 | `--format <FORMAT>` | Repeatable. Supports `human`, `json`, `junit`, `tap`, `html`, `curl`, `curl-all`, or `FORMAT=PATH` |
 | `--json-mode <MODE>` | For JSON outputs: `verbose` (default) or `compact` |
 | `--tag <TAGS>` | Filter by tag (comma-separated, AND logic) |
+| `--select <FILE[::TEST[::STEP]]>` | Narrow execution to specific files, tests, or steps (repeatable; ANDs with `--tag`) |
 | `--var <KEY=VALUE>` | Override env variables (repeatable) |
 | `--env <NAME>` | Load `tarn.env.{name}.yaml` |
 | `-v, --verbose` | Print full request/response for every step |
@@ -881,6 +882,9 @@ tarn run --dry-run                              # preview only
 tarn run --only-failed                          # hide passing tests, show failures only
 tarn run --no-progress                          # disable streaming, batch dump at end
 tarn run --only-failed --format json            # CI-friendly: only failed items in JSON
+tarn run --select tests/users.tarn.yaml::login   # run just the "login" test in one file
+tarn run --select tests/users.tarn.yaml::login::2   # run just step index 2 of login
+tarn run --select "a.tarn.yaml::login" --select "b.tarn.yaml::checkout"  # union across files
 tarn fmt tests/                                  # rewrite a directory in place
 tarn fmt tests/auth.tarn.yaml --check            # CI-style formatting check
 ```

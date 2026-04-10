@@ -18,6 +18,7 @@ use tarn::report::json::JsonOutputMode;
 use tarn::report::progress::{HumanProgress, ProgressMode, ProgressReporter};
 use tarn::report::{self, OutputFormat, OutputTarget, RenderOptions};
 use tarn::runner;
+use tarn::selector::{self, Selector};
 
 #[derive(Parser)]
 #[command(name = "tarn", version, about = "CLI-first API testing tool")]
@@ -44,6 +45,12 @@ enum Commands {
         /// Filter by tag (comma-separated, AND logic)
         #[arg(long)]
         tag: Option<String>,
+
+        /// Select a single file, test, or step (repeatable).
+        /// Form: FILE[::TEST[::STEP]]. STEP may be a name or a 0-based index.
+        /// Multiple --select flags union; combined with --tag they AND.
+        #[arg(long = "select", value_name = "FILE[::TEST[::STEP]]")]
+        select: Vec<String>,
 
         /// Override environment variables (key=value)
         #[arg(long = "var", value_name = "KEY=VALUE")]
@@ -271,6 +278,7 @@ fn main() {
             format,
             json_mode,
             tag,
+            select,
             vars,
             env_name,
             verbose,
@@ -296,6 +304,7 @@ fn main() {
             &vars,
             env_name.as_deref(),
             tag.as_deref(),
+            &select,
             verbose,
             only_failed,
             no_progress,
@@ -386,6 +395,7 @@ fn run_command(
     vars: &[String],
     env_name: Option<&str>,
     tag: Option<&str>,
+    select: &[String],
     verbose: bool,
     only_failed: bool,
     no_progress: bool,
@@ -405,6 +415,15 @@ fn run_command(
             }
         };
     let tag_filter = tag.map(runner::parse_tag_filter).unwrap_or_default();
+    let selectors = match selector::parse_all(select) {
+        Ok(s) => s,
+        Err(errs) => {
+            for err in errs {
+                eprintln!("Error: {}", err);
+            }
+            return 2;
+        }
+    };
     let output_targets = match parse_output_targets(format_specs) {
         Ok(targets) => targets,
         Err(e) => {
@@ -465,6 +484,7 @@ fn run_command(
             &cli_vars,
             env_name,
             &tag_filter,
+            &selectors,
             &run_opts,
             &output_targets,
             json_output_mode,
@@ -489,6 +509,7 @@ fn execute_run(
     cli_vars: &[(String, String)],
     env_name: Option<&str>,
     tag_filter: &[String],
+    selectors: &[Selector],
     run_opts: &runner::RunOptions,
     output_targets: &[OutputTarget],
     json_output_mode: JsonOutputMode,
@@ -520,6 +541,7 @@ fn execute_run(
             cli_vars,
             env_name,
             tag_filter,
+            selectors,
             run_opts,
             jobs,
             progress_ref,
@@ -530,6 +552,7 @@ fn execute_run(
             cli_vars,
             env_name,
             tag_filter,
+            selectors,
             run_opts,
             cookie_jar_path,
             progress_ref,
@@ -750,6 +773,7 @@ fn run_files_sequential(
     cli_vars: &[(String, String)],
     env_name: Option<&str>,
     tag_filter: &[String],
+    selectors: &[Selector],
     run_opts: &runner::RunOptions,
     cookie_jar_path: Option<&str>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
@@ -778,6 +802,7 @@ fn run_files_sequential(
             file_path,
             &resolved_env,
             tag_filter,
+            selectors,
             &file_run_opts,
             &mut cookie_jars,
             progress,
@@ -800,6 +825,7 @@ fn run_files_parallel(
     cli_vars: &[(String, String)],
     env_name: Option<&str>,
     tag_filter: &[String],
+    selectors: &[Selector],
     run_opts: &runner::RunOptions,
     jobs: Option<usize>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
@@ -828,12 +854,16 @@ fn run_files_parallel(
             };
             let resolved_env = resolve_env_for_file(&test_file, path, env_name, cli_vars)
                 .map_err(|e| (e.exit_code(), e.to_string()))?;
-            let result = runner::run_file(
+            let mut local_jars = std::collections::HashMap::new();
+            let result = runner::run_file_with_cookie_jars(
                 &test_file,
                 file_path,
                 &resolved_env,
                 tag_filter,
+                selectors,
                 &file_run_opts,
+                &mut local_jars,
+                None,
             )
             .map_err(|e| (e.exit_code(), e.to_string()))?;
             if let Some(p) = progress {

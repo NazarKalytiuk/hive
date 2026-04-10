@@ -13,6 +13,7 @@ use crate::model::{
 };
 use crate::report::progress::{ProgressReporter, ReportContext};
 use crate::scripting;
+use crate::selector::{self, Selector};
 use base64::Engine;
 use indexmap::IndexMap;
 use std::collections::{BTreeSet, HashMap};
@@ -61,6 +62,7 @@ pub fn run_file(
         file_path,
         env,
         tag_filter,
+        &[],
         opts,
         &mut cookie_jars,
         None,
@@ -68,12 +70,17 @@ pub fn run_file(
 }
 
 /// Run a single test file with an externally managed cookie jar set.
+///
+/// When `selectors` is non-empty, only tests and steps matching at least
+/// one selector run. Setup and teardown always run for a file that has
+/// any matching work, so captures and cleanup behave consistently.
 #[allow(clippy::too_many_arguments)]
 pub fn run_file_with_cookie_jars(
     test_file: &TestFile,
     file_path: &str,
     env: &HashMap<String, String>,
     tag_filter: &[String],
+    selectors: &[Selector],
     opts: &RunOptions,
     cookie_jars: &mut HashMap<String, CookieJar>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
@@ -89,6 +96,21 @@ pub fn run_file_with_cookie_jars(
         && !matches_tags(&test_file.tags, tag_filter)
     {
         // Simple format files: check file-level tags
+        return Ok(FileResult {
+            file: file_path.to_string(),
+            name: test_file.name.clone(),
+            passed: true,
+            duration_ms: 0,
+            redaction,
+            redacted_values: vec![],
+            setup_results: vec![],
+            test_results: vec![],
+            teardown_results: vec![],
+        });
+    }
+
+    // Skip the whole file when selectors exclude it.
+    if !selector::any_matches_file(selectors, file_path) {
         return Ok(FileResult {
             file: file_path.to_string(),
             name: test_file.name.clone(),
@@ -150,11 +172,16 @@ pub fn run_file_with_cookie_jars(
     let mut test_results = Vec::new();
 
     if !setup_failed {
-        if !test_file.steps.is_empty() {
-            // Simple format: flat steps
+        if !test_file.steps.is_empty()
+            && selector::any_matches_test(selectors, file_path, &test_file.name)
+        {
+            // Simple format: flat steps (treated as a single "default" test
+            // whose name is the file's own name).
+            let selected_steps =
+                filter_steps(&test_file.steps, selectors, file_path, &test_file.name);
             let mut step_captures = captures.clone();
             let step_results = run_steps(
-                &test_file.steps,
+                &selected_steps,
                 env,
                 &mut step_captures,
                 test_file,
@@ -203,9 +230,15 @@ pub fn run_file_with_cookie_jars(
                 }
             }
 
+            // Skip tests that no selector matches.
+            if !selector::any_matches_test(selectors, file_path, name) {
+                continue;
+            }
+
+            let selected_steps = filter_steps(&test_group.steps, selectors, file_path, name);
             let mut test_captures = captures.clone();
             let step_results = run_steps(
-                &test_group.steps,
+                &selected_steps,
                 env,
                 &mut test_captures,
                 test_file,
@@ -284,6 +317,30 @@ pub fn run_file_with_cookie_jars(
     }
 
     Ok(file_result)
+}
+
+/// Return the subset of steps matching the active selectors. Without
+/// selectors (or without step-level constraints for this test) the full
+/// input is returned. Step selection drops prior steps, so tests that
+/// rely on chained captures should use a test-level selector instead of
+/// a step-level selector.
+fn filter_steps(
+    steps: &[Step],
+    selectors: &[Selector],
+    file_path: &str,
+    test_name: &str,
+) -> Vec<Step> {
+    if selectors.is_empty() || !selector::has_step_level_filter(selectors, file_path, test_name) {
+        return steps.to_vec();
+    }
+    steps
+        .iter()
+        .enumerate()
+        .filter(|(index, step)| {
+            selector::any_matches_step(selectors, file_path, test_name, *index, &step.name)
+        })
+        .map(|(_, step)| step.clone())
+        .collect()
 }
 
 /// Run a sequence of steps, accumulating captures.

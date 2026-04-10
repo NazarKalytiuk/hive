@@ -2109,3 +2109,255 @@ fn dump_report_goldens() {
         normalize_html_report(&tarn::report::html::render(&golden_run_result()))
     );
 }
+
+// ============================================================================
+// T51: --select FILE[::TEST[::STEP]]
+// ============================================================================
+
+fn select_fixture_file(dir: &TempDir, base_url: &str) -> String {
+    write_test_file(
+        dir,
+        "select.tarn.yaml",
+        &format!(
+            r#"
+name: Select fixture
+tests:
+  login:
+    tags: [auth]
+    steps:
+      - name: step one
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+      - name: step two
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+  logout:
+    tags: [auth]
+    steps:
+      - name: bye
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+  admin:
+    tags: [admin]
+    steps:
+      - name: admin only
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+"#,
+            base = base_url
+        ),
+    )
+}
+
+#[test]
+fn select_test_runs_only_the_selected_test() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "select.tarn.yaml::login",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 1, "only login should run: {:?}", tests);
+    assert_eq!(tests[0]["name"], "login");
+    let steps = tests[0]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 2, "login has two steps");
+}
+
+#[test]
+fn select_step_runs_only_the_selected_step() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "select.tarn.yaml::login::step two",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0]["name"], "login");
+    let steps = tests[0]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1, "only step two should run: {:?}", steps);
+    assert_eq!(steps[0]["name"], "step two");
+}
+
+#[test]
+fn select_step_by_numeric_index() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "select.tarn.yaml::login::0",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let steps = parsed["files"][0]["tests"][0]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["name"], "step one");
+}
+
+#[test]
+fn multiple_selectors_union() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "select.tarn.yaml::login",
+            "--select",
+            "select.tarn.yaml::admin",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    let names: Vec<&str> = tests.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["login", "admin"]);
+}
+
+#[test]
+fn select_and_tag_filter_and_together() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    // --select picks login and admin, --tag auth keeps only login
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "select.tarn.yaml::login",
+            "--select",
+            "select.tarn.yaml::admin",
+            "--tag",
+            "auth",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    let names: Vec<&str> = tests.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["login"], "auth tag should keep only login");
+}
+
+#[test]
+fn malformed_selector_exits_with_code_two() {
+    let dir = TempDir::new().unwrap();
+    // Any .tarn.yaml will do since we expect to fail before running.
+    let file = write_test_file(
+        &dir,
+        "x.tarn.yaml",
+        r#"
+name: stub
+tests:
+  t:
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: "http://127.0.0.1:0/"
+"#,
+    );
+
+    let output = tarn()
+        .args(["run", &file, "--select", "::broken", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid --select"),
+        "expected parse error, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn selector_file_mismatch_skips_file() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    // Selector targets a different file that is not in the run set.
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--select",
+            "nonexistent.tarn.yaml::login",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    assert!(tests.is_empty(), "no tests should run: {:?}", tests);
+}
