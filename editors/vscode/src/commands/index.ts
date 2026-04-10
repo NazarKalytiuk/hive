@@ -6,6 +6,8 @@ import { getOutputChannel } from "../outputChannel";
 import { ids } from "../testing/discovery";
 import type { RunHistoryStore } from "../views/RunHistoryView";
 import { EnvironmentsView, resolveEnvSourceUri } from "../views/EnvironmentsView";
+import type { LastRunCache, StepKey } from "../testing/LastRunCache";
+import type { RequestResponsePanel } from "../views/RequestResponsePanel";
 
 export interface CommandDeps {
   tarnController: TarnTestController;
@@ -13,6 +15,8 @@ export interface CommandDeps {
   backend: TarnBackend;
   history: RunHistoryStore;
   environmentsView: EnvironmentsView;
+  lastRunCache: LastRunCache;
+  stepDetailsPanel: RequestResponsePanel;
   refreshStatusBar: () => void;
   refreshHistoryView: () => void;
   refreshEnvironmentsView: () => void;
@@ -201,6 +205,27 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
     vscode.commands.registerCommand("tarn.reloadEnvironments", async () => {
       await deps.environmentsView.reload();
     }),
+  );
+
+  registrations.push(
+    vscode.commands.registerCommand(
+      "tarn.showStepDetails",
+      async (arg?: StepKey | { encodedKey?: string }) => {
+        let snapshot;
+        if (arg && "encodedKey" in arg && typeof arg.encodedKey === "string") {
+          snapshot = deps.lastRunCache.getByEncoded(arg.encodedKey);
+        } else if (arg && typeof arg === "object" && "file" in arg) {
+          snapshot = deps.lastRunCache.get(arg);
+        }
+        if (!snapshot) {
+          vscode.window.showInformationMessage(
+            "Tarn: no step details available. Run some tests first and click this command on a failing step.",
+          );
+          return;
+        }
+        deps.stepDetailsPanel.show(snapshot);
+      },
+    ),
   );
 
   registrations.push(

@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -182,6 +182,11 @@
         "command": "tarn.copyEnvironmentAsFlag",
         "title": "Tarn: Copy as --env Flag",
         "category": "Tarn"
+      },
+      {
+        "command": "tarn.showStepDetails",
+        "title": "Tarn: Show Step Details",
+        "category": "Tarn"
       }
     ],
     "viewsContainers": {
@@ -278,6 +283,10 @@
         },
         {
           "command": "tarn.copyEnvironmentAsFlag",
+          "when": "false"
+        },
+        {
+          "command": "tarn.showStepDetails",
           "when": "false"
         },
         {

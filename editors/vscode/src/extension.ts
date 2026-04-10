@@ -12,6 +12,8 @@ import {
   TarnRenameProvider,
 } from "./language/SymbolProviders";
 import { TarnFormatProvider } from "./language/FormatProvider";
+import { LastRunCache } from "./testing/LastRunCache";
+import { RequestResponsePanel } from "./views/RequestResponsePanel";
 import { TarnStatusBar } from "./statusBar";
 import { registerCommands } from "./commands";
 import { TarnProcessRunner } from "./backend/TarnProcessRunner";
@@ -38,6 +40,11 @@ export interface TarnExtensionApi {
     >;
     readonly getActiveEnvironment: () => string | null;
     readonly formatDocument: (uri: vscode.Uri) => Promise<vscode.TextEdit[]>;
+    readonly lastRunCacheSize: () => number;
+    readonly loadLastRunFromReport: (
+      report: import("./util/schemaGuards").Report,
+    ) => void;
+    readonly showStepDetails: (key: import("./testing/LastRunCache").StepKey) => boolean;
   };
 }
 
@@ -71,8 +78,16 @@ export async function activate(
     vscode.window.registerTreeDataProvider("tarn.runHistory", historyTree),
   );
 
-  const tarnController = createTarnTestController(index, backend, history, () =>
-    historyTree.refresh(),
+  const lastRunCache = new LastRunCache();
+  const stepDetailsPanel = new RequestResponsePanel(context.extensionUri);
+  context.subscriptions.push(stepDetailsPanel);
+
+  const tarnController = createTarnTestController(
+    index,
+    backend,
+    history,
+    lastRunCache,
+    () => historyTree.refresh(),
   );
   context.subscriptions.push(tarnController);
 
@@ -145,6 +160,8 @@ export async function activate(
       backend,
       history,
       environmentsView,
+      lastRunCache,
+      stepDetailsPanel,
       refreshStatusBar: () => statusBar.refresh(),
       refreshHistoryView: () => historyTree.refresh(),
       refreshEnvironmentsView: () => environmentsView.refresh(),
@@ -184,6 +201,7 @@ export async function activate(
       "tarn.initProject",
       "tarn.refreshDiscovery",
       "tarn.reloadEnvironments",
+      "tarn.showStepDetails",
     ],
     testing: {
       backend,
@@ -209,6 +227,14 @@ export async function activate(
         } finally {
           cts.dispose();
         }
+      },
+      lastRunCacheSize: () => lastRunCache.size(),
+      loadLastRunFromReport: (report) => lastRunCache.loadFromReport(report),
+      showStepDetails: (key) => {
+        const snapshot = lastRunCache.get(key);
+        if (!snapshot) return false;
+        stepDetailsPanel.show(snapshot);
+        return true;
       },
     },
   };

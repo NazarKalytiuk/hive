@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.11.0 — Phase 4: Request/Response Inspector webview
+
+First Phase 4 feature: rich step-detail inspector that beats the
+markdown-in-a-popover `TestMessage` the extension shipped in Phase 1.
+When a step fails, users can now open a dedicated webview panel with
+Request / Response / Assertions tabs, pretty-printed headers, JSON
+body pretty-printing, a 10 KB truncation guard with an "Open full
+in new editor" action, and a per-assertion pass/fail breakdown with
+diff rendering.
+
+### Added
+
+- **`RequestResponsePanel`** (NAZ-272). Singleton webview panel that
+  opens beside the editor, reuses the existing panel on repeat
+  invocations, and preserves context when hidden. No framework —
+  the HTML is rendered from a plain template string with CSP-locked
+  scripts and VS Code theme CSS variables.
+- **Tabbed UI**:
+  - *Request* — method + URL, headers table, body with JSON
+    pretty-printing.
+  - *Response* — status, headers table, body. When the step passed,
+    Tarn only records the status code (bodies are failure-only), so
+    the panel shows a helpful "Response bodies are only included
+    for failed steps" empty state.
+  - *Assertions* — one row per assertion with expected, actual,
+    message, and colored diff (if present). Prefers the full
+    `details` array when available, falls back to `failures` only.
+- **Body truncation** at 10 KB with a `data-open-full` button that
+  posts a message to the extension host, which opens the full body
+  in a new editor with auto-detected language (JSON / XML / plain).
+- **`LastRunCache`** (`src/testing/LastRunCache.ts`). Tiny
+  in-memory map keyed by `file::test::index` that stores every
+  step result from the most recent run. Populated by `runHandler`
+  after `applyReport` so the panel can look up any step on demand
+  without re-running tests.
+- **`tarn.showStepDetails`** command (hidden from the command
+  palette because it requires an argument). Accepts either a
+  `StepKey` `{ file, test, stepIndex }` or a wrapper
+  `{ encodedKey }` string, looks the step up in the cache, and
+  opens the panel.
+- **Extension API test hooks**:
+  `testing.lastRunCacheSize()`, `testing.loadLastRunFromReport()`,
+  and `testing.showStepDetails(key)`. The second lets integration
+  tests prime the cache from a synthetic report without running
+  real tests; the third drives the panel deterministically and
+  returns a boolean so tests can assert hit/miss.
+
+### Scope note
+
+v1 ships the panel plus the command. Auto-triggering on Test
+Explorer selection, CodeLens buttons on failed steps, and a
+`Copy as curl` action inside the panel are intentional follow-ups
+(NAZ-272 comments in Linear) — the infrastructure is now in place
+and those integrations are small additions later.
+
+### Tests
+
+- **19 new unit tests** across two files:
+  - `lastRunCache.test.ts` (7 tests) — empty state, indexing
+    setup/test/teardown, setup lookup via `test: "setup"`, test
+    lookup by name + index, replace-on-reload semantics, `clear()`,
+    and `encode`/`decode` round-trip plus malformed handling.
+  - `requestResponsePanel.test.ts` (12 tests) — `stringifyBody`
+    for strings/objects/arrays/circular refs, `detectLanguage`
+    for JSON / XML / plaintext, and `truncateBody` above/below/at
+    the 10 KB threshold.
+- **5 new integration tests** in `stepDetails.test.ts` against a
+  real VS Code instance: command registration, cache sizing after
+  loading a synthetic report, panel-open success for a known key,
+  panel-open miss for an unknown key, and a full
+  `vscode.commands.executeCommand` round-trip.
+- Extension unit tests: **131 → 151 passing**.
+- Extension integration tests: **37 → 42 passing**.
+
 ## 0.10.0 — Phase 3 complete: YAML grammar injection for interpolation
 
 Seventh and final Phase 3 feature: the TextMate grammar shipped in

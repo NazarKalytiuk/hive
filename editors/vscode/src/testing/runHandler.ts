@@ -7,6 +7,7 @@ import { readConfig } from "../config";
 import { getOutputChannel } from "../outputChannel";
 import { RunHistoryStore } from "../views/RunHistoryView";
 import { getItemMeta, ids } from "./discovery";
+import type { LastRunCache } from "./LastRunCache";
 
 export interface RunState {
   activeEnvironment: string | null;
@@ -23,6 +24,7 @@ export interface HandlerDeps {
   index: WorkspaceIndex;
   state: RunState;
   history: RunHistoryStore;
+  lastRunCache: LastRunCache;
   onHistoryChanged: () => void;
 }
 
@@ -129,6 +131,11 @@ async function executeRun(
     parsedByPath,
     testItemsById: itemsById,
   });
+
+  // Stash the full report in the last-run cache so the Request/
+  // Response Inspector webview can look up individual step details
+  // via tarn.showStepDetails.
+  deps.lastRunCache.loadFromReport(outcome.report);
 
   // Track which items failed so Tarn: Run Failed can target them later.
   deps.state.lastFailedItemIds = collectFailedItemIds(itemsById, outcome.report, parsedByPath);

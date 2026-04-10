@@ -4,6 +4,7 @@ import { buildFileItem, rebuildChildren } from "./discovery";
 import { createRunHandler, RunState } from "./runHandler";
 import type { TarnBackend } from "../backend/TarnBackend";
 import type { RunHistoryStore } from "../views/RunHistoryView";
+import type { LastRunCache } from "./LastRunCache";
 
 export interface TarnTestController extends vscode.Disposable {
   controller: vscode.TestController;
@@ -18,6 +19,7 @@ export function createTarnTestController(
   index: WorkspaceIndex,
   backend: TarnBackend,
   history: RunHistoryStore,
+  lastRunCache: LastRunCache,
   onHistoryChanged: () => void,
 ): TarnTestController {
   const controller = vscode.tests.createTestController("tarn", "Tarn");
@@ -30,7 +32,15 @@ export function createTarnTestController(
     lastFailedItemIds: new Set(),
   };
 
-  const deps = { controller, backend, index, state, history, onHistoryChanged };
+  const deps = {
+    controller,
+    backend,
+    index,
+    state,
+    history,
+    lastRunCache,
+    onHistoryChanged,
+  };
   const runHandler = createRunHandler(deps, false);
   const dryRunHandler = createRunHandler(deps, true);
 
