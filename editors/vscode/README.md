@@ -74,6 +74,43 @@ In untrusted workspaces the extension provides read-only features only (grammar,
 - Tarn test schema → `schemas/v1/testfile.json`.
 - JSON report schema → `schemas/v1/report.json` for `tarn-report.json` and `*.tarn-report.json`.
 
+## Release
+
+The extension publishes to both the [VS Code Marketplace](https://marketplace.visualstudio.com/) and [Open VSX](https://open-vsx.org/) from tagged releases via `.github/workflows/vscode-extension-release.yml`.
+
+### One-time setup
+
+1. **Verify the publisher** on both marketplaces for `nazarkalytiuk` (manual, one-time on each site).
+2. **Create marketplace PATs** and add them to the repo under **Settings → Secrets and variables → Actions**:
+   - `VSCE_PAT` — from [dev.azure.com/<publisher>/_usersSettings/tokens](https://dev.azure.com/) with the `Marketplace › Manage` scope.
+   - `OVSX_PAT` — from [open-vsx.org/user-settings/tokens](https://open-vsx.org/user-settings/tokens).
+3. **Create the Open VSX namespace** (once): `npx ovsx create-namespace nazarkalytiuk -p "$OVSX_PAT"`.
+
+### Cutting a release
+
+1. Bump `editors/vscode/package.json` to the new version. The workflow will fail if `package.json` disagrees with the tag.
+2. Add a `## <version>` section to `editors/vscode/CHANGELOG.md`.
+3. Commit and tag: `git tag v<version> && git push origin v<version>`.
+4. The `Release` workflow (Rust binaries) runs first. The `VS Code Extension Release` workflow runs in parallel, waits for the binary release to appear on GitHub, then packages and publishes the VSIX to both marketplaces.
+5. Re-runs: if either publish fails, re-invoke via **Actions → VS Code Extension Release → Run workflow** with the failed tag as the `tag` input.
+
+### Pre-releases
+
+Tags with a hyphen suffix (e.g. `v0.19.0-rc.1`, `v0.20.0-beta`) are published with the `--pre-release` flag on both marketplaces. Stable tags (`v0.19.0`) publish as regular releases.
+
+### Local dry-run
+
+To verify the VSIX builds cleanly without publishing:
+
+```bash
+cd editors/vscode
+npm ci
+npm run lint
+npm run test:unit
+npm run build
+npx vsce package --no-dependencies --out tarn-vscode.vsix
+```
+
 ## Roadmap
 
 See `docs/VSCODE_EXTENSION.md` for the full phased plan and Tarn-side dependencies (`T51`–`T57`).

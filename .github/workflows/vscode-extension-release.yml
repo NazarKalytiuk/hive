@@ -1,0 +1,158 @@
+name: VS Code Extension Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g., v0.19.0). Defaults to the current ref."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to VS Code Marketplace + Open VSX
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    env:
+      # Secrets are passed as env so the final `publish` steps can
+      # fail loudly when they're missing instead of silently skipping.
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag name and pre-release flag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$TAG" =~ ^v ]]; then
+            echo "::error::Tag '$TAG' does not start with 'v'"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Anything with a '-' suffix (e.g. 0.19.0-rc.1, 0.19.0-beta)
+          # is treated as a pre-release on both marketplaces.
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      - name: Verify tag matches editors/vscode/package.json version
+        shell: bash
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED="${{ steps.tag.outputs.version }}"
+          if [ "$PKG_VERSION" != "$EXPECTED" ]; then
+            echo "::error::Tag ${{ steps.tag.outputs.tag }} expects package.json version $EXPECTED, found $PKG_VERSION."
+            echo "::error::Bump editors/vscode/package.json before tagging."
+            exit 1
+          fi
+
+      - name: Verify Tarn binary release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # The Rust `release.yml` workflow creates a GitHub release
+          # with the same tag. If it hasn't completed yet, poll for up
+          # to three minutes before giving up — this keeps the two
+          # workflows loosely coupled without hard inter-workflow
+          # dependencies.
+          for attempt in 1 2 3 4 5 6; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Binary release $TAG found."
+              exit 0
+            fi
+            echo "Binary release $TAG not yet available (attempt $attempt/6); sleeping 30s..."
+            sleep 30
+          done
+          echo "::error::Binary release $TAG was not published in time. Cut the Rust release first or rerun this workflow once the release.yml job finishes."
+          exit 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Package VSIX
+        run: npx vsce package --no-dependencies --out tarn-vscode.vsix
+
+      - name: Check publishing tokens
+        shell: bash
+        run: |
+          missing=0
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT secret is not set. Configure it under repo Settings → Secrets → Actions."
+            missing=1
+          fi
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::error::OVSX_PAT secret is not set. Configure it under repo Settings → Secrets → Actions."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Publish to VS Code Marketplace
+        shell: bash
+        run: |
+          FLAGS=""
+          if [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
+            FLAGS="--pre-release"
+          fi
+          npx @vscode/vsce publish \
+            --packagePath tarn-vscode.vsix \
+            --pat "$VSCE_PAT" \
+            $FLAGS
+
+      - name: Publish to Open VSX
+        shell: bash
+        run: |
+          FLAGS=""
+          if [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
+            FLAGS="--pre-release"
+          fi
+          npx ovsx publish tarn-vscode.vsix \
+            --pat "$OVSX_PAT" \
+            $FLAGS
+
+      - name: Upload VSIX artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarn-vscode-${{ steps.tag.outputs.version }}
+          path: editors/vscode/tarn-vscode.vsix
+          if-no-files-found: error

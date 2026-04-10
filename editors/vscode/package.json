@@ -554,7 +554,11 @@
         },
         "tarn.notifications.failure": {
           "type": "string",
-          "enum": ["always", "focused", "off"],
+          "enum": [
+            "always",
+            "focused",
+            "off"
+          ],
           "enumDescriptions": [
             "Always show a warning toast after a failing run",
             "Only show when the Tarn activity bar is not focused (default)",
@@ -612,6 +616,7 @@
     "esbuild": "^0.20.0",
     "glob": "^10.3.10",
     "mocha": "^10.3.0",
+    "ovsx": "^0.10.10",
     "typescript": "^5.4.0",
     "vitest": "^1.3.0"
   },
