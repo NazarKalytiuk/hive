@@ -832,7 +832,7 @@ steps:
 ```
 tarn run [PATH] [OPTIONS]          Run test files
 tarn bench <PATH> [OPTIONS]        Benchmark a step
-tarn validate [PATH]               Validate YAML without running
+tarn validate [PATH] [--format]    Validate YAML (--format human|json)
 tarn fmt [PATH] [--check]          Normalize Tarn YAML
 tarn list                          List all tests
 tarn import-hurl <PATH>            Convert common-case Hurl files to Tarn
@@ -889,6 +889,51 @@ tarn run --select "a.tarn.yaml::login" --select "b.tarn.yaml::checkout"  # union
 tarn fmt tests/                                  # rewrite a directory in place
 tarn fmt tests/auth.tarn.yaml --check            # CI-style formatting check
 ```
+
+### Structured Validation (`tarn validate --format json`)
+
+`tarn validate --format json` emits a machine-readable report so editors and CI can surface parse errors inline. The schema:
+
+```json
+{
+  "files": [
+    {
+      "file": "tests/users.tarn.yaml",
+      "valid": false,
+      "errors": [
+        { "message": "found unexpected end of stream ...", "line": 14, "column": 7 }
+      ]
+    }
+  ]
+}
+```
+
+- `line` and `column` are populated for YAML syntax errors (derived from `serde_yaml`'s error location).
+- Parser semantic errors (unknown fields, shape mismatches) surface `message` only when the underlying error does not carry a location.
+- Exit code is `0` when every file is valid, `2` otherwise. The human format (`--format human`, the default) is unchanged.
+
+### Environment Discovery (`tarn env --json`)
+
+`tarn env --json` prints the project's named environments in a stable schema so editors can populate pickers and previews:
+
+```json
+{
+  "project_root": "/path/to/project",
+  "default_env_file": "tarn.env.yaml",
+  "environments": [
+    {
+      "name": "staging",
+      "source_file": "tarn.env.staging.yaml",
+      "vars": {
+        "base_url": "https://staging.example.com",
+        "api_token": "***"
+      }
+    }
+  ]
+}
+```
+
+Inline `vars` from `tarn.config.yaml` are redacted when the key matches `redaction.env` (case-insensitive), so `tarn env --json` never prints literal secrets. Environments are sorted alphabetically by name.
 
 ### Streaming Progress
 

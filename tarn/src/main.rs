@@ -134,6 +134,10 @@ enum Commands {
     Validate {
         /// Test file or directory to validate
         path: Option<String>,
+
+        /// Output format: human (default) or json
+        #[arg(long, default_value = "human")]
+        format: String,
     },
 
     /// Format Tarn test files into canonical YAML
@@ -378,7 +382,7 @@ fn main() {
                 http_version: cli_http_version(http1_1, http2),
             },
         ),
-        Commands::Validate { path } => validate_command(path),
+        Commands::Validate { path, format } => validate_command(path, &format),
         Commands::Fmt { path, check } => fmt_command(path, check),
         Commands::List { tag } => list_command(tag.as_deref()),
         Commands::Env { json } => env_command(json),
@@ -1090,22 +1094,55 @@ fn resolve_files(path: Option<String>) -> Result<Vec<String>, TarnError> {
     }
 }
 
-fn validate_command(path: Option<String>) -> i32 {
+fn validate_command(path: Option<String>, format: &str) -> i32 {
+    let json_format = match format.to_ascii_lowercase().as_str() {
+        "human" => false,
+        "json" => true,
+        other => {
+            eprintln!(
+                "Error: unknown validate format '{}'. Use 'human' or 'json'.",
+                other
+            );
+            return 2;
+        }
+    };
+
     let files = match resolve_files(path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            if json_format {
+                let output = serde_json::json!({
+                    "files": [],
+                    "error": e.to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&output).unwrap());
+            } else {
+                eprintln!("Error: {}", e);
+            }
             return e.exit_code();
         }
     };
 
     if files.is_empty() {
-        eprintln!("No test files found");
+        if json_format {
+            let output = serde_json::json!({ "files": [] });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        } else {
+            eprintln!("No test files found");
+        }
         return 2;
     }
 
+    if json_format {
+        validate_files_json(&files)
+    } else {
+        validate_files_human(&files)
+    }
+}
+
+fn validate_files_human(files: &[String]) -> i32 {
     let mut all_valid = true;
-    for file_path in &files {
+    for file_path in files {
         let path = Path::new(file_path);
         match parser::parse_file(path) {
             Ok(_) => println!("  ✓ {}", file_path),
@@ -1115,12 +1152,127 @@ fn validate_command(path: Option<String>) -> i32 {
             }
         }
     }
-
     if all_valid {
         0
     } else {
         2
     }
+}
+
+fn validate_files_json(files: &[String]) -> i32 {
+    let mut all_valid = true;
+    let mut file_entries = Vec::with_capacity(files.len());
+    for file_path in files {
+        let path = Path::new(file_path);
+        let errors = collect_validation_errors(path);
+        let valid = errors.is_empty();
+        if !valid {
+            all_valid = false;
+        }
+        let error_json: Vec<serde_json::Value> = errors
+            .iter()
+            .map(|err| {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    "message".into(),
+                    serde_json::Value::String(err.message.clone()),
+                );
+                if let Some(line) = err.line {
+                    obj.insert("line".into(), serde_json::Value::from(line));
+                }
+                if let Some(col) = err.column {
+                    obj.insert("column".into(), serde_json::Value::from(col));
+                }
+                serde_json::Value::Object(obj)
+            })
+            .collect();
+        file_entries.push(serde_json::json!({
+            "file": file_path,
+            "valid": valid,
+            "errors": error_json,
+        }));
+    }
+    let output = serde_json::json!({ "files": file_entries });
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    if all_valid {
+        0
+    } else {
+        2
+    }
+}
+
+#[derive(Debug)]
+struct ValidationError {
+    message: String,
+    line: Option<usize>,
+    column: Option<usize>,
+}
+
+/// Collect structured validation errors for a single file.
+///
+/// When the error originates from serde_yaml's raw parse we extract
+/// line and column directly from the error's location. For semantic
+/// errors that come out of `parser::parse_file` we attempt to recover
+/// line and column by matching the `path:line:column:` prefix that
+/// `enhance_parse_error` embeds in its message.
+fn collect_validation_errors(path: &Path) -> Vec<ValidationError> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            return vec![ValidationError {
+                message: format!("Failed to read {}: {}", path.display(), e),
+                line: None,
+                column: None,
+            }]
+        }
+    };
+
+    if let Err(yaml_err) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+        let location = yaml_err.location();
+        return vec![ValidationError {
+            message: yaml_err.to_string(),
+            line: location.as_ref().map(|l| l.line()),
+            column: location.as_ref().map(|l| l.column()),
+        }];
+    }
+
+    match parser::parse_file(path) {
+        Ok(_) => Vec::new(),
+        Err(err) => {
+            let raw = err.to_string();
+            let (message, line, column) = extract_location_prefix(&raw, path);
+            vec![ValidationError {
+                message,
+                line,
+                column,
+            }]
+        }
+    }
+}
+
+/// Parse the `"<path>:<line>:<column>: <rest>"` prefix that
+/// `enhance_parse_error` writes into parser error messages. When the
+/// prefix is absent, the full message is returned as the error text with
+/// `line` and `column` set to `None`.
+fn extract_location_prefix(message: &str, path: &Path) -> (String, Option<usize>, Option<usize>) {
+    let prefix = format!("{}:", path.display());
+    let Some(rest) = message.strip_prefix(&prefix) else {
+        return (message.to_string(), None, None);
+    };
+    let mut parts = rest.splitn(3, ':');
+    let line_part = parts.next();
+    let col_part = parts.next();
+    let tail = parts.next();
+    let (Some(line_str), Some(col_str), Some(tail)) = (line_part, col_part, tail) else {
+        return (message.to_string(), None, None);
+    };
+    let (Ok(line), Ok(col)) = (
+        line_str.trim().parse::<usize>(),
+        col_str.trim().parse::<usize>(),
+    ) else {
+        return (message.to_string(), None, None);
+    };
+    (tail.trim_start().to_string(), Some(line), Some(col))
 }
 
 fn fmt_command(path: Option<String>, check: bool) -> i32 {
@@ -1405,20 +1557,29 @@ fn env_command(json: bool) -> i32 {
     let mut environments: Vec<_> = project.config.environments.iter().collect();
     environments.sort_by(|a, b| a.0.cmp(b.0));
 
+    let redaction = project.config.redaction.clone().unwrap_or_default();
+
     if json {
+        let environments_json: Vec<serde_json::Value> = environments
+            .iter()
+            .map(|(name, profile)| {
+                let source_file = profile
+                    .env_file
+                    .clone()
+                    .unwrap_or_else(|| default_named_env_path(&project.config.env_file, name));
+                let redacted_vars = redact_inline_vars(&profile.vars, &redaction);
+                serde_json::json!({
+                    "name": name,
+                    "source_file": source_file,
+                    "vars": redacted_vars,
+                })
+            })
+            .collect();
+
         let output = serde_json::json!({
             "project_root": project.root_dir,
             "default_env_file": project.config.env_file,
-            "environments": environments.iter().map(|(name, profile)| {
-                serde_json::json!({
-                    "name": name,
-                    "env_file": profile
-                        .env_file
-                        .clone()
-                        .unwrap_or_else(|| default_named_env_path(&project.config.env_file, name)),
-                    "vars": profile.vars,
-                })
-            }).collect::<Vec<_>>()
+            "environments": environments_json,
         });
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
         return 0;
@@ -1441,6 +1602,33 @@ fn env_command(json: bool) -> i32 {
         );
     }
     0
+}
+
+/// Apply the project redaction policy to a map of inline environment
+/// variables from `tarn.config.yaml` so that `tarn env --json` never
+/// prints literal secrets. Values for keys listed in
+/// `redaction.env_vars` (case-insensitive) are replaced with the
+/// configured replacement marker. Keys themselves are preserved so
+/// consumers (editors, CI dashboards) still see which variables exist.
+fn redact_inline_vars(
+    vars: &std::collections::HashMap<String, String>,
+    redaction: &tarn::model::RedactionConfig,
+) -> std::collections::BTreeMap<String, String> {
+    let redact_set: std::collections::HashSet<String> = redaction
+        .env_vars
+        .iter()
+        .map(|k| k.to_ascii_lowercase())
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    for (key, value) in vars {
+        let redacted = if redact_set.contains(&key.to_ascii_lowercase()) {
+            redaction.replacement.clone()
+        } else {
+            value.clone()
+        };
+        out.insert(key.clone(), redacted);
+    }
+    out
 }
 
 fn default_named_env_path(env_file: &str, name: &str) -> String {

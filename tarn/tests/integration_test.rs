@@ -2580,3 +2580,384 @@ tests:
     assert_eq!(parsed["schema_version"], 1);
     assert_eq!(parsed["summary"]["status"], "PASSED");
 }
+
+// ============================================================================
+// T52: tarn validate --format json
+// ============================================================================
+
+#[test]
+fn validate_json_reports_all_files_as_valid_when_no_errors() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "ok.tarn.yaml",
+        r#"
+version: "1"
+name: OK
+tests:
+  t:
+    steps:
+      - name: ping
+        request:
+          method: GET
+          url: "http://localhost/"
+        assert:
+          status: 200
+"#,
+    );
+
+    let output = tarn()
+        .args(["validate", &file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let files = parsed["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["valid"], true);
+    assert_eq!(files[0]["errors"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn validate_json_reports_yaml_parse_error_with_line_and_column() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "broken.tarn.yaml",
+        r#"name: "Broken
+tests:
+  t:
+    steps:
+      - name: unclosed
+"#,
+    );
+
+    let output = tarn()
+        .args(["validate", &file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let file_entry = &parsed["files"][0];
+    assert_eq!(file_entry["valid"], false);
+    let errors = file_entry["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0]["line"].as_u64().is_some(),
+        "expected line number, got: {}",
+        errors[0]
+    );
+    assert!(
+        errors[0]["column"].as_u64().is_some(),
+        "expected column number, got: {}",
+        errors[0]
+    );
+    assert!(errors[0]["message"].as_str().unwrap().contains("quoted"));
+}
+
+#[test]
+fn validate_json_reports_unknown_field_error() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "unknown.tarn.yaml",
+        r#"
+name: Unknown field
+tests:
+  t:
+    steps:
+      - name: bad
+        requestt:
+          method: GET
+          url: "http://localhost/"
+"#,
+    );
+
+    let output = tarn()
+        .args(["validate", &file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let file_entry = &parsed["files"][0];
+    assert_eq!(file_entry["valid"], false);
+    let errors = file_entry["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    let msg = errors[0]["message"].as_str().unwrap();
+    assert!(
+        msg.to_ascii_lowercase().contains("unknown field"),
+        "expected unknown-field message, got: {}",
+        msg
+    );
+    assert!(
+        msg.contains("requestt"),
+        "expected the offending field name in the message, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn validate_json_returns_structured_result_for_mixed_directory() {
+    let dir = TempDir::new().unwrap();
+    write_test_file(
+        &dir,
+        "ok.tarn.yaml",
+        r#"
+name: OK
+tests:
+  t:
+    steps:
+      - name: ok
+        request:
+          method: GET
+          url: "http://localhost/"
+"#,
+    );
+    write_test_file(
+        &dir,
+        "bad.tarn.yaml",
+        r#"name: "Bad
+tests:
+"#,
+    );
+
+    let output = tarn()
+        .args(["validate", dir.path().to_str().unwrap(), "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let files = parsed["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    let mut map: HashMap<String, bool> = HashMap::new();
+    for f in files {
+        let path = f["file"].as_str().unwrap().to_string();
+        let valid = f["valid"].as_bool().unwrap();
+        let stem = std::path::Path::new(&path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        map.insert(stem, valid);
+    }
+    assert_eq!(map["ok.tarn.yaml"], true);
+    assert_eq!(map["bad.tarn.yaml"], false);
+}
+
+#[test]
+fn validate_json_rejects_unknown_format_value() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "x.tarn.yaml",
+        r#"
+name: X
+tests:
+  t:
+    steps: []
+"#,
+    );
+
+    let output = tarn()
+        .args(["validate", &file, "--format", "yaml"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown validate format"),
+        "expected format error, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn validate_human_format_unchanged_by_default() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "ok.tarn.yaml",
+        r#"
+name: OK
+tests:
+  t:
+    steps:
+      - name: ok
+        request:
+          method: GET
+          url: "http://localhost/"
+"#,
+    );
+
+    let output = tarn().args(["validate", &file]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("✓"),
+        "expected human checkmark, got: {}",
+        stdout
+    );
+}
+
+// ============================================================================
+// T56: tarn env --json
+// ============================================================================
+
+fn write_env_fixture(dir: &TempDir, contents: &str) -> std::path::PathBuf {
+    let path = dir.path().join("tarn.config.yaml");
+    std::fs::write(&path, contents).unwrap();
+    dir.path().to_path_buf()
+}
+
+#[test]
+fn env_json_emits_stable_schema() {
+    let dir = TempDir::new().unwrap();
+    let root = write_env_fixture(
+        &dir,
+        r#"
+environments:
+  staging:
+    vars:
+      base_url: "https://staging.example.com"
+  production:
+    vars:
+      base_url: "https://prod.example.com"
+"#,
+    );
+
+    let output = tarn()
+        .current_dir(&root)
+        .args(["env", "--json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert!(parsed["project_root"].is_string(), "project_root missing");
+    assert!(
+        parsed["default_env_file"].is_string(),
+        "default_env_file missing"
+    );
+    let envs = parsed["environments"].as_array().unwrap();
+    assert_eq!(envs.len(), 2, "expected two environments: {:?}", envs);
+
+    for env in envs {
+        assert!(env["name"].is_string(), "name missing: {}", env);
+        assert!(
+            env["source_file"].is_string(),
+            "source_file missing: {}",
+            env
+        );
+        assert!(env["vars"].is_object(), "vars missing: {}", env);
+    }
+
+    let names: Vec<&str> = envs.iter().map(|e| e["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["production", "staging"], "expected alpha sort");
+}
+
+#[test]
+fn env_json_redacts_configured_env_var_keys() {
+    let dir = TempDir::new().unwrap();
+    let root = write_env_fixture(
+        &dir,
+        r#"
+redaction:
+  env: [api_token]
+environments:
+  staging:
+    vars:
+      base_url: "https://staging.example.com"
+      api_token: "super-secret"
+      API_TOKEN: "also-secret"
+"#,
+    );
+
+    let output = tarn()
+        .current_dir(&root)
+        .args(["env", "--json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let vars = &parsed["environments"][0]["vars"];
+    assert_eq!(vars["base_url"], "https://staging.example.com");
+    assert_eq!(vars["api_token"], "***");
+    assert_eq!(vars["API_TOKEN"], "***", "match should be case-insensitive");
+}
+
+#[test]
+fn env_json_honors_custom_redaction_replacement() {
+    let dir = TempDir::new().unwrap();
+    let root = write_env_fixture(
+        &dir,
+        r#"
+redaction:
+  env: [api_token]
+  replacement: "[hidden]"
+environments:
+  staging:
+    vars:
+      api_token: "super-secret"
+"#,
+    );
+
+    let output = tarn()
+        .current_dir(&root)
+        .args(["env", "--json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["environments"][0]["vars"]["api_token"], "[hidden]");
+}
+
+#[test]
+fn env_json_handles_empty_environments_block() {
+    let dir = TempDir::new().unwrap();
+    let root = write_env_fixture(
+        &dir,
+        r#"
+test_dir: tests
+env_file: tarn.env.yaml
+"#,
+    );
+
+    let output = tarn()
+        .current_dir(&root)
+        .args(["env", "--json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["environments"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn env_human_output_unchanged_by_default() {
+    let dir = TempDir::new().unwrap();
+    let root = write_env_fixture(
+        &dir,
+        r#"
+environments:
+  staging:
+    vars:
+      base_url: "https://staging.example.com"
+"#,
+    );
+
+    let output = tarn().current_dir(&root).args(["env"]).output().unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Named environments:"));
+    assert!(stdout.contains("staging"));
+}
