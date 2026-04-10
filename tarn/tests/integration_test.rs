@@ -3565,3 +3565,241 @@ tests:
         stderr
     );
 }
+
+/// Helper: read the request headers rendered on the only failed step in a
+/// JSON run result. Keeps the --redact-header tests concise and single-
+/// purpose.
+fn failed_step_request_headers(stdout: &[u8]) -> serde_json::Map<String, serde_json::Value> {
+    let json: serde_json::Value = serde_json::from_slice(stdout)
+        .unwrap_or_else(|e| panic!("invalid json: {e}: {}", String::from_utf8_lossy(stdout)));
+    let step = &json["files"][0]["tests"][0]["steps"][0];
+    assert_eq!(step["status"], "FAILED", "expected failed step: {step}");
+    let request = step
+        .get("request")
+        .cloned()
+        .unwrap_or_else(|| panic!("failed step has no request block: {step}"));
+    request["headers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_else(|| panic!("request block has no headers object: {request}"))
+}
+
+/// Baseline: custom headers are NOT redacted without `--redact-header`.
+/// This is the control case that proves the extension's ask was real — a
+/// literal `X-Custom-Token: secret-value` lands in the report.
+#[test]
+fn redact_header_flag_defaults_leave_custom_headers_unredacted() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "redact-default.tarn.yaml",
+        &format!(
+            r#"
+name: Redact default
+steps:
+  - name: health
+    request:
+      method: GET
+      url: "{}/health"
+      headers:
+        X-Custom-Token: "secret-value"
+        X-Debug: "debug-value"
+    assert:
+      status: 404
+"#,
+            server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let headers = failed_step_request_headers(&output.stdout);
+    assert_eq!(
+        headers.get("X-Custom-Token").and_then(|v| v.as_str()),
+        Some("secret-value"),
+        "custom header must appear unredacted by default: {headers:?}"
+    );
+    assert_eq!(
+        headers.get("X-Debug").and_then(|v| v.as_str()),
+        Some("debug-value"),
+        "x-debug header must appear unredacted by default: {headers:?}"
+    );
+}
+
+/// Core T58 behavior: a single `--redact-header` rewrites the matching
+/// header value to the configured replacement. Uses deliberately-mixed
+/// casing on both sides to prove matching is case-insensitive.
+#[test]
+fn redact_header_flag_redacts_custom_header_case_insensitively() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "redact-flag.tarn.yaml",
+        &format!(
+            r#"
+name: Redact flag
+steps:
+  - name: health
+    request:
+      method: GET
+      url: "{}/health"
+      headers:
+        X-Custom-Token: "secret-value"
+        X-Debug: "debug-value"
+    assert:
+      status: 404
+"#,
+            server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args([
+            "run",
+            &test_file,
+            "--format",
+            "json",
+            // Lowercase flag value vs. mixed-case header name on the request.
+            "--redact-header",
+            "x-custom-token",
+            // Uppercase flag value vs. mixed-case header name on the request.
+            "--redact-header",
+            "X-DEBUG",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let headers = failed_step_request_headers(&output.stdout);
+    assert_eq!(
+        headers.get("X-Custom-Token").and_then(|v| v.as_str()),
+        Some("***"),
+        "custom header must be redacted when passed via --redact-header: {headers:?}"
+    );
+    assert_eq!(
+        headers.get("X-Debug").and_then(|v| v.as_str()),
+        Some("***"),
+        "x-debug must be redacted despite different casing: {headers:?}"
+    );
+}
+
+/// `--redact-header` MUST merge with — never narrow — the built-in
+/// defaults. Passing only a custom header must still redact
+/// `Authorization` and other default headers.
+#[test]
+fn redact_header_flag_never_narrows_default_list() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "redact-merge.tarn.yaml",
+        &format!(
+            r#"
+name: Redact merge
+steps:
+  - name: health
+    request:
+      method: GET
+      url: "{}/health"
+      headers:
+        Authorization: "Bearer shhh"
+        X-Custom-Token: "secret-value"
+    assert:
+      status: 404
+"#,
+            server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args([
+            "run",
+            &test_file,
+            "--format",
+            "json",
+            "--redact-header",
+            "x-custom-token",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let headers = failed_step_request_headers(&output.stdout);
+    assert_eq!(
+        headers.get("Authorization").and_then(|v| v.as_str()),
+        Some("***"),
+        "default header redaction must still apply: {headers:?}"
+    );
+    assert_eq!(
+        headers.get("X-Custom-Token").and_then(|v| v.as_str()),
+        Some("***"),
+        "custom header from CLI must be redacted: {headers:?}"
+    );
+}
+
+/// `--redact-header` MUST merge with — never narrow — any `redaction:`
+/// block already declared on the test file. This proves the CLI widens
+/// on top of a file-level override that disables the default list.
+#[test]
+fn redact_header_flag_widens_file_level_redaction_block() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "redact-file-block.tarn.yaml",
+        &format!(
+            r#"
+name: Redact file block
+redaction:
+  headers:
+    - x-file-secret
+steps:
+  - name: health
+    request:
+      method: GET
+      url: "{}/health"
+      headers:
+        X-File-Secret: "file-secret-value"
+        X-Custom-Token: "secret-value"
+    assert:
+      status: 404
+"#,
+            server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args([
+            "run",
+            &test_file,
+            "--format",
+            "json",
+            "--redact-header",
+            "X-Custom-Token",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let headers = failed_step_request_headers(&output.stdout);
+    assert_eq!(
+        headers.get("X-File-Secret").and_then(|v| v.as_str()),
+        Some("***"),
+        "file-level redaction block must still apply: {headers:?}"
+    );
+    assert_eq!(
+        headers.get("X-Custom-Token").and_then(|v| v.as_str()),
+        Some("***"),
+        "CLI header must widen the file-level block: {headers:?}"
+    );
+}

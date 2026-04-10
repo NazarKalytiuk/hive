@@ -133,6 +133,12 @@ enum Commands {
         /// Force HTTP/2
         #[arg(long, conflicts_with = "http1_1")]
         http2: bool,
+
+        /// Additional header name to redact in reports (repeatable,
+        /// case-insensitive). Merges with — never narrows — the built-in
+        /// defaults and any `redaction:` block from config or test files.
+        #[arg(long = "redact-header", value_name = "NAME")]
+        redact_header: Vec<String>,
     },
 
     /// Validate test files without running
@@ -321,6 +327,7 @@ fn main() {
             insecure,
             http1_1,
             http2,
+            redact_header,
         } => run_command(
             path,
             &format,
@@ -348,6 +355,7 @@ fn main() {
                 insecure,
                 http_version: cli_http_version(http1_1, http2),
             },
+            &redact_header,
         ),
         Commands::Bench {
             path,
@@ -435,6 +443,7 @@ fn run_command(
     cookie_jar_path: Option<&str>,
     cookie_jar_per_test: bool,
     cli_http_transport: HttpTransportConfig,
+    extra_redact_headers: &[String],
 ) -> i32 {
     let project =
         match load_project_context(path.as_deref().map(Path::new).unwrap_or(Path::new("."))) {
@@ -542,6 +551,7 @@ fn run_command(
             cookie_jar_path,
             effective_parallel,
             jobs,
+            extra_redact_headers,
         )
     };
 
@@ -568,6 +578,7 @@ fn execute_run(
     cookie_jar_path: Option<&str>,
     parallel: bool,
     jobs: Option<usize>,
+    extra_redact_headers: &[String],
 ) -> i32 {
     let start = std::time::Instant::now();
 
@@ -605,6 +616,7 @@ fn execute_run(
             run_opts,
             jobs,
             progress_ref,
+            extra_redact_headers,
         )
     } else {
         run_files_sequential(
@@ -616,6 +628,7 @@ fn execute_run(
             run_opts,
             cookie_jar_path,
             progress_ref,
+            extra_redact_headers,
         )
     };
 
@@ -850,6 +863,7 @@ fn run_files_sequential(
     run_opts: &runner::RunOptions,
     cookie_jar_path: Option<&str>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+    extra_redact_headers: &[String],
 ) -> Result<Vec<tarn::assert::types::FileResult>, (i32, String)> {
     let mut results = Vec::new();
     let mut cookie_jars = if let Some(path) = cookie_jar_path {
@@ -864,6 +878,7 @@ fn run_files_sequential(
         let project = load_project_context(path.parent().unwrap_or(Path::new(".")))
             .map_err(|e| (e.exit_code(), e.to_string()))?;
         apply_project_defaults(&mut test_file, &project.config);
+        apply_cli_extra_redact_headers(&mut test_file, extra_redact_headers);
         let file_run_opts = runner::RunOptions {
             http: resolve_http_transport_config(&project.config, &run_opts.http),
             ..run_opts.clone()
@@ -902,6 +917,7 @@ fn run_files_parallel(
     run_opts: &runner::RunOptions,
     jobs: Option<usize>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+    extra_redact_headers: &[String],
 ) -> Result<Vec<tarn::assert::types::FileResult>, (i32, String)> {
     use rayon::prelude::*;
 
@@ -921,6 +937,7 @@ fn run_files_parallel(
             let project = load_project_context(path.parent().unwrap_or(Path::new(".")))
                 .map_err(|e| (e.exit_code(), e.to_string()))?;
             apply_project_defaults(&mut test_file, &project.config);
+            apply_cli_extra_redact_headers(&mut test_file, extra_redact_headers);
             let file_run_opts = runner::RunOptions {
                 http: resolve_http_transport_config(&project.config, &run_opts.http),
                 ..run_opts.clone()
@@ -1705,6 +1722,22 @@ fn apply_project_defaults(test_file: &mut TestFile, config: &TarnConfig) {
     if test_file.redaction.is_none() {
         test_file.redaction = config.redaction.clone();
     }
+}
+
+/// Merge `--redact-header` CLI values into `test_file.redaction` after
+/// the project/file redaction config has already been resolved. Uses
+/// `RedactionConfig::merge_headers` so the CLI can only widen — never
+/// narrow — the effective list, and header matching stays
+/// case-insensitive. If the test file has no redaction block yet, a
+/// default one is materialized so CLI headers still take effect.
+fn apply_cli_extra_redact_headers(test_file: &mut TestFile, extra: &[String]) {
+    if extra.is_empty() {
+        return;
+    }
+    let redaction = test_file
+        .redaction
+        .get_or_insert_with(tarn::model::RedactionConfig::default);
+    redaction.merge_headers(extra.iter().map(String::as_str));
 }
 
 fn resolve_http_transport_config(

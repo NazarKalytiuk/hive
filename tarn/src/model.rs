@@ -84,6 +84,38 @@ impl Default for RedactionConfig {
     }
 }
 
+impl RedactionConfig {
+    /// Append extra header names to the effective redaction list without
+    /// removing any existing entries. All names are normalized to lowercase
+    /// so header matching stays case-insensitive, and duplicates (by
+    /// lowercase comparison) are skipped so the list stays tidy.
+    ///
+    /// This is the single merge point used by the `--redact-header` CLI
+    /// flag: callers can widen an already-resolved `RedactionConfig`
+    /// (from defaults + `tarn.config.yaml` + test file) without mutating
+    /// any persisted configuration.
+    pub fn merge_headers<I, S>(&mut self, extra: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for name in extra {
+            let trimmed = name.as_ref().trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let normalized = trimmed.to_ascii_lowercase();
+            if !self
+                .headers
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&normalized))
+            {
+                self.headers.push(normalized);
+            }
+        }
+    }
+}
+
 fn default_redacted_headers() -> Vec<String> {
     vec![
         "authorization".into(),
@@ -1268,5 +1300,51 @@ steps:
         assert_eq!(redaction.env_vars, vec!["api_token"]);
         assert_eq!(redaction.captures, vec!["session"]);
         assert_eq!(redaction.replacement, "[redacted]");
+    }
+
+    #[test]
+    fn merge_headers_widens_list_case_insensitively() {
+        let mut redaction = RedactionConfig {
+            headers: vec!["authorization".into()],
+            ..RedactionConfig::default()
+        };
+        redaction.merge_headers(["X-Custom-Token", "x-debug"]);
+        assert_eq!(
+            redaction.headers,
+            vec!["authorization", "x-custom-token", "x-debug"]
+        );
+    }
+
+    #[test]
+    fn merge_headers_skips_duplicates_ignoring_case() {
+        let mut redaction = RedactionConfig {
+            headers: vec!["authorization".into(), "x-api-key".into()],
+            ..RedactionConfig::default()
+        };
+        redaction.merge_headers(["Authorization", "X-API-KEY", "x-new"]);
+        assert_eq!(
+            redaction.headers,
+            vec!["authorization", "x-api-key", "x-new"]
+        );
+    }
+
+    #[test]
+    fn merge_headers_trims_and_drops_empty_entries() {
+        let mut redaction = RedactionConfig::default();
+        let baseline_len = redaction.headers.len();
+        redaction.merge_headers(["", "   ", "  X-Trim  "]);
+        assert_eq!(redaction.headers.len(), baseline_len + 1);
+        assert!(redaction.headers.iter().any(|h| h == "x-trim"));
+    }
+
+    #[test]
+    fn merge_headers_never_narrows_existing_list() {
+        let mut redaction = RedactionConfig {
+            headers: vec!["authorization".into(), "cookie".into()],
+            ..RedactionConfig::default()
+        };
+        // Empty merge must not drop anything.
+        redaction.merge_headers(std::iter::empty::<String>());
+        assert_eq!(redaction.headers, vec!["authorization", "cookie"]);
     }
 }
