@@ -30,6 +30,7 @@ import { FixPlanView } from "./views/FixPlanView";
 import { ReportWebview } from "./views/ReportWebview";
 import { BenchRunnerPanel } from "./views/BenchRunnerPanel";
 import { runImportHurl } from "./commands/importHurl";
+import { runInitProject } from "./commands/initProject";
 import { FailureNotifier } from "./notifications";
 
 export interface TarnExtensionApi {
@@ -77,6 +78,9 @@ export interface TarnExtensionApi {
       dest: string,
       cwd: string,
     ) => Promise<{ success: boolean; exitCode: number | null; stderr: string }>;
+    readonly initProject: (
+      options: import("./commands/initProject").InitProjectOptions,
+    ) => Promise<import("./commands/initProject").InitProjectOutcome>;
     readonly history: {
       readonly add: (
         entry: import("./views/RunHistoryView").RunHistoryEntry,
@@ -351,6 +355,7 @@ export async function activate(
       lastBenchContext: () => benchRunnerPanel.lastContext(),
       importHurl: (source, dest, cwd) =>
         runImportHurl(backend, source, dest, cwd),
+      initProject: (options) => runInitProject({ backend }, options),
       history: {
         add: (entry) => history.add(entry),
         all: () => history.all(),

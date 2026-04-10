@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.19.0 — Phase 4: Init Project wizard polish
+
+Ninth and final Phase 4 feature: the minimal "pick folder, run
+tarn init, offer to open" flow shipped in Phase 1 is now a real
+multi-step wizard with scaffold flavor selection, env customization,
+auto-validation of generated files, and auto-open of the health
+check fixture.
+
+### Added
+
+- **`runInitProject`** (NAZ-278) in a new
+  `src/commands/initProject.ts` module. Drives the full
+  post-`tarn init` pipeline:
+  1. Run `tarn init` through the existing backend.
+  2. Prune `examples/` and `fixtures/` when the user picked the
+     `basic` flavor — `tarn init` always scaffolds everything, so
+     trimming on the extension side is the simplest path without
+     a Tarn-side `--scaffold` flag.
+  3. Rewrite `tarn.env.yaml` with user-supplied overrides via
+     `customizeEnvFile`.
+  4. Validate every generated `.tarn.yaml` via
+     `backend.validateStructured` and log each failure to the
+     output channel.
+- **Four-step wizard** (`runInitProjectWizard`):
+  1. Quick-pick destination (workspace folder entries +
+     `Browse…`).
+  2. Overwrite warning when `tarn.config.yaml` / `tarn.env.yaml`
+     / `tests` / `examples` already exist in the target folder.
+  3. Quick-pick scaffold flavor: `All templates (recommended)` or
+     `Basic` (health check + configs only).
+  4. Optional env customization: skip or sequentially prompt for
+     `base_url` (URL-validated), `admin_email`
+     (must contain `@`), and `admin_password` (password-masked).
+- **Auto-open** `tests/health.tarn.yaml` after a successful
+  scaffold so the first thing users see is a real working Tarn
+  test, not an empty file explorer.
+- **Auto-validate** every generated test file and surface the
+  count in a follow-up toast: success ("project ready in X") or
+  warning ("N file(s) failed validation") with details in the
+  output channel.
+- **`customizeEnvFile`** pure helper that rewrites a
+  `tarn.env.yaml` in place without touching comments, blank
+  lines, or unmatched keys. Values containing colons, `@`, or
+  other ambiguous characters get wrapped in double quotes
+  (`formatYamlScalar`). Unknown keys get appended in an annotated
+  `# Added by Tarn: Init Project Here` block so the wizard's
+  additions are always attributable.
+- **`scaffoldFilesToPrune`** pure helper mapping flavor →
+  relative paths to delete. `basic` returns `["examples",
+  "fixtures"]`; `all` returns `[]`.
+- **Extension host API**: `testing.initProject(options)` runs the
+  full pipeline without dialogs so integration tests can assert
+  file presence, deletions, env content, and validation outcome
+  against real `tarn init` output.
+
+### Changed
+
+- **`tarn.initProject`** command now dispatches through the new
+  wizard. The old inlined handler and its `pickInitFolder` /
+  `detectExistingScaffold` helpers were removed from
+  `commands/index.ts`.
+
+### Tests
+
+- **Unit** (`tests/unit/initProject.test.ts`, 8 tests). Covers
+  `customizeEnvFile` (no-op when overrides empty, in-place
+  replacement, mandatory quoting for URL/email values, annotated
+  append block for unknown keys, comment/indent preservation,
+  quote/backslash escaping) and `scaffoldFilesToPrune` (both
+  flavors).
+- **Integration** (`tests/integration/suite/initProject.test.ts`,
+  4 tests). Scaffolds into a `fs.mkdtemp` directory in
+  `os.tmpdir()` and drives every branch:
+  - Command registration.
+  - `all` flavor: every expected file created, `examples/` kept,
+    zero validation errors.
+  - `basic` flavor: `examples/` and `fixtures/` pruned from disk,
+    health check preserved, zero validation errors.
+  - Env override path: `tarn.env.yaml` on disk contains the
+    rewritten URL, email, and password exactly where expected.
+
+Total: 233 unit tests, 81 integration tests passing.
+
 ## 0.18.0 — Phase 4: Failure notifications with inline actions
 
 Eighth Phase 4 feature: a warning toast that pops after a failing
