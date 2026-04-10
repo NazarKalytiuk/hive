@@ -11,6 +11,7 @@ import {
   TarnReferencesProvider,
   TarnRenameProvider,
 } from "./language/SymbolProviders";
+import { TarnFormatProvider } from "./language/FormatProvider";
 import { TarnStatusBar } from "./statusBar";
 import { registerCommands } from "./commands";
 import { TarnProcessRunner } from "./backend/TarnProcessRunner";
@@ -36,6 +37,7 @@ export interface TarnExtensionApi {
       ReadonlyArray<{ name: string; source_file: string; vars: Readonly<Record<string, string>> }>
     >;
     readonly getActiveEnvironment: () => string | null;
+    readonly formatDocument: (uri: vscode.Uri) => Promise<vscode.TextEdit[]>;
   };
 }
 
@@ -113,6 +115,7 @@ export async function activate(
     vscode.languages.registerHoverProvider({ language: "tarn" }, hoverProvider),
   );
 
+  const formatProvider = new TarnFormatProvider(backend);
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(
       { language: "tarn" },
@@ -125,6 +128,10 @@ export async function activate(
     vscode.languages.registerRenameProvider(
       { language: "tarn" },
       new TarnRenameProvider(),
+    ),
+    vscode.languages.registerDocumentFormattingEditProvider(
+      { language: "tarn" },
+      formatProvider,
     ),
   );
 
@@ -189,6 +196,20 @@ export async function activate(
       },
       listEnvironments: async () => environmentsView.getEntries(),
       getActiveEnvironment: () => tarnController.state.activeEnvironment,
+      formatDocument: async (uri: vscode.Uri) => {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const cts = new vscode.CancellationTokenSource();
+        try {
+          const result = await formatProvider.provideDocumentFormattingEdits(
+            doc,
+            { tabSize: 2, insertSpaces: true },
+            cts.token,
+          );
+          return result ?? [];
+        } finally {
+          cts.dispose();
+        }
+      },
     },
   };
 }

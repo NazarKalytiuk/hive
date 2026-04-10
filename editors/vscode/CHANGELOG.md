@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.9.0 — Phase 3: `tarn fmt` format provider
+
+Sixth Phase 3 feature: VS Code's Format Document action now
+routes `.tarn.yaml` files through `tarn fmt`, so Shift+Alt+F
+(and `editor.formatOnSave: true`) normalizes Tarn YAML to the
+canonical form without leaving the editor.
+
+### Added
+
+- **`TarnFormatProvider`** (NAZ-268). Implements
+  `vscode.DocumentFormattingEditProvider` on the `tarn` language
+  and returns a single full-document `TextEdit` so undo is one
+  step. Parse errors in the source file are surfaced via the
+  output channel plus a one-shot warning notification, and the
+  buffer is left untouched — formatting an invalid file never
+  corrupts it.
+- **`backend.formatDocument(content, cwd, token)`**. The Tarn CLI
+  has no `--stdout` or stdin mode, so the backend writes the
+  document content to a tmp `.tarn.yaml` file, runs
+  `tarn fmt <tmp>`, reads the formatted result back, and cleans
+  up the tmp file. Errors and cancellation are propagated so the
+  provider can decide whether to emit any edits at all.
+- **`TarnExtensionApi.testing.formatDocument(uri)`** test hook.
+  Calls the provider directly so integration tests do not have
+  to fight VS Code's formatter selection when another extension
+  (e.g., `redhat.vscode-yaml`) also registers a document
+  formatter for the same file.
+
+### Behavior
+
+- Already-canonical files produce an empty edit list so
+  `formatOnSave` is a no-op and the document is never dirty-marked
+  unnecessarily.
+- Files with YAML parse errors log to the Tarn output channel and
+  return no edits.
+- Cancellation honors the provided `CancellationToken` and leaves
+  the document untouched.
+
+### Tests
+
+- **3 new integration tests** in `format.test.ts` against a real
+  `tarn` binary: a messy fixture with non-canonical indentation
+  and quoting produces exactly one full-document edit with
+  canonical output; an already-canonical fixture produces zero
+  edits; a fixture with an unterminated quoted string produces
+  zero edits and leaves the on-disk content untouched.
+- Extension integration tests: **34 → 37 passing**.
+- Unit tests unchanged: 121/121 passing.
+
 ## 0.8.0 — Phase 3: Symbol navigation (definition, references, rename)
 
 Fifth Phase 3 feature: Tarn interpolation tokens now participate in

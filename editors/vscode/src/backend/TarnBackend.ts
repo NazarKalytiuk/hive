@@ -112,4 +112,16 @@ export interface TarnBackend {
     cwd: string,
     token: vscode.CancellationToken,
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
+  /**
+   * Format a document's content via `tarn fmt`. The backend is
+   * responsible for routing the content through a tmp file (since
+   * `tarn fmt` operates in place) and returning the formatted text.
+   * `error` is set when `tarn fmt` fails with a parse error, in which
+   * case `formatted` is unchanged.
+   */
+  formatDocument(
+    content: string,
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<{ formatted: string; error?: string }>;
 }

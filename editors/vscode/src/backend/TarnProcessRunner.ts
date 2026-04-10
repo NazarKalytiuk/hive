@@ -122,6 +122,48 @@ export class TarnProcessRunner implements TarnBackend {
     };
   }
 
+  async formatDocument(
+    content: string,
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<{ formatted: string; error?: string }> {
+    // `tarn fmt` rewrites files in place and has no --stdout or stdin
+    // mode, so we route the content through a temp file and clean it
+    // up on the way out. The extension is acceptable here because the
+    // user only pays the cost on an explicit Format Document action
+    // (or on save if format-on-save is on).
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `tarn-vscode-fmt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tarn.yaml`,
+    );
+    try {
+      await fs.promises.writeFile(tmpPath, content, "utf8");
+      const collected = await this.spawnAndCollect(
+        ["fmt", tmpPath],
+        cwd,
+        token,
+      );
+      if (token.isCancellationRequested || collected.timedOut) {
+        return { formatted: content };
+      }
+      if (collected.exitCode !== 0) {
+        return {
+          formatted: content,
+          error: collected.stderr || collected.stdout || `tarn fmt exited ${collected.exitCode}`,
+        };
+      }
+      const formatted = await fs.promises.readFile(tmpPath, "utf8");
+      return { formatted };
+    } catch (err) {
+      return {
+        formatted: content,
+        error: String(err),
+      };
+    } finally {
+      fs.promises.unlink(tmpPath).catch(() => {});
+    }
+  }
+
   private buildRunArgs(options: RunOptions, ndjsonReportPath: string | undefined): string[] {
     const args: string[] = ["run"];
     if (ndjsonReportPath) {
