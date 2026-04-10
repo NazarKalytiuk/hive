@@ -4,6 +4,7 @@ import { createTarnTestController } from "./testing/TestController";
 import { TestCodeLensProvider } from "./codelens/TestCodeLensProvider";
 import { TarnDocumentSymbolProvider } from "./language/DocumentSymbolProvider";
 import { TarnDiagnosticsProvider } from "./language/DiagnosticsProvider";
+import { TarnCompletionProvider } from "./language/CompletionProvider";
 import { TarnStatusBar } from "./statusBar";
 import { registerCommands } from "./commands";
 import { TarnProcessRunner } from "./backend/TarnProcessRunner";
@@ -87,6 +88,18 @@ export async function activate(
   context.subscriptions.push(
     environmentsView,
     vscode.window.registerTreeDataProvider("tarn.environments", environmentsView),
+  );
+
+  const completionProvider = new TarnCompletionProvider(environmentsView);
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      { language: "tarn" },
+      completionProvider,
+      "{",
+      ".",
+      "$",
+      " ",
+    ),
   );
 
   const statusBar = new TarnStatusBar(tarnController.state);

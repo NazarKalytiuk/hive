@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.6.0 — Phase 3: Interpolation completion provider
+
+Third Phase 3 feature: VS Code now offers IntelliSense for Tarn's
+`{{ ... }}` template expressions. Type `{{ env.`, `{{ capture.`, or
+`{{ $` inside any string in a `.tarn.yaml` and the completion widget
+fills in the matching names from the merged env resolution chain,
+visible captures, or the built-in function list.
+
+### Added
+
+- **`TarnCompletionProvider`** (NAZ-265). Registered on the `tarn`
+  language with trigger characters `{`, `.`, `$`, and space. The
+  provider itself is string-based (grammar scope detection is a
+  separate ticket, NAZ-269); on each invocation it inspects the line
+  prefix to decide whether the cursor sits inside an open `{{ ... }}`
+  expression and what kind.
+- **Env key completions** come from the `EnvironmentsView` cache
+  (NAZ-264), so the first Phase 3 feature is now delivering value
+  beyond its tree. Every env key is labeled with the list of
+  environments that declare it.
+- **Capture completions** use a new `collectVisibleCaptures` helper
+  that walks the YAML CST and returns only captures visible at the
+  cursor: setup captures are always in scope, test captures only when
+  the cursor is in that same test and only from strictly earlier
+  steps, teardown sees everything. Captures from other tests are
+  never offered.
+- **Built-in function completions** for the full Tarn interpolation
+  runtime list: `$uuid`, `$timestamp`, `$now_iso`, `$random_hex(n)`,
+  `$random_int(min, max)`. Parameterized builtins insert a snippet
+  with argument placeholders.
+- **Top-level completions** offer `env`, `capture`, and `$uuid` when
+  the user just typed `{{ ` with nothing after it. Picking `env` or
+  `capture` re-triggers the suggest widget automatically.
+
+### Tests
+
+- **22 new unit tests** across two new files:
+  - `interpolationContext.test.ts` (13 tests) exercises
+    `detectInterpolationContext` against every expected shape: empty
+    interpolation, env context with and without a prefix, capture
+    context, builtin context, closed interpolations, nested braces,
+    and unknown prefixes.
+  - `visibleCaptures.test.ts` (9 tests) covers the capture visibility
+    rules end-to-end: setup captures from the outside, scope
+    narrowing inside earlier vs later test steps, sibling test
+    isolation, teardown seeing everything, and graceful handling of
+    malformed YAML.
+- **5 new integration tests** in `completion.test.ts` against a real
+  VS Code instance: env completions come from `tarn.config.yaml`,
+  capture completions respect step ordering, same-step and sibling-
+  test captures are excluded, builtin completions contain every name
+  from the Tarn runtime, and typing outside any interpolation never
+  fires our provider (verified by filtering results by our
+  provider's stable `detail` prefix to ignore the built-in word
+  completer's noise).
+- Extension unit tests: **76 → 98 passing**.
+- Extension integration tests: **17 → 22 passing**.
+
+### Dependencies
+
+- Tarn T56 (`tarn env --json`), shipped in `cfffb69` — provides the
+  env data the completion reads from.
+- NAZ-264 Environments tree view, shipped in `990182e` — owns the
+  env cache that NAZ-265 reuses.
+
 ## 0.5.0 — Phase 3: Environments tree view
 
 Second Phase 3 feature: a first-class Environments treeview under the
