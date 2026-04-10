@@ -3,6 +3,7 @@ env_file: tarn.env.yaml
 
 redaction:
   env: [api_token]
+  captures: [auth_token]
 
 environments:
   staging:

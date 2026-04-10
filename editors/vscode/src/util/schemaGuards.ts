@@ -78,6 +78,7 @@ export const testResultSchema = z.object({
   status: statusEnum,
   duration_ms: z.number(),
   steps: z.array(stepResultSchema),
+  captures: z.record(z.unknown()).optional(),
 });
 
 export const fileResultSchema = z.object({

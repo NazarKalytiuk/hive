@@ -25,6 +25,7 @@ import {
   RunHistoryTreeProvider,
 } from "./views/RunHistoryView";
 import { EnvironmentsView } from "./views/EnvironmentsView";
+import { CapturesInspector } from "./views/CapturesInspector";
 
 export interface TarnExtensionApi {
   readonly testControllerId: string;
@@ -45,6 +46,13 @@ export interface TarnExtensionApi {
       report: import("./util/schemaGuards").Report,
     ) => void;
     readonly showStepDetails: (key: import("./testing/LastRunCache").StepKey) => boolean;
+    readonly loadCapturesFromReport: (
+      report: import("./util/schemaGuards").Report,
+    ) => void;
+    readonly capturesTotalCount: () => number;
+    readonly isCaptureKeyRedacted: (key: string) => boolean;
+    readonly isHidingAllCaptures: () => boolean;
+    readonly toggleHideCaptures: () => void;
   };
 }
 
@@ -82,11 +90,18 @@ export async function activate(
   const stepDetailsPanel = new RequestResponsePanel(context.extensionUri);
   context.subscriptions.push(stepDetailsPanel);
 
+  const capturesInspector = new CapturesInspector();
+  context.subscriptions.push(
+    capturesInspector,
+    vscode.window.registerTreeDataProvider("tarn.captures", capturesInspector),
+  );
+
   const tarnController = createTarnTestController(
     index,
     backend,
     history,
     lastRunCache,
+    capturesInspector,
     () => historyTree.refresh(),
   );
   context.subscriptions.push(tarnController);
@@ -162,6 +177,7 @@ export async function activate(
       environmentsView,
       lastRunCache,
       stepDetailsPanel,
+      capturesInspector,
       refreshStatusBar: () => statusBar.refresh(),
       refreshHistoryView: () => historyTree.refresh(),
       refreshEnvironmentsView: () => environmentsView.refresh(),
@@ -202,6 +218,8 @@ export async function activate(
       "tarn.refreshDiscovery",
       "tarn.reloadEnvironments",
       "tarn.showStepDetails",
+      "tarn.copyCaptureValue",
+      "tarn.toggleHideCaptures",
     ],
     testing: {
       backend,
@@ -236,6 +254,11 @@ export async function activate(
         stepDetailsPanel.show(snapshot);
         return true;
       },
+      loadCapturesFromReport: (report) => capturesInspector.loadFromReport(report),
+      capturesTotalCount: () => capturesInspector.totalCaptureCount(),
+      isCaptureKeyRedacted: (key) => capturesInspector.isKeyRedacted(key),
+      isHidingAllCaptures: () => capturesInspector.isHidingAllValues(),
+      toggleHideCaptures: () => capturesInspector.toggleHideAllValues(),
     },
   };
 }

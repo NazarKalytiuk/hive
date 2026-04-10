@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -187,6 +187,17 @@
         "command": "tarn.showStepDetails",
         "title": "Tarn: Show Step Details",
         "category": "Tarn"
+      },
+      {
+        "command": "tarn.copyCaptureValue",
+        "title": "Tarn: Copy Capture Value",
+        "category": "Tarn"
+      },
+      {
+        "command": "tarn.toggleHideCaptures",
+        "title": "Tarn: Toggle Hide All Capture Values",
+        "category": "Tarn",
+        "icon": "$(eye-closed)"
       }
     ],
     "viewsContainers": {
@@ -211,6 +222,12 @@
           "name": "Run History",
           "icon": "$(history)",
           "contextualTitle": "Tarn Run History"
+        },
+        {
+          "id": "tarn.captures",
+          "name": "Captures Inspector",
+          "icon": "$(list-tree)",
+          "contextualTitle": "Tarn Captures Inspector"
         }
       ]
     },
@@ -290,6 +307,10 @@
           "when": "false"
         },
         {
+          "command": "tarn.copyCaptureValue",
+          "when": "false"
+        },
+        {
           "command": "tarn.runFile",
           "when": "resourceLangId == tarn"
         },
@@ -327,6 +348,11 @@
         {
           "command": "tarn.reloadEnvironments",
           "when": "view == tarn.environments",
+          "group": "navigation"
+        },
+        {
+          "command": "tarn.toggleHideCaptures",
+          "when": "view == tarn.captures",
           "group": "navigation"
         }
       ],

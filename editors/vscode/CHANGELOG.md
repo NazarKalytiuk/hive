@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.12.0 — Phase 4: Captures Inspector view
+
+Second Phase 4 feature: a debugger-style "locals" tree for captured
+variables. Every completed run now populates a `tarn.captures` view
+under the Tarn activity bar, grouped `file > test > key = value` and
+scoped to the most recent run.
+
+### Added
+
+- **`CapturesInspector`** (NAZ-270). New
+  `src/views/CapturesInspector.ts` tree data provider. Walks the
+  final JSON report's `files[].tests[].captures` map after every
+  run and renders one node per captured value. Scalar values (string,
+  number, boolean, null) render as leaves; objects and arrays expand
+  into child nodes so users can drill into nested captures without
+  leaving the sidebar.
+- **Redaction awareness**. Reads `redaction.captures` from
+  `tarn.config.yaml` and masks matching top-level capture keys as
+  `***`. A `vscode.workspace.createFileSystemWatcher` pointed at
+  `tarn.config.yaml` keeps the list fresh when users edit the config.
+  Redacted nodes drop their children so users cannot drill past the
+  mask.
+- **"Hide all capture values" toggle**. New
+  `tarn.toggleHideCaptures` command, wired into the view title bar
+  as an `$(eye-closed)` action. Flips a demo-mode flag that redacts
+  every capture regardless of the redaction list — useful for screen
+  sharing and recordings.
+- **Click-to-copy**. Clicking a capture row fires
+  `tarn.copyCaptureValue`, which writes the redaction-aware rendered
+  value (raw strings, JSON for arrays/objects, `***` when redacted)
+  to the clipboard and shows a brief status bar confirmation. The
+  command never leaks a real value from a redacted node.
+- **`tarn.captures` view** declared under the `tarn` activity bar
+  container with the `list-tree` codicon. Ships with a placeholder
+  node ("No captures from the last run…") until the first run
+  completes.
+- **Extension host API**: `testing.loadCapturesFromReport`,
+  `testing.capturesTotalCount`, `testing.isCaptureKeyRedacted`,
+  `testing.isHidingAllCaptures`, `testing.toggleHideCaptures`. Used
+  by the integration suite to drive the view without spawning a
+  real run.
+
+### Changed
+
+- **`schemaGuards.testResultSchema`** now includes an optional
+  `captures: Record<string, unknown>` field, matching what Tarn
+  already emits in `tests[].captures`. Previous versions silently
+  stripped this field via zod's object mode.
+- **`runHandler`** now calls `capturesInspector.loadFromReport`
+  alongside `lastRunCache.loadFromReport` after every successful
+  run, replacing the previous view state with the latest captures.
+- **`createTarnTestController`** signature accepts a
+  `CapturesInspector` parameter so the run handler can forward
+  reports to it without additional plumbing.
+
+### Tests
+
+- **Unit** (`tests/unit/capturesInspector.test.ts`, 12 tests).
+  Covers `extractRedactionCaptures` (missing config, malformed
+  config, string filtering), `isExpandable` (arrays, objects,
+  scalars, null/undefined), and `renderRawValue` (strings with
+  truncation, numbers, booleans, null, arrays, objects).
+- **Integration**
+  (`tests/integration/suite/captures.test.ts`, 7 tests). Primes the
+  view via `loadCapturesFromReport` with a synthetic report that
+  includes the `auth_token` key listed in the fixture workspace's
+  `tarn.config.yaml` redaction list. Asserts total count, per-key
+  redaction, toggle behavior, command wiring, and empty-report
+  handling.
+- The fixture `tarn.config.yaml` gained `redaction.captures:
+  [auth_token]` to exercise the redaction code path end-to-end.
+
+Total: 163 unit tests, 49 integration tests passing.
+
 ## 0.11.0 — Phase 4: Request/Response Inspector webview
 
 First Phase 4 feature: rich step-detail inspector that beats the

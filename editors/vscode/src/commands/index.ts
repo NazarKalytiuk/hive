@@ -8,6 +8,7 @@ import type { RunHistoryStore } from "../views/RunHistoryView";
 import { EnvironmentsView, resolveEnvSourceUri } from "../views/EnvironmentsView";
 import type { LastRunCache, StepKey } from "../testing/LastRunCache";
 import type { RequestResponsePanel } from "../views/RequestResponsePanel";
+import type { CapturesInspector } from "../views/CapturesInspector";
 
 export interface CommandDeps {
   tarnController: TarnTestController;
@@ -17,6 +18,7 @@ export interface CommandDeps {
   environmentsView: EnvironmentsView;
   lastRunCache: LastRunCache;
   stepDetailsPanel: RequestResponsePanel;
+  capturesInspector: CapturesInspector;
   refreshStatusBar: () => void;
   refreshHistoryView: () => void;
   refreshEnvironmentsView: () => void;
@@ -204,6 +206,29 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
   registrations.push(
     vscode.commands.registerCommand("tarn.reloadEnvironments", async () => {
       await deps.environmentsView.reload();
+    }),
+  );
+
+  registrations.push(
+    vscode.commands.registerCommand(
+      "tarn.copyCaptureValue",
+      async (value: string, label?: string) => {
+        if (typeof value !== "string") {
+          return;
+        }
+        await vscode.env.clipboard.writeText(value);
+        const hint = label ? ` (${label})` : "";
+        vscode.window.setStatusBarMessage(
+          `Tarn: copied capture value${hint}`,
+          2000,
+        );
+      },
+    ),
+  );
+
+  registrations.push(
+    vscode.commands.registerCommand("tarn.toggleHideCaptures", () => {
+      deps.capturesInspector.toggleHideAllValues();
     }),
   );
 
