@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.7.0 — Phase 3: Hover provider for interpolation
+
+Fourth Phase 3 feature: hovering over any `{{ env.x }}`,
+`{{ capture.y }}`, or `{{ $builtin }}` token now shows a
+context-aware markdown tooltip with resolved values, source files,
+capturing step, or built-in signature + docs.
+
+### Added
+
+- **`TarnHoverProvider`** (NAZ-266). Registered on the `tarn`
+  language and reuses the same env cache, capture walker, and
+  builtin list as `TarnCompletionProvider`.
+- **Hover on `{{ env.KEY }}`** lists every configured environment
+  that declares the key with its source file and (already-redacted)
+  value. Missing keys get a "not declared in any configured
+  environment — will resolve at runtime" hint so the user isn't
+  misled into thinking the key is broken.
+- **Hover on `{{ capture.NAME }}`** shows the step that captured
+  it, whether the step lives in setup or a named test, the step
+  index, and the phase. Missing names get a "not in scope" hint
+  with a reminder about the capture scoping rules.
+- **Hover on `{{ $builtin }}`** shows the signature and doc.
+  Parameterized builtins like `$random_hex(n)` are matched by
+  stripping the arg list before the lookup.
+- **Hover on the bare `{{ }}`** (empty interpolation or just the
+  keyword `env` / `capture` / `$`) shows a quick help card
+  describing every available form.
+- **`findHoverToken(line, column)`** — a new token finder in
+  `src/language/completion/hoverToken.ts` that does a single-pass
+  scan for the enclosing `{{ ... }}` pair, classifies its contents,
+  and returns the token range for VS Code to highlight. Handles
+  multi-interpolation lines, cursor-on-boundary edge cases, and
+  unclosed expressions.
+
+### Out of scope (follow-up)
+
+- **Dry-run URL preview** on hover over a `url:` field (spawning
+  `tarn run --dry-run --select ...` with a per-hover cache). Still
+  valuable but too much machinery for this ticket. Tracked as a
+  follow-up to NAZ-266 in `docs/VSCODE_EXTENSION.md`.
+
+### Tests
+
+- **13 new unit tests** in `hoverToken.test.ts` exercising the
+  finder against every expected shape: cursor outside/inside/on
+  boundary of a `{{ ... }}`, env with cursor on key vs on `env`
+  itself, capture, `$uuid` bare and `$random_hex(n)` with args,
+  empty interpolation, multi-interpolation lines, unknown
+  expressions, and unclosed `{{`.
+- **6 new integration tests** in `hover.test.ts` against a real
+  VS Code instance: env hover lists both staging and production
+  environments and their values, capture hover shows the
+  capturing step name, missing capture shows a "not in scope"
+  warning, `$uuid` hover shows the doc text, `$random_hex(8)`
+  hover shows the `$random_hex(n)` signature (not the literal
+  argument), and hovering outside any interpolation never fires
+  our provider (verified by checking for stable substrings our
+  provider emits).
+- Extension unit tests: **98 → 111 passing**.
+- Extension integration tests: **22 → 28 passing**.
+
+### Dependencies
+
+- NAZ-264 Environments tree view (env cache) — shipped in `990182e`.
+- NAZ-265 Completion provider (shares `collectVisibleCaptures` and
+  `BUILTIN_FUNCTIONS`) — shipped in `946bec9`.
+
 ## 0.6.0 — Phase 3: Interpolation completion provider
 
 Third Phase 3 feature: VS Code now offers IntelliSense for Tarn's

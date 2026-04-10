@@ -5,6 +5,7 @@ import { TestCodeLensProvider } from "./codelens/TestCodeLensProvider";
 import { TarnDocumentSymbolProvider } from "./language/DocumentSymbolProvider";
 import { TarnDiagnosticsProvider } from "./language/DiagnosticsProvider";
 import { TarnCompletionProvider } from "./language/CompletionProvider";
+import { TarnHoverProvider } from "./language/HoverProvider";
 import { TarnStatusBar } from "./statusBar";
 import { registerCommands } from "./commands";
 import { TarnProcessRunner } from "./backend/TarnProcessRunner";
@@ -100,6 +101,11 @@ export async function activate(
       "$",
       " ",
     ),
+  );
+
+  const hoverProvider = new TarnHoverProvider(environmentsView);
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider({ language: "tarn" }, hoverProvider),
   );
 
   const statusBar = new TarnStatusBar(tarnController.state);
