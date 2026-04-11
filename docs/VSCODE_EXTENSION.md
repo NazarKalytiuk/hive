@@ -417,6 +417,15 @@ Return all configured named environments, their source files, and resolved varia
 
 Scoped discovery for a single file. Avoids the extension globbing the workspace for list calls.
 
+Tarn T57 (NAZ-261) shipped this command and extension version `0.22.0` (NAZ-282) wires it into the incremental `WorkspaceIndex` refresh path. The discovery precedence is now:
+
+1. **Startup discovery** — `WorkspaceIndex.initialize()` globs `**/*.tarn.yaml` and parses every match with the client-side YAML AST. This deliberately does NOT spawn Tarn once per file, because activation latency dominates on workspaces with dozens of test files.
+2. **Incremental refresh on `onDidChange` / `onDidCreate`** — `WorkspaceIndex.refreshSingleFile(uri)` calls `tarn list --file <uri.fsPath> --format json` via the backend. If the outcome is `{ ok: true, file }` the extension merges Tarn's authoritative tests/steps with the AST's ranges via `mergeScopedWithAst`, then compares against the cached entry with `rangesStructurallyEqual` and only notifies the TestController when the structure actually changed.
+3. **Per-file fallback** — if Tarn returns `{ ok: false, reason: "file_error" }` (the YAML parses in the editor but Tarn rejects it at load time, e.g., "Test file must have either 'steps' or 'tests'"), the refresh path falls back to the client AST for that one file only and leaves scoped discovery enabled for the rest of the session.
+4. **Session-wide fallback** — if Tarn returns `{ ok: false, reason: "unsupported" }` (missing binary, spawn error, watchdog, older Tarn without `--file`, or a completely unrecognized JSON shape), the extension flips a session-local capability flag and stays on the AST path until the next explicit `Tarn: Refresh Discovery`, which re-runs `initialize()` and resets the flag.
+
+Because Tarn resolves `include:` directives at parse time, the scoped path is the only way the Test Explorer can show `include:`-expanded steps with their real names — the client AST alone only sees the `{ include: "./shared.tarn.yaml" }` entry.
+
 All seven items are tracked as `T51`–`T57` in `docs/TARN_COMPETITIVENESS_ROADMAP.md` with per-item acceptance criteria.
 
 ## Phased Delivery

@@ -122,6 +122,32 @@ export interface TarnExtensionApi {
       fileUri: vscode.Uri,
       astFallback: vscode.Range | null,
     ) => vscode.TestMessage[];
+    /**
+     * Live snapshot of the workspace index. Exposed for the scoped
+     * discovery integration test (NAZ-282) which needs to observe
+     * individual file updates post-activation. The shape is an
+     * array of one entry per indexed file with its resolved URI,
+     * the file's display name, the test names, and whether the
+     * entry was built from `tarn list --file` (`fromScopedList:
+     * true`) or the AST fallback (`fromScopedList: false`).
+     */
+    readonly workspaceIndexSnapshot: () => ReadonlyArray<{
+      readonly uri: string;
+      readonly fileName: string;
+      readonly tests: ReadonlyArray<{
+        readonly name: string;
+        readonly stepCount: number;
+      }>;
+      readonly fromScopedList: boolean;
+    }>;
+    /**
+     * Force a scoped refresh of a single file, awaiting completion.
+     * Exposed so integration tests can deterministically observe
+     * the incremental discovery path instead of racing the native
+     * `FileSystemWatcher`, which is unreliable for files created
+     * via `fs.writeFile` during a test run.
+     */
+    readonly refreshSingleFile: (uri: vscode.Uri) => Promise<void>;
   };
 }
 
@@ -145,7 +171,8 @@ export async function activate(
   const binaryPath = resolved?.path ?? readConfig().binaryPath;
   const backend = new TarnProcessRunner(binaryPath);
 
-  const index = new WorkspaceIndex();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const index = new WorkspaceIndex({ backend, cwd: workspaceRoot });
   await index.initialize();
   context.subscriptions.push(index);
 
@@ -386,6 +413,17 @@ export async function activate(
         maybeNotify: (report, options) =>
           failureNotifier.maybeNotify(report, options),
       },
+      workspaceIndexSnapshot: () =>
+        index.all.map((parsed) => ({
+          uri: parsed.uri.toString(),
+          fileName: parsed.ranges.fileName,
+          tests: parsed.ranges.tests.map((t) => ({
+            name: t.name,
+            stepCount: t.steps.length,
+          })),
+          fromScopedList: parsed.fromScopedList === true,
+        })),
+      refreshSingleFile: (uri) => index.refreshSingleFile(uri),
       buildFailureMessagesForStep: (step, fileUri, astFallback) => {
         // Synthesize a minimal ParsedFile. We deliberately do not pull
         // the real WorkspaceIndex entry so the test can feed in a

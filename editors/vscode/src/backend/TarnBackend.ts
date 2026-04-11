@@ -3,6 +3,7 @@ import type {
   BenchResult,
   EnvReport,
   Report,
+  ScopedListFileStrict,
   ValidateReport,
 } from "../util/schemaGuards";
 
@@ -116,6 +117,11 @@ export interface HtmlReportOutcome {
   stderr: string;
 }
 
+export type ListFileOutcome =
+  | { ok: true; file: ScopedListFileStrict }
+  | { ok: false; reason: "file_error"; error: string }
+  | { ok: false; reason: "unsupported" };
+
 export interface TarnBackend {
   run(options: RunOptions): Promise<RunOutcome>;
   runHtmlReport(options: HtmlReportOptions): Promise<HtmlReportOutcome>;
@@ -146,6 +152,28 @@ export interface TarnBackend {
     cwd: string,
     token: vscode.CancellationToken,
   ): Promise<EnvReport | undefined>;
+  /**
+   * Scoped discovery: spawns `tarn list --file <path> --format json`
+   * and parses the JSON envelope. Distinguishes three outcomes so
+   * `WorkspaceIndex` can keep scoped discovery enabled across a
+   * per-file parse error without losing the capability for the
+   * rest of the session:
+   *   - `{ ok: true, file }` — Tarn parsed the file and returned
+   *     the canonical structure.
+   *   - `{ ok: false, reason: "file_error", error }` — Tarn ran but
+   *     rejected this specific YAML (parse error, schema violation).
+   *     Caller should fall back to the AST for this file only.
+   *   - `{ ok: false, reason: "unsupported" }` — the binary failed
+   *     to produce a parseable envelope (older Tarn without
+   *     `--file`, spawn error, watchdog, cancellation). Caller
+   *     should disable scoped discovery for the rest of the
+   *     session to avoid spawning Tarn on every subsequent edit.
+   */
+  listFile(
+    absolutePath: string,
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<ListFileOutcome>;
   exportCurl(
     files: string[],
     cwd: string,

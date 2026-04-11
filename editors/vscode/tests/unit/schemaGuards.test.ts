@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseReport } from "../../src/util/schemaGuards";
+import {
+  parseReport,
+  parseScopedListResult,
+} from "../../src/util/schemaGuards";
 
 const passingReport = {
   schema_version: 1,
@@ -320,5 +323,137 @@ describe("parseReport", () => {
       ],
     };
     expect(() => parseReport(JSON.stringify(bad))).toThrow();
+  });
+});
+
+describe("parseScopedListResult (Tarn T57 / NAZ-282)", () => {
+  // This fixture mirrors the exact shape emitted by
+  // `./target/debug/tarn list --file <path> --format json`, verified
+  // against the integration workspace's `health.tarn.yaml`. The
+  // scoped variant wraps the per-file record in the same top-level
+  // `{ files: [...] }` envelope as the unscoped list, which is why
+  // the schema accepts the envelope instead of a bare object.
+  const tarnScopedOutput = {
+    files: [
+      {
+        file: "/tmp/fixture.tarn.yaml",
+        name: "Fixture: health check",
+        setup: [],
+        steps: [],
+        tags: [],
+        teardown: [],
+        tests: [
+          {
+            description: "Pings the public httpbin 200 endpoint",
+            name: "service_is_up",
+            steps: [{ name: "GET /status/200" }],
+            tags: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("parses a named-tests scoped list output", () => {
+    const parsed = parseScopedListResult(JSON.stringify(tarnScopedOutput));
+    expect(parsed.files).toHaveLength(1);
+    const file = parsed.files[0];
+    expect(file.file).toBe("/tmp/fixture.tarn.yaml");
+    expect(file.name).toBe("Fixture: health check");
+    expect(file.tests).toHaveLength(1);
+    expect(file.tests[0].name).toBe("service_is_up");
+    expect(file.tests[0].description).toBe(
+      "Pings the public httpbin 200 endpoint",
+    );
+    expect(file.tests[0].steps).toEqual([{ name: "GET /status/200" }]);
+    expect(file.steps).toEqual([]);
+    expect(file.setup).toEqual([]);
+    expect(file.teardown).toEqual([]);
+  });
+
+  it("parses a flat-steps scoped list output (top-level `steps:` form)", () => {
+    // Files that use the legacy `steps:` block at the top level
+    // instead of `tests:` must still parse — Tarn places the steps
+    // on `files[0].steps` and leaves `tests[]` empty.
+    const flatSteps = {
+      files: [
+        {
+          file: "/tmp/flat.tarn.yaml",
+          name: "Health check",
+          setup: [],
+          steps: [{ name: "GET /health" }],
+          tags: [],
+          teardown: [],
+          tests: [],
+        },
+      ],
+    };
+    const parsed = parseScopedListResult(JSON.stringify(flatSteps));
+    expect(parsed.files[0].steps).toEqual([{ name: "GET /health" }]);
+    expect(parsed.files[0].tests).toEqual([]);
+  });
+
+  it("parses an empty files[] envelope (scoped call against a missing path)", () => {
+    // Tarn prints `{ error, files: [] }` when the scoped path is
+    // invalid; the schema must accept the error envelope so
+    // `listFile` can unwrap and return `undefined` deterministically.
+    const errorEnvelope = {
+      error: "Config error: Path not found: /nonexistent.tarn.yaml",
+      files: [],
+    };
+    const parsed = parseScopedListResult(JSON.stringify(errorEnvelope));
+    expect(parsed.files).toEqual([]);
+    expect(parsed.error).toContain("Path not found");
+  });
+
+  it("rejects a payload missing the top-level `files` array", () => {
+    // The envelope shape is load-bearing: a bare per-file object
+    // (without the `{ files: [...] }` wrapper) means either an old
+    // Tarn binary or a completely unrelated JSON payload, both of
+    // which should bounce at the schema gate so the caller falls
+    // back to the AST path.
+    const bare = {
+      file: "/tmp/naked.tarn.yaml",
+      name: "naked",
+      setup: [],
+      steps: [],
+      tests: [],
+      teardown: [],
+    };
+    expect(() => parseScopedListResult(JSON.stringify(bare))).toThrow();
+  });
+
+  it("parses Tarn's per-file error envelope (a file Tarn could not parse)", () => {
+    // When Tarn cannot parse the YAML at the scoped path it still
+    // emits a valid top-level envelope but replaces the per-file
+    // shape with `{ file, error }`. parseScopedListResult must
+    // accept this degraded shape so `listFile` can distinguish
+    // "file-level parse error" from "binary is wrong / missing".
+    const perFileError = {
+      files: [
+        {
+          file: "/tmp/broken.tarn.yaml",
+          error:
+            "Parse error: /tmp/broken.tarn.yaml: Test file must have either 'steps' or 'tests'",
+        },
+      ],
+    };
+    const parsed = parseScopedListResult(JSON.stringify(perFileError));
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0].file).toBe("/tmp/broken.tarn.yaml");
+    expect(parsed.files[0].error).toContain("Parse error");
+    expect(parsed.files[0].name).toBeUndefined();
+    expect(parsed.files[0].tests).toBeUndefined();
+  });
+
+  it("rejects a payload whose `files` entries are not objects", () => {
+    // Load-bearing: if a future Tarn release somehow emits a bare
+    // string (say, the file path) in `files[]`, we must bounce at
+    // the schema gate rather than silently dereferencing a string
+    // as a file record inside the runner.
+    const bad = {
+      files: ["/tmp/x.tarn.yaml"],
+    };
+    expect(() => parseScopedListResult(JSON.stringify(bad))).toThrow();
   });
 });

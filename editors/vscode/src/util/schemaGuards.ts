@@ -228,6 +228,80 @@ export function parseBenchResult(raw: string): BenchResult {
   return benchResultSchema.parse(json);
 }
 
+// Tarn T57 (NAZ-261) added scoped `tarn list --file PATH --format json`,
+// which returns the same top-level envelope as the unscoped list but
+// contains exactly one `files[]` entry. The per-file shape for a
+// well-parsed YAML is:
+//   { file, name, tags, setup[], steps[], tests[], teardown[] }
+// where every step and test carries `{ name }` (tests additionally
+// expose `description` and their own `steps[]` / `tags[]`).
+//
+// When Tarn cannot parse a scoped path it emits a degraded file
+// entry of the shape `{ file, error }` with no `name` / `setup` /
+// `steps` / `tests` / `teardown` fields. We deliberately model both
+// shapes in a single schema (with arrays and `name` optional) so the
+// extension can differentiate a "file-level Tarn parse error" (fall
+// back to the client YAML AST for this one file, keep scoped
+// discovery enabled for the rest of the session) from a "binary
+// missing or completely wrong shape" (disable scoped discovery and
+// degrade to AST globally).
+const scopedListStepSchema = z.object({
+  name: z.string(),
+});
+
+const scopedListTestSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  steps: z.array(scopedListStepSchema),
+});
+
+export const scopedListFileSchema = z.object({
+  file: z.string(),
+  name: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  setup: z.array(scopedListStepSchema).optional(),
+  steps: z.array(scopedListStepSchema).optional(),
+  tests: z.array(scopedListTestSchema).optional(),
+  teardown: z.array(scopedListStepSchema).optional(),
+  /** Present when Tarn rejected the scoped file at parse time. */
+  error: z.string().optional(),
+});
+
+export const scopedListResultSchema = z.object({
+  files: z.array(scopedListFileSchema),
+  /** Top-level error envelope for command-level failures (e.g., missing config). */
+  error: z.string().optional(),
+});
+
+export type ScopedListFile = z.infer<typeof scopedListFileSchema>;
+export type ScopedListStep = z.infer<typeof scopedListStepSchema>;
+export type ScopedListTest = z.infer<typeof scopedListTestSchema>;
+export type ScopedListResult = z.infer<typeof scopedListResultSchema>;
+
+/**
+ * Strictly-validated scoped list file entry used by consumers after
+ * `listFile` has already asserted that none of the authoritative
+ * fields are missing. Separating the strict shape from the raw zod
+ * inference lets the schema stay permissive enough to accept Tarn's
+ * per-file error envelope while keeping the downstream merge
+ * function free of redundant `undefined` checks.
+ */
+export interface ScopedListFileStrict {
+  readonly file: string;
+  readonly name: string;
+  readonly tags?: readonly string[];
+  readonly setup: ReadonlyArray<ScopedListStep>;
+  readonly steps: ReadonlyArray<ScopedListStep>;
+  readonly tests: ReadonlyArray<ScopedListTest>;
+  readonly teardown: ReadonlyArray<ScopedListStep>;
+}
+
+export function parseScopedListResult(raw: string): ScopedListResult {
+  const json = JSON.parse(raw);
+  return scopedListResultSchema.parse(json);
+}
+
 const envEntrySchema = z.object({
   name: z.string(),
   source_file: z.string(),

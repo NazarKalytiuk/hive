@@ -10,6 +10,7 @@ import {
   parseBenchResult,
   parseEnvReport,
   parseReport,
+  parseScopedListResult,
   parseValidateReport,
   type EnvReport,
   type ValidateReport,
@@ -19,6 +20,7 @@ import type {
   BenchOutcome,
   HtmlReportOptions,
   HtmlReportOutcome,
+  ListFileOutcome,
   NdjsonEvent,
   RunOptions,
   RunOutcome,
@@ -103,6 +105,84 @@ export class TarnProcessRunner implements TarnBackend {
       );
       return undefined;
     }
+  }
+
+  async listFile(
+    absolutePath: string,
+    cwd: string,
+    token: vscode.CancellationToken,
+  ): Promise<ListFileOutcome> {
+    // Tarn T57 (NAZ-261) scoped discovery. Spawn the CLI with the
+    // absolute path so the result is deterministic regardless of
+    // the workspace's own CWD and return a discriminated outcome
+    // so `WorkspaceIndex` can distinguish a per-file parse error
+    // (fall back to AST for this one file, keep scoped discovery
+    // enabled for the rest of the session) from a binary-level
+    // failure (older Tarn, spawn error, wrong shape → disable
+    // scoped discovery for the whole session).
+    const args = ["list", "--file", absolutePath, "--format", "json"];
+    const collected = await this.spawnAndCollect(args, cwd, token);
+    if (token.isCancellationRequested || collected.timedOut) {
+      return { ok: false, reason: "unsupported" };
+    }
+    if (collected.stdout.length === 0) {
+      // No stdout at all usually means the binary crashed before
+      // writing anything — treat as a capability loss.
+      return { ok: false, reason: "unsupported" };
+    }
+    let parsed;
+    try {
+      parsed = parseScopedListResult(collected.stdout);
+    } catch (err) {
+      getOutputChannel().appendLine(
+        `[tarn] failed to parse scoped list JSON (exit ${collected.exitCode}): ${String(err)}`,
+      );
+      return { ok: false, reason: "unsupported" };
+    }
+    // Top-level command failure envelope (e.g., "Config error: ...").
+    // These are generally recoverable — the binary itself still
+    // supports `--file` — so we surface them as a per-file error
+    // rather than disabling scoped discovery for the session.
+    if (parsed.error && parsed.files.length === 0) {
+      return { ok: false, reason: "file_error", error: parsed.error };
+    }
+    const first = parsed.files[0];
+    if (!first) {
+      return { ok: false, reason: "unsupported" };
+    }
+    if (first.error) {
+      return { ok: false, reason: "file_error", error: first.error };
+    }
+    // A well-formed file record always carries the five array
+    // fields; if any are missing here the parser is emitting a
+    // malformed shape we do not recognize, which should disable
+    // scoped discovery instead of silently degrading to AST.
+    if (
+      first.name === undefined ||
+      first.setup === undefined ||
+      first.steps === undefined ||
+      first.tests === undefined ||
+      first.teardown === undefined
+    ) {
+      return { ok: false, reason: "unsupported" };
+    }
+    if (collected.exitCode !== 0) {
+      // Parseable envelope but non-zero exit with no obvious
+      // per-file error — treat as a capability loss.
+      return { ok: false, reason: "unsupported" };
+    }
+    return {
+      ok: true,
+      file: {
+        file: first.file,
+        name: first.name,
+        tags: first.tags,
+        setup: first.setup,
+        steps: first.steps,
+        tests: first.tests,
+        teardown: first.teardown,
+      },
+    };
   }
 
   async exportCurl(

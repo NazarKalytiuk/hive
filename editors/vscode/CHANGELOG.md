@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.22.0 — Phase 5: Scoped discovery via tarn list --file (NAZ-282)
+
+Tarn T57 (shipped in NAZ-261) added a scoped
+`tarn list --file PATH --format json` command that emits the canonical
+post-`include:` structure of a single YAML file. This release teaches
+the extension's `WorkspaceIndex` to use that command on every
+`onDidChange` / `onDidCreate` event, keeping the authoritative test
+tree in lockstep with whatever the runner will actually execute. The
+client-side YAML AST stays as the startup-discovery path (to avoid N
+process spawns on activation) and as the fallback when the installed
+Tarn binary predates T57 or rejects a specific file.
+
+### Added
+
+- **`scopedListResultSchema`** and **`parseScopedListResult`** in
+  `src/util/schemaGuards.ts` — a new zod shape that matches Tarn's
+  `{ files: [{ file, name, tags?, setup[], steps[], tests[],
+  teardown[], error? }] }` envelope, including the degraded
+  `{ file, error }` per-file record Tarn emits when it cannot parse
+  the scoped path. Exported as `ScopedListFile` (the raw inferred
+  type) and `ScopedListFileStrict` (the validated-and-unwrapped
+  shape consumers depend on).
+- **`TarnBackend.listFile(absolutePath, cwd, token)`** — a new
+  discriminated-outcome method on the backend interface. Returns
+  `{ ok: true, file }` on success, `{ ok: false, reason:
+  "file_error", error }` when Tarn parsed the YAML but rejected it
+  (keeps scoped discovery enabled for the rest of the session), or
+  `{ ok: false, reason: "unsupported" }` for binary-level failures
+  (disables scoped discovery until the next explicit
+  `Tarn: Refresh Discovery`).
+- **`WorkspaceIndex.refreshSingleFile(uri)`** — the incremental
+  refresh path used by the file-system watcher. Calls
+  `backend.listFile(uri.fsPath)` first and overlays the AST's range
+  metadata onto Tarn's authoritative structure, then compares the
+  merged `FileRanges` against the cached entry via
+  `rangesStructurallyEqual` and only fires a listener notification
+  when the test/step tree actually changed. Keystroke-saves that
+  only edit request bodies, URLs, or assertions no longer churn
+  the Test Explorer gutter icons.
+- **`mergeScopedWithAst(scoped, ast)`** — a pure helper that folds
+  Tarn's scoped-list output together with the client AST: Tarn wins
+  on "what tests and steps exist" (so `include:`-expanded steps
+  show up even though the raw YAML only has a `{ include: ... }`
+  entry), the AST wins on "where on disk the name lives". Exported
+  so the unit tests can exercise the merge without spinning up a
+  full extension host.
+- **`rangesStructurallyEqual(a, b)`** — a structural comparator on
+  `FileRanges` that ignores line/column shifts and compares only
+  test names, step names, arity, and descriptions. Guards against
+  the TestItem tree rebuilding on every comment-only edit.
+- **`api.testing.workspaceIndexSnapshot()`** and
+  **`api.testing.refreshSingleFile(uri)`** — two narrow testing
+  hooks on the extension API so the scoped-discovery integration
+  test can deterministically observe the incremental path without
+  racing the native `FileSystemWatcher`.
+
+### Changed
+
+- **`WorkspaceIndex` constructor** now accepts an optional
+  `{ backend, cwd }` options bag. When both are supplied (the
+  production path from `activate()`), the incremental refresh
+  tries the scoped `tarn list --file` path before falling back to
+  the AST; when omitted (unit tests), the index stays on the pure
+  AST path so no Tarn process is spawned. Startup discovery
+  (`initialize()`) deliberately still uses the glob + AST to avoid
+  N process spawns at activation time.
+- **Incremental refresh** now short-circuits the listener
+  notification when the new structure is structurally identical to
+  the cached one. Before this release every `onDidChange` call
+  rebuilt the file's `TestItem` children; the TestController now
+  only sees updates when a test or step was actually added,
+  removed, renamed, or re-described.
+
+### Developer
+
+- **New unit tests** (`tests/unit/workspaceIndex.test.ts`) cover
+  the scoped/AST merge (named tests, flat `steps:`, synthetic
+  `include:`-only entries, missing AST, setup/teardown passthrough)
+  and the structural comparator (identity, line-number shifts,
+  renames, added steps, description churn, setup arity changes).
+- **New unit tests** in `tests/unit/schemaGuards.test.ts` exercise
+  the scoped list envelope — named tests, flat steps, top-level
+  error envelope, per-file error envelope, and rejections of
+  malformed shapes that would otherwise slip through to the
+  runtime merge.
+- **New integration test** (`tests/integration/suite/scopedDiscovery.test.ts`)
+  drives the incremental path end-to-end against the real Tarn
+  debug binary: add / change / rename / delete of a single fixture
+  while a sibling file stays idle, plus a "broken YAML does not
+  disable scoped discovery" regression test.
+
 ## 0.21.0 — Phase 5: Consume location metadata (NAZ-281)
 
 Tarn T55 (shipped in NAZ-260) now emits an optional
