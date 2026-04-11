@@ -31,13 +31,14 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    CodeActionRequest, CodeLensRequest, Completion, DocumentSymbolRequest, Formatting,
-    GotoDefinition, HoverRequest, PrepareRenameRequest, References, Rename, Request as _,
+    CodeActionRequest, CodeLensRequest, Completion, DocumentSymbolRequest, ExecuteCommand,
+    Formatting, GotoDefinition, HoverRequest, PrepareRenameRequest, References, Rename,
+    Request as _,
 };
 use lsp_types::{
     CodeActionParams, CodeLensParams, CompletionParams, DocumentFormattingParams,
-    DocumentSymbolParams, GotoDefinitionParams, HoverParams, InitializeParams, ReferenceParams,
-    RenameParams, TextDocumentPositionParams, Url,
+    DocumentSymbolParams, ExecuteCommandParams, GotoDefinitionParams, HoverParams,
+    InitializeParams, ReferenceParams, RenameParams, TextDocumentPositionParams, Url,
 };
 
 use crate::capabilities::server_capabilities;
@@ -49,6 +50,7 @@ use crate::definition;
 use crate::diagnostics;
 use crate::formatting;
 use crate::hover;
+use crate::jsonpath_eval;
 use crate::references;
 use crate::rename;
 use crate::symbols;
@@ -438,6 +440,31 @@ fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
                 Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
             }
         }
+        ExecuteCommand::METHOD => match req.extract::<ExecuteCommandParams>(ExecuteCommand::METHOD)
+        {
+            Ok((req_id, params)) => {
+                // L3.6 (NAZ-307): `workspace/executeCommand` dispatches
+                // every client-invoked command through one pure handler.
+                // Today only `tarn.evaluateJsonpath` is registered; see
+                // `jsonpath_eval::workspace_execute_command` for the
+                // argument shape and return envelope. Unknown command
+                // IDs bubble back as a `MethodNotFound` ResponseError.
+                match jsonpath_eval::workspace_execute_command(state, params) {
+                    Ok(result) => Response {
+                        id: req_id,
+                        result: Some(result.unwrap_or(serde_json::Value::Null)),
+                        error: None,
+                    },
+                    Err(err) => Response {
+                        id: req_id,
+                        result: None,
+                        error: Some(err),
+                    },
+                }
+            }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+        },
         _ => method_not_found(req),
     }
 }

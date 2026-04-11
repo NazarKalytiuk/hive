@@ -51,8 +51,9 @@ Phase L3 layers editing features onto the L1/L2 surface. Each ticket is a thin w
 - [x] **L3.2 — code actions + extract env var (NAZ-303)**: `textDocument/codeAction` wires up a pure dispatcher over a flat list of provider functions. The first provider is **extract env var** (`refactor.extract`), which lifts a selected string literal inside a request field into a new env key and rewrites the original site as a `{{ env.<name> }}` interpolation. Collision detection against the full env chain (inline block + `tarn.env.yaml` + `tarn.env.local.yaml` + `tarn.env.{name}.yaml`) suffixes the coined name with a counter (`new_env_key`, `new_env_key_2`, …). Capability advertises `refactor.extract`, `refactor`, and `quickfix` now so later L3 tickets (capture-field refactor, fix-plan quick fix) can plug into the same dispatcher without shipping a capability regression.
 - [x] **L3.3 — capture-field + scaffold-assert code actions (NAZ-304)**: two new providers plug into the L3.2 dispatcher. **Capture this field** (`refactor`) lifts a JSONPath literal inside an `assert.body:` entry into a new `capture:` block on the same step, deriving the capture name from the last non-wildcard path segment. **Scaffold assert.body from last response** (`refactor`) walks the top-level fields of a recorded response (pluggable `RecordedResponseSource` trait) and emits an `assert.body` block pre-populated with one `type: …` entry per field. Both actions merge into existing `capture:` / `assert.body:` blocks instead of overwriting them, and collision-suffix any coined capture name (`id`, `id_2`, …) on the way out.
 - [x] **L3.5 — nested completion (NAZ-306)**: the completion provider now offers schema-aware child keys for cursors nested below the top-level / step mapping. A YAML walker maps the cursor to a `SchemaPath`, and a schema walker descends through `properties`, `items`, `additionalProperties`, local `$ref`, and `oneOf`/`anyOf`/`allOf` to find valid children at the destination. `request.*` offers `method`/`url`/`headers`/`body`/`form`/`multipart`, `assert.body."$.id".*` offers the `BodyAssertionOperators` grammar (`eq`, `gt`, `matches`, `length`, `type`, `is_uuid`, …), `poll.*` offers `until`/`interval`/`max_attempts`, and `capture.<name>.*` offers the `ExtendedCapture` keys. Descriptions from the schema flow through as `documentation`.
+- [x] **L3.6 — JSONPath evaluator (NAZ-307)**: the hover provider grows a fifth token class — **JSONPath literal** — that fires when the cursor sits on a YAML scalar whose text starts with `$.` or `$[` inside an `assert.body` key, a `capture.*.jsonpath` value, or a `poll.until.jsonpath` value. The hover evaluates the expression in place against the step's last recorded response (via the `RecordedResponseSource` trait from L3.3) and appends the result as pretty-printed JSON in the hover markdown, capped at 2000 characters. In parallel, the server now answers `workspace/executeCommand` for a single stable command ID `tarn.evaluateJsonpath`. The command accepts either `{ path, response }` with an inline JSON payload or `{ path, step: { file, test, step } }` that resolves the response through the sidecar convention; returns `{ matches: [...] }` regardless of which lookup path fired. Clients that want to evaluate a JSONPath without re-parsing the `.tarn.yaml` (Claude Code, the upcoming VS Code extension migration, any generic LSP consumer) can invoke the command directly. New shared library surface `tarn::jsonpath::evaluate_path` is the one canonical wrapper over `serde_json_path` everything inside Tarn will consume going forward.
 
-Remaining L3 tickets (L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
+**Phase L3 COMPLETE.** Every editing capability listed under Epic NAZ-301 is now shipped. Phase V — migrating `editors/vscode/` off its direct providers onto `tarn-lsp` so there is one implementation of every language feature — is the next coordinated initiative.
 
 ## Installation
 
@@ -395,7 +396,58 @@ The VS Code extension keeps its own last-run cache **in memory only** (see `edit
 
 **Safety gates.** The provider skips any diagnostic whose `source` is not `"tarn"`, any diagnostic with a numeric `code`, and any diagnostic whose message does not match a fix-plan pattern. Foreign diagnostics produced by other LSPs or extensions never flow into the library.
 
-After shipping L3.5, Phase L3 is almost done — L3.6 (inline JSONPath evaluator) is the last remaining ticket under Epic NAZ-301.
+### 11. JSONPath evaluator — new in L3.6 (NAZ-307)
+
+L3.6 layers two complementary affordances on top of the existing hover + code-action surface so LLM clients (including Claude Code) and humans alike can evaluate a JSONPath against the step's last recorded response without re-parsing the `.tarn.yaml` buffer themselves.
+
+Both affordances share the same library primitive: `tarn::jsonpath::evaluate_path(path, value) -> Result<Vec<serde_json::Value>, JsonPathError>`. This is a thin, canonical wrapper over `serde_json_path` (already a workspace dependency used by `tarn::assert::body` and `tarn::capture`). Ship as `tarn/src/jsonpath.rs`, re-exported from `tarn/src/lib.rs`. One source of truth — the assertion, capture, hover, and command paths all end up in the same parser / query plumbing.
+
+#### JSONPath hover
+
+**Trigger.** Place the cursor on a YAML scalar whose unquoted text starts with `$.` or `$[` (or is the bare `$`). The detector fires when the scalar sits in one of three expected shapes:
+
+- a key in an `assert.body` mapping (e.g. `"$.data[0].id"`)
+- the value of a `capture.<name>.jsonpath: "…"` entry or the shorthand `capture.<name>: "$.foo"`
+- the value of a `poll.until.jsonpath: "…"` entry (when the shape exists)
+
+**Lookup.** The hover locates the enclosing step via the `tarn::outline` walker, derives a `(test, step)` identifier pair, and asks the same `RecordedResponseSource` trait the scaffold-assert code action uses (NAZ-304). The default disk reader consults the `<file>.last-run/<test-slug>/<step-slug>.response.json` sidecar convention. When no response is available the hover still renders a heading (`JSONPath literal: \`$.data[0].id\``) plus a graceful "no recorded response" footer — it never errors.
+
+**Output.** When a response is available, the hover evaluates the path and appends the result as pretty-printed JSON in a fenced ` ```json ` block. Results longer than 2000 characters are truncated with an explicit marker so clients can still invoke the `tarn.evaluateJsonpath` command for the full payload (see below).
+
+#### `workspace/executeCommand` for `tarn.evaluateJsonpath`
+
+**Capability.** Advertised via `execute_command_provider: ExecuteCommandOptions { commands: vec!["tarn.evaluateJsonpath".into()], .. }`. L3.6 is the first Phase L3 ticket to flip `workspace/executeCommand` on — earlier tickets (L2.4 `tarn.runTest` / `tarn.runStep`) used stable command IDs but the server deliberately did not handle them server-side; clients dispatched them by shelling out.
+
+**Arguments.** The command accepts exactly one argument object in either of two shapes (dispatched via a `serde` untagged enum):
+
+```jsonc
+// Shape 1: inline response.
+{
+  "path": "$.data[0].id",
+  "response": { "data": [{"id": 42}] }
+}
+
+// Shape 2: step reference — the server reads the sidecar response.
+{
+  "path": "$.data[0].id",
+  "step": { "file": "/abs/fixture.tarn.yaml", "test": "main", "step": "list items" }
+}
+```
+
+The `file` field accepts either a bare filesystem path or a `file://` URI — the server normalises through `Url::to_file_path` so clients can forward whatever they have. Setup / teardown / flat-step sentinels (`"setup"`, `"teardown"`, `"<flat>"`) are accepted for the `test` field, mirroring the sidecar writer's slug rules.
+
+**Return envelope.** `{ "matches": [ ... ] }` — an explicit object wrapping the JSONPath matches in document order. Single-match paths return a one-element array, not an unwrapped value; multi-match paths return every match; not-found paths return `[]` (not an error). Future expansions (match locations inside the response document) can add sibling fields without a source-breaking change.
+
+**Errors.** Every soft failure returns an `InvalidParams` (`-32602`) `ResponseError`:
+
+- missing or malformed argument object
+- JSONPath parse failure (with the underlying message)
+- step reference with no sidecar file on disk
+- step reference with a corrupt / non-JSON sidecar
+
+Unknown command IDs return `MethodNotFound` (`-32601`) with a helpful message listing `tarn.evaluateJsonpath`. Return code is always a standard JSON-RPC error — the command never hangs or silently swallows a bad argument.
+
+**Phase L3 COMPLETE.** With L3.6 shipped every editing capability under Epic NAZ-301 is now live. The next coordinated initiative is **Phase V** — migrating `editors/vscode/` off its direct providers onto `tarn-lsp` so there is one implementation of every language feature.
 
 ## Client configuration
 
@@ -546,14 +598,14 @@ Phase L1 is the MVP. Phase L2 and L3 pick up the long tail of LSP features and a
 - **Claude Code config integration** — finalise the Claude Code LSP config snippet once the harness schema is public.
 - **VS Code extension migration** — migrate `editors/vscode/` off its direct providers onto `tarn-lsp`, so there is one implementation of every language feature.
 
-### Phase L3 — editing polish (in progress)
+### Phase L3 — editing polish (complete)
 
 - [x] **`textDocument/formatting`** (NAZ-302) — whole-document formatting via `tarn::format::format_document`; identical output to `tarn fmt` from the terminal. Range formatting is deliberately **not** supported.
-- **`textDocument/codeAction`** — quick-fix squiggle hints, including integration with `tarn_fix_plan`.
-- **Inline JSONPath hover/completion** — resolve `$.foo.bar` against a cached response body for step-level assertions.
-- **Workspace-wide symbol search** — `workspace/symbol` across every open `.tarn.yaml` in the project.
+- [x] **`textDocument/codeAction`** (NAZ-303, NAZ-304, NAZ-305) — extract env var, capture this field, scaffold assert.body from last response, and fix-plan quick fix via shared `tarn::fix_plan` library.
+- [x] **Nested schema completion** (NAZ-306) — schema-aware child keys for cursors nested below the top-level / step mapping.
+- [x] **JSONPath evaluator** (NAZ-307) — hover evaluation against the step's last recorded response + `workspace/executeCommand` for `tarn.evaluateJsonpath` with `{ matches: [...] }` return envelope.
 
-Phase L2 will begin when Phase L1 is proven with real users. If you hit a rough edge with the MVP or want one of the L2 items to move earlier, please open an issue — usage data drives the order.
+**Phase L3 COMPLETE.** Epic NAZ-301 is closed. **Phase V** (VS Code extension migration onto `tarn-lsp`) is the next coordinated initiative.
 
 ## Links
 

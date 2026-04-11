@@ -43,15 +43,26 @@
 //!   `resolve_provider: false` — actions come back fully resolved
 //!   with their `WorkspaceEdit` already populated so there is no
 //!   `codeAction/resolve` round trip. Shipped.
+//! - L3.6 (NAZ-307): `execute_command_provider: ExecuteCommandOptions` —
+//!   `workspace/executeCommand` with one stable command
+//!   `tarn.evaluateJsonpath`. Accepts an inline response + JSONPath
+//!   or a `(file, test, step)` triple that resolves through the
+//!   sidecar reader, and returns `{ "matches": [...] }`. The LSP
+//!   hover provider also grows a fifth token class, **JSONPath
+//!   literal**, that evaluates `$.foo` against the step's last
+//!   recorded response inline in the hover markdown. Shipping L3.6
+//!   completes **Phase L3** — tarn-lsp editing is now done.
 //!
 //! Nothing in this file should ever grow conditional logic — if a capability
 //! is on, it is on for every client and every workspace.
 
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    CompletionOptions, HoverProviderCapability, OneOf, RenameOptions, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, WorkDoneProgressOptions,
+    CompletionOptions, ExecuteCommandOptions, HoverProviderCapability, OneOf, RenameOptions,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, WorkDoneProgressOptions,
 };
+
+use crate::jsonpath_eval::EVALUATE_JSONPATH_COMMAND;
 
 /// Return the `ServerCapabilities` this server currently advertises.
 ///
@@ -159,6 +170,19 @@ pub fn server_capabilities() -> ServerCapabilities {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
+
+        // L3.6 (NAZ-307): the server answers `workspace/executeCommand`
+        // for a single stable command ID, `tarn.evaluateJsonpath`. The
+        // command accepts `{ "path": "<jsonpath>", "response": <inline> }`
+        // or `{ "path": "<jsonpath>", "step": { "file": ..., "test": ..., "step": ... } }`
+        // and returns `{ "matches": [...] }`. Shipping L3.6 completes
+        // Phase L3 — the tarn-lsp editing surface is now done; Phase V
+        // (VS Code extension migration onto tarn-lsp) is the next
+        // coordinated initiative.
+        execute_command_provider: Some(ExecuteCommandOptions {
+            commands: vec![EVALUATE_JSONPATH_COMMAND.to_owned()],
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        }),
 
         // All other capabilities are intentionally left unset. See the module
         // docs for the ticket that turns each one on.

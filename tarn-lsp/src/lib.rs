@@ -18,6 +18,7 @@ pub mod diagnostics;
 pub mod formatting;
 pub mod hover;
 pub mod identifier;
+pub mod jsonpath_eval;
 pub mod references;
 pub mod rename;
 pub mod schema;

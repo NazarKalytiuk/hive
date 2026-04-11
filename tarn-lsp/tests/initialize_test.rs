@@ -113,10 +113,17 @@ fn server_capabilities_advertises_every_phase_l1_feature() {
         other => panic!("L3.2 must advertise code_action_provider with options, got {other:?}"),
     }
 
-    // Phase L3 capabilities that have not shipped yet remain unset.
+    // L3.6 (NAZ-307) advertises `workspace/executeCommand` with a
+    // single stable command id `tarn.evaluateJsonpath`. Shipping
+    // L3.6 completes Phase L3 — tarn-lsp editing surface is done.
+    let exec = caps
+        .execute_command_provider
+        .as_ref()
+        .expect("L3.6 must advertise execute_command_provider");
     assert!(
-        caps.execute_command_provider.is_none(),
-        "L3: execute command"
+        exec.commands.iter().any(|c| c == "tarn.evaluateJsonpath"),
+        "L3.6 must register the tarn.evaluateJsonpath command, got {:?}",
+        exec.commands
     );
 }
 

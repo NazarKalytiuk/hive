@@ -141,6 +141,10 @@ pub fn references_for_token(
             collect_capture_references(name, ctx, include_declaration)
         }
         InterpolationToken::Builtin(_) | InterpolationToken::SchemaKey(_) => Vec::new(),
+        // L3.6 (NAZ-307): JSONPath literals have no reference graph —
+        // they live inline inside one step's assertion/capture/poll
+        // block and never reference a symbol elsewhere in the file.
+        InterpolationToken::JsonPathLiteral(_) => Vec::new(),
     }
 }
 

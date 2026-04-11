@@ -94,6 +94,7 @@ pub fn scan_all_interpolations(source: &str) -> Vec<InterpolationTokenSpan> {
                 out.push(InterpolationTokenSpan {
                     token,
                     range: Range::new(start_pos, end_pos),
+                    step_context: None,
                 });
             }
             i = token_end;

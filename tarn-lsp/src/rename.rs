@@ -276,9 +276,11 @@ pub fn rename_workspace_edit(
             }
             rename_capture(old_name, new_name, ctx)
         }
-        InterpolationToken::Builtin(_) | InterpolationToken::SchemaKey(_) => {
-            Err(RenameError::NotRenamable)
-        }
+        InterpolationToken::Builtin(_)
+        | InterpolationToken::SchemaKey(_)
+        // L3.6 (NAZ-307): JSONPath literals are evaluated in place, not
+        // renamed — they don't name any symbol.
+        | InterpolationToken::JsonPathLiteral(_) => Err(RenameError::NotRenamable),
     }
 }
 
@@ -1158,6 +1160,7 @@ mod tests {
         let synthetic_span = InterpolationTokenSpan {
             token: InterpolationToken::Capture("token".into()),
             range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            step_context: None,
         };
         let edit = rename_workspace_edit(&synthetic_span, "renamed", &ctx).expect("rename ok");
         let changes = edit.changes.unwrap();
@@ -1174,6 +1177,7 @@ mod tests {
         let span = InterpolationTokenSpan {
             token: InterpolationToken::Capture("token".into()),
             range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            step_context: None,
         };
         let err = rename_workspace_edit(&span, "session", &ctx).unwrap_err();
         match err {
@@ -1299,6 +1303,7 @@ mod tests {
         let span = InterpolationTokenSpan {
             token: InterpolationToken::Env("base_url".into()),
             range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            step_context: None,
         };
         let edit = rename_workspace_edit(&span, "api_url", &ctx).expect("rename ok");
         let changes = edit.changes.unwrap();

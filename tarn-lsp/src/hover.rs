@@ -30,13 +30,17 @@
 //! `NOTES` in the commit message and the ticket for the follow-up.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range, Url};
 use tarn::env::{self, EnvEntry, EnvSource};
+use tarn::jsonpath::{evaluate_path, JsonPathError};
 use tarn::model::{Step, TestFile};
+use tarn::outline::{find_scalar_at_position, outline_from_str, PathSegment, StepOutline};
 use tarn::parser;
 
+use crate::code_actions::response_source::{DiskResponseSource, RecordedResponseSource};
 use crate::schema::schema_key_cache;
 use crate::server::DocumentStore;
 use crate::token::{
@@ -110,6 +114,32 @@ pub enum HoverToken {
     /// Top-level schema key (`status`, `body`, `headers`, etc).
     /// Identifier is the bare key name.
     SchemaKey(String),
+    /// A raw YAML scalar whose content starts with `$.` or `$[` —
+    /// a JSONPath literal inside an `assert.body:` key, a `capture:`
+    /// JSONPath value, or a `poll.until.jsonpath` value. NAZ-307
+    /// (L3.6): when a sidecar response is available for the enclosing
+    /// step, the hover evaluates the path and appends the result.
+    JsonPathLiteral(String),
+}
+
+/// The enclosing-step metadata needed to look up a recorded response
+/// for a JSONPath hover. Derived from the YAML path the scalar walker
+/// emits (NAZ-303 `find_scalar_at_position`).
+///
+/// `test` uses the sentinel strings `"setup"` / `"teardown"` / `"<flat>"`
+/// for non-test sections so the sidecar convention from NAZ-304 stays
+/// consistent — the code-action renderers already rely on the same
+/// sentinels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepContext {
+    /// The enclosing test group's name, or a sentinel for
+    /// setup/teardown/flat-steps sections.
+    pub test: String,
+    /// The step's `name:` value. Synthetic `<step N>` placeholders
+    /// from unnamed steps are acceptable here — they simply won't
+    /// match any sidecar file, which degrades to "no evaluation"
+    /// rather than an error.
+    pub step: String,
 }
 
 /// A hover token plus the source range that should be highlighted by
@@ -118,12 +148,16 @@ pub enum HoverToken {
 pub struct HoverTokenSpan {
     pub token: HoverToken,
     pub range: Range,
+    /// Populated only for `HoverToken::JsonPathLiteral` so the renderer
+    /// can look up the sidecar response for the enclosing step. `None`
+    /// for every other token class — no other hover needs step context.
+    pub step_context: Option<StepContext>,
 }
 
 /// Context data the [`hover_for_token`] renderer consults. All fields
 /// are precomputed by the request handler so the renderer itself stays
 /// I/O-free and easy to unit-test.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct HoverContext {
     /// Resolved environment, keyed by variable name. Sorted so tests
     /// can assert ordering without sprinkling `sort_by_key` everywhere.
@@ -146,6 +180,17 @@ pub struct HoverContext {
     /// document — not just in scope for the current position. Lets the
     /// renderer distinguish "undefined" from "out of scope".
     pub all_captures: Vec<VisibleCapture>,
+    /// Pluggable recorded-response reader used by L3.6 JSONPath hover
+    /// evaluation (NAZ-307). Shares the `RecordedResponseSource` trait
+    /// and the sidecar convention introduced in NAZ-304 for the
+    /// scaffold-assert code action. `None` means "no evaluation available",
+    /// and the JSONPath hover gracefully falls back to a heading-only
+    /// markdown.
+    pub response_source: Option<Arc<dyn RecordedResponseSource>>,
+    /// Absolute filesystem path of the document, used by the JSONPath
+    /// hover to compute the sidecar path through the response reader.
+    /// Empty for unit tests that synthesise a context from scratch.
+    pub file_path: PathBuf,
 }
 
 /// One capture variable visible from a hover position.
@@ -189,11 +234,179 @@ pub enum CapturePhase {
 /// 2. Top-level schema keys. A cursor on a bare `status:`, `body:`,
 ///    `request:`, etc. on a line that looks like a mapping key resolves
 ///    to a `SchemaKey` token.
+/// 3. JSONPath literals (L3.6, NAZ-307). A cursor on a YAML scalar
+///    whose text begins with `$.` or `$[` resolves to a
+///    [`HoverToken::JsonPathLiteral`] with step context filled in
+///    from the YAML outline walker so the renderer can look up the
+///    sidecar response for the enclosing step.
 pub fn resolve_hover_token(source: &str, position: Position) -> Option<HoverTokenSpan> {
     if let Some(span) = find_interpolation_token(source, position) {
         return Some(span);
     }
-    find_schema_key_token(source, position)
+    if let Some(span) = find_schema_key_token(source, position) {
+        return Some(span);
+    }
+    resolve_jsonpath_at_position(source, position)
+}
+
+/// Resolve the cursor to a JSONPath literal scalar, if any.
+///
+/// Uses [`find_scalar_at_position`] to locate the innermost scalar
+/// under the cursor and only accepts scalars whose unquoted text
+/// starts with `$.` or `$[` — the two canonical openings for a
+/// JSONPath expression. The enclosing step context is derived from
+/// the scalar's YAML path combined with the file outline so the
+/// hover renderer can look up the last recorded response via the
+/// sidecar convention. Returns `None` for unparseable YAML, for
+/// cursors outside any scalar, for scalars that are not JSONPath
+/// literals, and for JSONPath scalars whose YAML path does not
+/// resolve to a step (e.g. a literal typed into a free-form
+/// `description:` field).
+///
+/// Strictly pure — no filesystem access. The outline is parsed from
+/// the in-memory source buffer.
+pub fn resolve_jsonpath_at_position(source: &str, position: Position) -> Option<HoverTokenSpan> {
+    let line_one = (position.line as usize) + 1;
+    let col_one = (position.character as usize) + 1;
+    let scalar = find_scalar_at_position(source, line_one, col_one)?;
+    if !is_jsonpath_literal(&scalar.value) {
+        return None;
+    }
+    // JSONPath scalars appear in three expected shapes today:
+    //   * keys of `assert.body.<jsonpath>:` mappings
+    //   * values of `capture.<name>.jsonpath: "<jsonpath>"`
+    //   * values of `poll.until.jsonpath: "<jsonpath>"`
+    // Only accept one of those shapes so a literal pasted into a
+    // random free-form field (e.g. `description: "$.foo"`) does not
+    // pretend to be evaluable. The shape check is lenient — we walk
+    // the YAML path for any anchor that indicates assert/body,
+    // capture, or poll context.
+    if !path_looks_like_jsonpath_carrier(&scalar.path) {
+        return None;
+    }
+    let step_context = step_context_from_path_and_outline(source, &scalar.path);
+    let start_line = scalar.start_line.saturating_sub(1) as u32;
+    let start_col = scalar.start_column.saturating_sub(1) as u32;
+    let end_line = scalar.end_line.saturating_sub(1) as u32;
+    let end_col = scalar.end_column.saturating_sub(1) as u32;
+    let range = Range::new(
+        Position::new(start_line, start_col),
+        Position::new(end_line, end_col),
+    );
+    Some(HoverTokenSpan {
+        token: HoverToken::JsonPathLiteral(scalar.value.clone()),
+        range,
+        step_context,
+    })
+}
+
+/// True for any scalar string whose first non-whitespace characters are
+/// `$.` or `$[`. A bare `$` alone is also accepted so the hover
+/// gracefully reports "whole body" evaluation. Everything else
+/// (including quoted YAML scalars whose raw text happens to start with
+/// `$` mid-string) returns `false`.
+fn is_jsonpath_literal(value: &str) -> bool {
+    let trimmed = value.trim_start();
+    if trimmed == "$" {
+        return true;
+    }
+    trimmed.starts_with("$.") || trimmed.starts_with("$[")
+}
+
+/// True when the YAML path points at a location where a JSONPath
+/// literal is meaningful — namely inside an `assert.body` block, a
+/// `capture.*.jsonpath` value, a bare capture JSONPath shorthand, or
+/// a `poll.until.jsonpath` value.
+fn path_looks_like_jsonpath_carrier(path: &[PathSegment]) -> bool {
+    // `assert.body.<jsonpath>` — the key of the body mapping.
+    let mut saw_assert_body = false;
+    let mut saw_capture = false;
+    let mut saw_poll_until = false;
+    for (i, seg) in path.iter().enumerate() {
+        if let PathSegment::Key(k) = seg {
+            if k == "assert"
+                && matches!(path.get(i + 1), Some(PathSegment::Key(k2)) if k2 == "body")
+            {
+                saw_assert_body = true;
+            }
+            if k == "capture" {
+                saw_capture = true;
+            }
+            if k == "poll" && matches!(path.get(i + 1), Some(PathSegment::Key(k2)) if k2 == "until")
+            {
+                saw_poll_until = true;
+            }
+        }
+    }
+    saw_assert_body || saw_capture || saw_poll_until
+}
+
+/// Derive the `(test, step)` identifier pair from a YAML path and the
+/// file outline so the hover can look up the sidecar response.
+///
+/// Mirrors the step locator in [`crate::code_actions::scaffold_assert`]
+/// but looks up the step's actual `name:` through [`outline_from_str`]
+/// so the resulting identifier matches what the sidecar writer stores.
+/// Returns `None` when the path does not point at a step or when the
+/// outline cannot be parsed — the renderer treats both as
+/// "no evaluation available".
+fn step_context_from_path_and_outline(source: &str, path: &[PathSegment]) -> Option<StepContext> {
+    let outline = outline_from_str("<hover>", source)?;
+    let first = path.first()?;
+    match first {
+        PathSegment::Key(k) if k == "setup" => {
+            let PathSegment::Index(i) = path.get(1)? else {
+                return None;
+            };
+            let step: &StepOutline = outline.setup.get(*i)?;
+            Some(StepContext {
+                test: "setup".to_owned(),
+                step: step.name.clone(),
+            })
+        }
+        PathSegment::Key(k) if k == "teardown" => {
+            let PathSegment::Index(i) = path.get(1)? else {
+                return None;
+            };
+            let step: &StepOutline = outline.teardown.get(*i)?;
+            Some(StepContext {
+                test: "teardown".to_owned(),
+                step: step.name.clone(),
+            })
+        }
+        PathSegment::Key(k) if k == "steps" => {
+            let PathSegment::Index(i) = path.get(1)? else {
+                return None;
+            };
+            let step: &StepOutline = outline.flat_steps.get(*i)?;
+            Some(StepContext {
+                test: "<flat>".to_owned(),
+                step: step.name.clone(),
+            })
+        }
+        PathSegment::Key(k) if k == "tests" => {
+            let PathSegment::Key(test_name) = path.get(1)? else {
+                return None;
+            };
+            // tests.<name>.steps.<index>
+            let PathSegment::Key(steps_key) = path.get(2)? else {
+                return None;
+            };
+            if steps_key != "steps" {
+                return None;
+            }
+            let PathSegment::Index(i) = path.get(3)? else {
+                return None;
+            };
+            let test = outline.tests.iter().find(|t| &t.name == test_name)?;
+            let step = test.steps.get(*i)?;
+            Some(StepContext {
+                test: test_name.clone(),
+                step: step.name.clone(),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Scan the source for every `{{ … }}` pair and return the one that
@@ -220,8 +433,11 @@ fn find_interpolation_token(source: &str, position: Position) -> Option<HoverTok
                     let start_pos = byte_offset_to_position(source, i);
                     let end_pos = byte_offset_to_position(source, token_end);
                     let range = Range::new(start_pos, end_pos);
-                    return classify_expression(raw.trim())
-                        .map(|token| HoverTokenSpan { token, range });
+                    return classify_expression(raw.trim()).map(|token| HoverTokenSpan {
+                        token,
+                        range,
+                        step_context: None,
+                    });
                 }
                 i = token_end;
                 continue;
@@ -289,6 +505,7 @@ fn find_schema_key_token(source: &str, position: Position) -> Option<HoverTokenS
     Some(HoverTokenSpan {
         token: HoverToken::SchemaKey(key.to_owned()),
         range: Range::new(start_pos, end_pos),
+        step_context: None,
     })
 }
 
@@ -557,6 +774,9 @@ pub fn hover_for_token(span: &HoverTokenSpan, ctx: &HoverContext) -> Hover {
         HoverToken::Capture(name) => render_capture(name, ctx),
         HoverToken::Builtin(name) => render_builtin(name),
         HoverToken::SchemaKey(key) => render_schema_key(key, ctx),
+        HoverToken::JsonPathLiteral(path) => {
+            render_jsonpath_literal(path, span.step_context.as_ref(), ctx)
+        }
     };
     Hover {
         contents: HoverContents::Markup(MarkupContent {
@@ -565,6 +785,106 @@ pub fn hover_for_token(span: &HoverTokenSpan, ctx: &HoverContext) -> Hover {
         }),
         range: Some(span.range),
     }
+}
+
+/// Maximum characters of pretty-printed JSON the JSONPath hover will
+/// inline before truncating with a `…` marker. Two kilobytes is a
+/// soft ceiling picked to match the hover popup size that most LSP
+/// clients render comfortably without scrollbars.
+const JSONPATH_RESULT_MAX_LEN: usize = 2000;
+
+/// Render a `JsonPathLiteral` hover, optionally appending the result of
+/// evaluating the path against the step's last recorded response.
+///
+/// Always emits a heading so the hover never shows up as an empty
+/// popup. When the sidecar lookup succeeds, the result is
+/// pretty-printed as JSON and capped at [`JSONPATH_RESULT_MAX_LEN`];
+/// longer payloads are truncated with an explicit marker so callers
+/// know the full value was elided for display.
+fn render_jsonpath_literal(
+    path: &str,
+    step_context: Option<&StepContext>,
+    ctx: &HoverContext,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("**JSONPath literal:** `{path}`\n\n"));
+    out.push_str(
+        "Evaluated in place against the step's last recorded response (sidecar from `.last-run`).\n\n",
+    );
+
+    let Some(source) = ctx.response_source.as_ref() else {
+        out.push_str("_No recorded response reader wired — evaluation unavailable._\n");
+        return out;
+    };
+    let Some(step) = step_context else {
+        out.push_str("_No enclosing step for this JSONPath literal — skipping evaluation._\n");
+        return out;
+    };
+    if step.step.is_empty() {
+        out.push_str(
+            "_Enclosing step has no recoverable `name:` — cannot look up the sidecar response._\n",
+        );
+        return out;
+    }
+    let Some(response) = source.read(&ctx.file_path, &step.test, &step.step) else {
+        out.push_str(
+            "_No recorded response found for this step — run the step at least once to populate the sidecar._\n",
+        );
+        return out;
+    };
+
+    match evaluate_path(path, &response) {
+        Ok(matches) if matches.is_empty() => {
+            out.push_str("_Path evaluated successfully but matched no values._\n");
+        }
+        Ok(matches) => {
+            // Single-match results unwrap so "one thing" looks like
+            // that one thing; multi-match results emit an array so
+            // the document structure is preserved.
+            let value = if matches.len() == 1 {
+                matches.into_iter().next().unwrap()
+            } else {
+                serde_json::Value::Array(matches)
+            };
+            let pretty = serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|e| format!("<serialize error: {e}>"));
+            let (body, truncated) = truncate_for_hover(&pretty, JSONPATH_RESULT_MAX_LEN);
+            out.push_str("```json\n");
+            out.push_str(body);
+            if !body.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("```\n");
+            if truncated {
+                out.push_str(&format!(
+                    "_Result truncated to {JSONPATH_RESULT_MAX_LEN} characters — full payload available via `tarn.evaluateJsonpath`._\n"
+                ));
+            }
+        }
+        Err(JsonPathError::Parse(msg)) => {
+            out.push_str(&format!("_JSONPath parse error: {msg}_\n"));
+        }
+    }
+
+    out
+}
+
+/// Truncate `s` to at most `max_len` characters (bytes, since the
+/// pretty-printed JSON is ASCII-dominated and hover popups think in
+/// display width rather than code points). Returns the truncated
+/// slice plus a flag indicating whether truncation occurred.
+fn truncate_for_hover(s: &str, max_len: usize) -> (&str, bool) {
+    if s.len() <= max_len {
+        return (s, false);
+    }
+    // Snap to the nearest preceding char boundary so the slice is
+    // always valid UTF-8 — important when a user's recorded response
+    // contains non-ASCII data.
+    let mut boundary = max_len;
+    while boundary > 0 && !s.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    (&s[..boundary], true)
 }
 
 fn render_env(key: &str, ctx: &HoverContext) -> String {
@@ -732,6 +1052,7 @@ pub fn build_hover_context(
     uri: &Url,
     position: Position,
     schema_keys: &HashMap<String, String>,
+    response_source: Option<Arc<dyn RecordedResponseSource>>,
 ) -> HoverContext {
     let path = uri_to_path(uri);
     let parse_result = parser::parse_str(source, &path);
@@ -775,6 +1096,8 @@ pub fn build_hover_context(
         schema_keys: schema_keys.clone(),
         parse_errored,
         all_captures,
+        response_source,
+        file_path: path,
     }
 }
 
@@ -793,7 +1116,9 @@ pub fn text_document_hover(store: &DocumentStore, uri: &Url, position: Position)
     let source = store.get(uri)?;
     let span = resolve_hover_token(source, position)?;
     let schema_keys = schema_key_descriptions();
-    let ctx = build_hover_context(source, uri, position, schema_keys);
+    let response_source: Option<Arc<dyn RecordedResponseSource>> =
+        Some(Arc::new(DiskResponseSource));
+    let ctx = build_hover_context(source, uri, position, schema_keys, response_source);
     Some(hover_for_token(&span, &ctx))
 }
 
@@ -937,6 +1262,15 @@ mod tests {
         HoverTokenSpan {
             token,
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+            step_context: None,
+        }
+    }
+
+    fn dummy_span_with_step(token: HoverToken, step: StepContext) -> HoverTokenSpan {
+        HoverTokenSpan {
+            token,
+            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+            step_context: Some(step),
         }
     }
 
@@ -1302,5 +1636,258 @@ tests:
         assert!(names.contains(&"setup_cap".to_owned()));
         assert!(names.contains(&"first_cap".to_owned()));
         assert!(names.contains(&"second_cap".to_owned()));
+    }
+
+    // ---------------------------------------------------------------------
+    // resolve_jsonpath_at_position + render_jsonpath_literal — L3.6 hover
+    // ---------------------------------------------------------------------
+
+    /// Fixture: a named test whose step asserts on a JSONPath key
+    /// inside `assert.body`. The cursor sits on the JSONPath key.
+    const JSONPATH_ASSERT_FIXTURE: &str = "name: fixture
+tests:
+  main:
+    steps:
+      - name: list items
+        request:
+          method: GET
+          url: http://example.com/items
+        assert:
+          body:
+            \"$.data[0].id\":
+              eq: 5
+";
+
+    /// Fixture: a capture block using a bare JSONPath shorthand.
+    const JSONPATH_CAPTURE_FIXTURE: &str = "name: fixture
+tests:
+  main:
+    steps:
+      - name: cap
+        request:
+          method: GET
+          url: http://example.com/thing
+        capture:
+          token: $.token
+";
+
+    #[test]
+    fn resolve_jsonpath_classifies_cursor_on_assert_body_key() {
+        let src = JSONPATH_ASSERT_FIXTURE;
+        // Cursor on the `$.data[0].id` key line (0-based line 10,
+        // column 14 lands inside the quoted key).
+        let span =
+            resolve_hover_token(src, Position::new(10, 14)).expect("should classify JSONPath");
+        assert!(matches!(span.token, HoverToken::JsonPathLiteral(ref s) if s == "$.data[0].id"));
+        let step = span.step_context.as_ref().expect("step context required");
+        assert_eq!(step.test, "main");
+        assert_eq!(step.step, "list items");
+    }
+
+    #[test]
+    fn resolve_jsonpath_classifies_cursor_on_capture_value() {
+        let src = JSONPATH_CAPTURE_FIXTURE;
+        // `token: $.token` — cursor on the `$` char.
+        let span = resolve_hover_token(src, Position::new(9, 17))
+            .expect("should classify JSONPath from capture value");
+        assert!(matches!(span.token, HoverToken::JsonPathLiteral(ref s) if s == "$.token"));
+        let step = span.step_context.as_ref().expect("step context required");
+        assert_eq!(step.test, "main");
+        assert_eq!(step.step, "cap");
+    }
+
+    #[test]
+    fn resolve_jsonpath_declines_non_jsonpath_scalar() {
+        // A plain URL is not a JSONPath literal even though it is a
+        // valid YAML scalar under a request field.
+        let src = JSONPATH_ASSERT_FIXTURE;
+        // Cursor on the `http://example.com/items` URL.
+        let span = resolve_hover_token(src, Position::new(7, 20));
+        // The URL line *might* classify to a schema-key or return None;
+        // the only thing this test cares about is that it is not
+        // mis-classified as a JSONPath literal.
+        if let Some(span) = span {
+            assert!(
+                !matches!(span.token, HoverToken::JsonPathLiteral(_)),
+                "URL must not be classified as JSONPath literal, got {:?}",
+                span.token
+            );
+        }
+    }
+
+    #[test]
+    fn render_jsonpath_literal_with_matching_response_inlines_result() {
+        use crate::code_actions::response_source::InMemoryResponseSource;
+        let response = serde_json::json!({"data": [{"id": 42}, {"id": 7}]});
+        let ctx = HoverContext {
+            response_source: Some(Arc::new(InMemoryResponseSource::new(response))),
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.data[0].id".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "list items".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        assert!(body.contains("JSONPath literal"));
+        assert!(body.contains("`$.data[0].id`"));
+        assert!(body.contains("```json"));
+        // Single match unwraps to the raw integer, not wrapped in an array.
+        assert!(
+            body.contains("42"),
+            "body missing evaluation result: {body}"
+        );
+    }
+
+    #[test]
+    fn render_jsonpath_literal_with_no_response_falls_back_gracefully() {
+        use crate::code_actions::response_source::InMemoryResponseSource;
+        let ctx = HoverContext {
+            response_source: Some(Arc::new(InMemoryResponseSource::empty())),
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.data[0].id".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "list items".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        // Never crash: heading must still render.
+        assert!(body.contains("JSONPath literal"));
+        assert!(body.contains("`$.data[0].id`"));
+        assert!(body.contains("No recorded response"));
+        // Must not contain a code block since no evaluation ran.
+        assert!(!body.contains("```json"));
+    }
+
+    #[test]
+    fn render_jsonpath_literal_with_parse_error_reports_it() {
+        use crate::code_actions::response_source::InMemoryResponseSource;
+        let response = serde_json::json!({"x": 1});
+        let ctx = HoverContext {
+            response_source: Some(Arc::new(InMemoryResponseSource::new(response))),
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.[not valid]".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "list items".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        assert!(body.contains("JSONPath parse error"));
+        assert!(!body.contains("```json"));
+    }
+
+    #[test]
+    fn render_jsonpath_literal_truncates_very_long_result() {
+        use crate::code_actions::response_source::InMemoryResponseSource;
+        // Build a response whose pretty-printed form is well over the
+        // 2000-char cap.
+        let mut big = serde_json::Map::new();
+        for i in 0..500 {
+            big.insert(format!("key{i}"), serde_json::json!(format!("value{i}")));
+        }
+        let response = serde_json::json!({ "big": big });
+        let ctx = HoverContext {
+            response_source: Some(Arc::new(InMemoryResponseSource::new(response))),
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.big".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "list items".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        assert!(body.contains("truncated"));
+        // Cap enforcement: the entire body should still be finite, and
+        // the JSON block should be capped.
+        assert!(body.len() < 3000, "body too long: {} chars", body.len());
+    }
+
+    #[test]
+    fn render_jsonpath_literal_multi_match_serialises_as_array() {
+        use crate::code_actions::response_source::InMemoryResponseSource;
+        let response = serde_json::json!({"items": [{"id": 1}, {"id": 2}, {"id": 3}]});
+        let ctx = HoverContext {
+            response_source: Some(Arc::new(InMemoryResponseSource::new(response))),
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.items[*].id".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "list items".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        assert!(body.contains("```json"));
+        // Three ids inline.
+        assert!(body.contains("1"));
+        assert!(body.contains("2"));
+        assert!(body.contains("3"));
+    }
+
+    #[test]
+    fn render_jsonpath_literal_without_response_source_shows_unavailable() {
+        let ctx = HoverContext {
+            response_source: None,
+            file_path: std::path::PathBuf::from("/tmp/fixture.tarn.yaml"),
+            ..HoverContext::default()
+        };
+        let span = dummy_span_with_step(
+            HoverToken::JsonPathLiteral("$.foo".to_owned()),
+            StepContext {
+                test: "main".to_owned(),
+                step: "step".to_owned(),
+            },
+        );
+        let hover = hover_for_token(&span, &ctx);
+        let body = body_of(&hover);
+        assert!(body.contains("JSONPath literal"));
+        assert!(body.contains("reader wired"));
+        assert!(!body.contains("```json"));
+    }
+
+    #[test]
+    fn existing_hover_classes_still_work_after_jsonpath_addition() {
+        // Regression test: the four pre-existing classes (env, capture,
+        // builtin, schema-key) must still classify correctly. Exercise
+        // each one with the token classifier.
+        let env_src = "url: {{ env.base_url }}\n";
+        assert!(matches!(
+            find_token(env_src, 0, 12),
+            Some(HoverToken::Env(ref s)) if s == "base_url"
+        ));
+        let cap_src = "header: {{ capture.token }}\n";
+        assert!(matches!(
+            find_token(cap_src, 0, 20),
+            Some(HoverToken::Capture(ref s)) if s == "token"
+        ));
+        let bi_src = "id: {{ $uuid }}\n";
+        assert!(matches!(
+            find_token(bi_src, 0, 9),
+            Some(HoverToken::Builtin(ref s)) if s == "uuid"
+        ));
+        let sk_src = "assert:\n  status: 200\n";
+        let span = resolve_hover_token(sk_src, Position::new(1, 4)).unwrap();
+        assert!(matches!(span.token, HoverToken::SchemaKey(ref s) if s == "status"));
     }
 }

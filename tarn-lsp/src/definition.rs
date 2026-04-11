@@ -132,6 +132,11 @@ pub fn definition_for_token(
         }
         HoverToken::Builtin(_) => None,
         HoverToken::SchemaKey(_) => None,
+        // L3.6 (NAZ-307): JSONPath literals have no navigation target —
+        // they are evaluated in place against a sidecar response, not
+        // resolved to a declaration site. The hover provider is the
+        // only consumer that renders them.
+        HoverToken::JsonPathLiteral(_) => None,
     }
 }
 
