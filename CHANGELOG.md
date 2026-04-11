@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.0 — Phase 6: Coordinated release (NAZ-288)
+
+First release of Tarn cut under the **coordinated-release** policy
+introduced by NAZ-288: a single git tag (`v0.5.0`) now triggers both
+the Rust binary pipeline (`.github/workflows/release.yml`) and the VS
+Code extension publish pipeline (`.github/workflows/vscode-extension-release.yml`).
+Both artifacts ship from the same commit, and both declare the same
+version number.
+
+Paired with **Tarn VS Code extension `0.5.0`** — see
+[`editors/vscode/CHANGELOG.md`](editors/vscode/CHANGELOG.md) for the
+matching extension release notes.
+
+### Version alignment policy
+
+Extension `X.Y.*` tracks Tarn `X.Y.*`: the minor number is always
+identical, so a user on Tarn `0.5.x` knows any extension `0.5.x` is
+tested against their CLI. Patch numbers may diverge — a hotfix to the
+CLI can ship as Tarn `0.5.1` against extension `0.5.0` without a
+matching extension bump, and vice versa. A new minor always bumps
+both sides in lockstep.
+
+The invariant is enforced by a unit test in the extension
+(`editors/vscode/tests/unit/version.test.ts`) that cross-reads
+`editors/vscode/package.json` and `tarn/Cargo.toml` on every CI pass
+and fails the build if they drift. The extension also spawns
+`tarn --version` at activation and warns the user if the installed
+CLI is older than its declared `tarn.minVersion` field.
+
+### Added
+
+- **`tarn 0.5.0` is the first CLI release paired with a Marketplace
+  extension drop.** All earlier CLI releases (`0.1.0 – 0.4.x`) shipped
+  standalone with no Marketplace presence.
+- **Phase 6 T-tickets bundled into 0.5.0** (shipped across prior
+  commits, now cut as a coordinated release):
+  - **T54** per-test cookie jar isolation (NAZ-259)
+  - **T55** test-file location metadata on JSON report (NAZ-260)
+  - **T57** scoped `tarn list --file` discovery (NAZ-261)
+  - **T58** `--redact-header` flag (NAZ-262)
+  See the `Unreleased` section below for the full per-ticket detail;
+  that content has been promoted in this release.
+
+### Changed
+
+- **`tarn/Cargo.toml` version**: `0.4.4 → 0.5.0` (coordinated minor
+  bump to join the extension alignment track).
+
 ## 0.1.0
 
 - initial public Tarn release

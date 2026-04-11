@@ -592,9 +592,25 @@ Performance tests: 1000 synthetic tests across 100 files. Discovery under 500 ms
 - `editors/vscode/` bundles with esbuild to a single `out/extension.js`. `.vscodeignore` keeps the VSIX under 500 KB. We do not ship the `tarn` binary; we detect or install.
 - `engines.vscode` stays at `^1.90.0`. Testing API has been stable since `1.68.0`.
 - CI publishes to VS Code Marketplace (`vsce publish`) and Open VSX (`ovsx publish`) from tagged releases.
-- Extension patch versions ship independently of Tarn. Major versions align with Tarn feature parity.
-- Release notes in `editors/vscode/CHANGELOG.md` link back to any Tarn release the version depends on.
+- Release notes in `editors/vscode/CHANGELOG.md` link back to the Tarn release the version is tested against; `CHANGELOG.md` at the repo root cross-links back to the extension release.
 - Signed VSIX via Microsoft signing pipeline once publisher is verified.
+
+### Coordinated release alignment (NAZ-288)
+
+From **0.5.0** onward the extension and the Tarn CLI ship under a single shared version number. One git tag (`v0.5.0`) triggers both pipelines:
+
+- `.github/workflows/release.yml` — Tarn binaries, crates.io, Homebrew, Docker. Runs on `push: tags: ["v*"]`.
+- `.github/workflows/vscode-extension-release.yml` — VSIX build, Marketplace + Open VSX publish. Same `push: tags: ["v*"]` trigger, additionally polls for the CLI release before publishing so the ordering is CLI → extension.
+
+**Alignment policy.** Extension `X.Y.*` tracks Tarn `X.Y.*`. The minor number always matches, so a user on extension `0.5.x` can run any Tarn `0.5.x` without worrying about skew. Patch numbers may diverge — a hotfix to the extension can ship as `0.5.1` against Tarn `0.5.0`, and vice versa — but bumping the minor always bumps both sides in lockstep.
+
+**Enforcement.** Three layers:
+
+1. `editors/vscode/tests/unit/version.test.ts` cross-reads `editors/vscode/package.json` and `tarn/Cargo.toml` on every `npm run test:unit` pass. If the two `version` strings drift, the test fails and the PR cannot merge.
+2. `editors/vscode/package.json` declares `tarn.minVersion` at the top level. `src/version.ts` runs `tarn --version` at activation, parses the semver, and shows a non-fatal warning (`"Install Tarn" → install docs`) if the installed CLI is below that minimum.
+3. `vscode-extension-release.yml` hard-fails a publish when the git tag does not match `package.json` version. The tag check pre-dates NAZ-288 (shipped in NAZ-284) but now composes with the unit-test lint so drift is caught before tagging *and* before publishing.
+
+If you only need to bump the extension (e.g., fixing a VS Code-only bug that does not touch CLI behavior), bump the patch number on both `package.json` and `Cargo.toml` anyway and cut the release from the same tag. The unit-test lint requires the `version` field to match exactly, and the CLI crate is always safe to re-release at a new patch number.
 
 ## Open Questions and Risks
 

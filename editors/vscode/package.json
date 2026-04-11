@@ -2,7 +2,10 @@
   "name": "tarn-vscode",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.26.0",
+  "version": "0.5.0",
+  "tarn": {
+    "minVersion": "0.5.0"
+  },
   "l10n": "./l10n",
   "publisher": "nazarkalytiuk",
   "license": "MIT",

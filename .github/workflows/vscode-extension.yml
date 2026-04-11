@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "editors/vscode/**"
+      - "tarn/Cargo.toml"
       - ".github/workflows/vscode-extension.yml"
   pull_request:
     paths:
       - "editors/vscode/**"
+      - "tarn/Cargo.toml"
       - ".github/workflows/vscode-extension.yml"
 
 jobs:

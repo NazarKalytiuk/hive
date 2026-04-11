@@ -20,6 +20,7 @@ import { TarnProcessRunner } from "./backend/TarnProcessRunner";
 import { promptInstallIfMissing } from "./backend/binaryResolver";
 import { getOutputChannel, disposeOutputChannel } from "./outputChannel";
 import { readConfig } from "./config";
+import { warnIfTarnOutdated } from "./version";
 import {
   RunHistoryStore,
   RunHistoryTreeProvider,
@@ -58,6 +59,14 @@ export async function activate(
   const resolved = await promptInstallIfMissing();
   const binaryPath = resolved?.path ?? readConfig().binaryPath;
   const backend = new TarnProcessRunner(binaryPath);
+
+  // Check that the resolved Tarn CLI is at or above the extension's
+  // declared `tarn.minVersion`. Non-fatal: a mismatch shows a warning
+  // with an install link but activation continues so the user can
+  // still browse files, edit, and format.
+  if (resolved) {
+    void warnIfTarnOutdated(context, binaryPath);
+  }
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const index = new WorkspaceIndex({ backend, cwd: workspaceRoot });

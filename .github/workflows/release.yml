@@ -13,8 +13,62 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  verify-version-alignment:
+    # Coordinated release gate (NAZ-288). Runs before anything else
+    # burns CI minutes so a mistyped tag, a forgotten Cargo.toml bump,
+    # or drift between editors/vscode/package.json and tarn/Cargo.toml
+    # fails loudly in under a minute instead of after the 20-minute
+    # build matrix. The sister workflow vscode-extension-release.yml
+    # performs the same check from the extension side.
+    name: Verify tag and version alignment
+    runs-on: ubuntu-latest
+    # Only run on tag pushes. Manual workflow_dispatch runs are
+    # expected to target a branch for smoke testing and should not
+    # trip the tag-vs-version guard.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches tarn/Cargo.toml and editors/vscode/package.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "Resolved tag=$TAG expected version=$VERSION"
+
+          # Extract the [package] version from tarn/Cargo.toml. Using
+          # `sed -n` on the [package] table avoids false positives from
+          # [[bin]] or [dependencies] version lines.
+          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/p' tarn/Cargo.toml \
+            | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
+            | head -n 1)"
+          if [ -z "$CARGO_VERSION" ]; then
+            echo "::error::Could not parse [package].version from tarn/Cargo.toml"
+            exit 1
+          fi
+          if [ "$CARGO_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag $TAG expects tarn/Cargo.toml version $VERSION, found $CARGO_VERSION."
+            echo "::error::Bump tarn/Cargo.toml [package].version before tagging."
+            exit 1
+          fi
+
+          PKG_VERSION="$(node -p "require('./editors/vscode/package.json').version")"
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag $TAG expects editors/vscode/package.json version $VERSION, found $PKG_VERSION."
+            echo "::error::The tarn CLI and VS Code extension must ship at the same version (NAZ-288)."
+            exit 1
+          fi
+
+          echo "Tag $TAG aligned with tarn/Cargo.toml=$CARGO_VERSION and editors/vscode/package.json=$PKG_VERSION."
+
   build:
     name: Build ${{ matrix.target }}
+    needs: verify-version-alignment
+    # When the verify job is skipped (manual dispatch targeting a
+    # branch), we still want the build matrix to run — the guard only
+    # gates real tag pushes, not dispatch-for-smoke-test runs.
+    if: ${{ always() && (needs.verify-version-alignment.result == 'success' || needs.verify-version-alignment.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

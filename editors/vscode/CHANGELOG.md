@@ -1,5 +1,103 @@
 # Changelog
 
+## 0.5.0 — Phase 6: Coordinated release (NAZ-288)
+
+First coordinated release of the Tarn VS Code extension and the Tarn
+CLI under a single shared version number. From `0.5.0` onward, the
+extension and the CLI ship together: a single git tag (`v0.5.0`)
+triggers both [`release.yml`](../../.github/workflows/release.yml)
+(Tarn CLI binaries + crates.io + Homebrew + Docker) and
+[`vscode-extension-release.yml`](../../.github/workflows/vscode-extension-release.yml)
+(VS Code Marketplace + Open VSX), and a CI alignment lint refuses to
+merge a commit that bumps one without the other.
+
+The extension version track was reset from `0.26.0` to `0.5.0` to
+match the Tarn CLI. This down-bump is safe because the extension had
+never been published to the VS Code Marketplace or Open VSX — every
+`0.x.0` release prior to this commit lived only in-repo as a
+walkthrough of Phase 1–6 work. A marketplace consumer observing
+`0.5.0` as the very first published VSIX sees exactly one coherent
+timeline.
+
+Tested against **Tarn `0.5.0`** (the coordinated-release pair cut by
+NAZ-288).
+
+### Version alignment policy
+
+Extension `X.Y.*` tracks Tarn `X.Y.*`: the minor number is always
+identical, so a user on extension `0.5.x` knows they can run any Tarn
+`0.5.x`. Patch numbers may diverge for bug-fix releases on one side
+without a matching release on the other — a hotfix to the extension
+can ship as `0.5.1` against Tarn `0.5.0`, and vice versa. A new
+minor always bumps both sides in lockstep.
+
+This invariant is enforced three ways:
+
+1. **`tests/unit/version.test.ts`** reads `editors/vscode/package.json`
+   and `tarn/Cargo.toml` on every unit-test run and fails the build
+   if the two version strings drift.
+2. **`tarn.minVersion`** is declared at the top of
+   `editors/vscode/package.json` (next to `version` and `l10n`). The
+   extension spawns `tarn --version` at activation, parses the
+   semver, and warns the user with an "Install Tarn" link if the
+   installed binary is older than the declared minimum. The check
+   is non-fatal — a user on `0.4.x` still gets a working editor,
+   they just get a nudge to upgrade.
+3. **`vscode-extension-release.yml`** already hard-fails a publish
+   when the git tag does not match `package.json` version. This
+   ticket leaves that guard in place and couples it with the new
+   unit-test lint so the chain is bidirectional: CI blocks drift
+   before tagging, the tag check blocks stale publishes at release
+   time.
+
+### Added
+
+- **`src/version.ts`** — `parseTarnVersion`, `parseSemver`,
+  `compareSemver`, `readMinVersionFromPackage`,
+  `checkVersionCompatibility`, `readInstalledTarnVersion`, and
+  `warnIfTarnOutdated`. The pure helpers are exported so the
+  alignment lint and any future integration tests can reason about
+  versions without spawning a real binary. `warnIfTarnOutdated`
+  glues the helpers to `vscode.window.showWarningMessage` and is
+  wired into `activate()` right after `promptInstallIfMissing()`.
+- **`tarn.minVersion` field in `editors/vscode/package.json`** —
+  `"0.5.0"` for the first coordinated release. Extension reads this
+  from `context.extension.packageJSON` at activation; no extra
+  manifest fields leak into `contributes.*` so the field is invisible
+  to VS Code itself.
+- **`tests/unit/version.test.ts`** — 14 tests covering the
+  parse/compare/check helpers plus the cross-file alignment lint
+  between `editors/vscode/package.json` and `tarn/Cargo.toml`.
+  Every `compareSemver` ordering rule (major, minor, patch,
+  release-vs-pre-release, lexical pre-release) is exercised with a
+  distinct assertion. The alignment suite fails the build if the
+  two versions drift or if `tarn.minVersion` is missing, malformed,
+  or higher than the extension version.
+
+### Changed
+
+- **`editors/vscode/package.json` version**: `0.26.0 → 0.5.0`
+  (coordinated reset — see decision rationale above).
+- **`tarn/Cargo.toml` version**: `0.4.4 → 0.5.0` (coordinated minor
+  bump for Phase 6 T54–T58).
+- **`src/extension.ts`** — `activate()` now fires a non-blocking
+  version check after the binary resolve step. The check runs as a
+  fire-and-forget (`void warnIfTarnOutdated(...)`) so activation
+  never stalls on the child process.
+- **`l10n/bundle.l10n.json`** — two new keys: `"Install Tarn"` and
+  `"Tarn CLI {0} is older than the minimum required by this extension ({1}). Some features may not work correctly. Update Tarn to continue."`.
+  Both honor the identity-baseline contract required by the
+  `l10nLint` suite.
+
+### Not changed
+
+- `src/api.ts` — the public extension API is untouched. The version
+  check is an internal concern; downstream integrators never see
+  `tarn.minVersion` through `TarnExtensionApi`. The Phase 5 golden
+  snapshot at `tests/golden/api.snapshot.txt` remains byte-identical.
+- Marketplace assets, localization catalog semantics, and every
+  other Phase 6 deliverable carry over unchanged from `0.26.0`.
+
 ## Unreleased — 1.0.0 release notes draft
 
 `1.0.0` is the first release under the **stable public API promise**. Extensions and scripts that consume `TarnExtensionApi` via `vscode.extensions.getExtension('nazarkalytiuk.tarn-vscode').exports` can rely on every field currently marked `@stability stable` in [`src/api.ts`](src/api.ts) not to break without a major version bump.

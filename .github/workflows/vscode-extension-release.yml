@@ -66,6 +66,31 @@ jobs:
             exit 1
           fi
 
+      - name: Verify alignment with tarn/Cargo.toml (NAZ-288)
+        # Coordinated release gate: extension package.json and
+        # tarn/Cargo.toml must declare the same version. The sister
+        # workflow release.yml runs the same check from the CLI side
+        # before building binaries. Keeping it on both sides catches
+        # drift regardless of which pipeline the user inspects first.
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/p' tarn/Cargo.toml \
+            | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
+            | head -n 1)"
+          EXPECTED="${{ steps.tag.outputs.version }}"
+          if [ -z "$CARGO_VERSION" ]; then
+            echo "::error::Could not parse [package].version from tarn/Cargo.toml"
+            exit 1
+          fi
+          if [ "$CARGO_VERSION" != "$EXPECTED" ]; then
+            echo "::error::Tag ${{ steps.tag.outputs.tag }} expects tarn/Cargo.toml version $EXPECTED, found $CARGO_VERSION."
+            echo "::error::Bump tarn/Cargo.toml and editors/vscode/package.json together (NAZ-288 coordinated release)."
+            exit 1
+          fi
+          echo "Tag ${{ steps.tag.outputs.tag }} aligned with tarn/Cargo.toml=$CARGO_VERSION and editors/vscode/package.json=$EXPECTED."
+
       - name: Verify Tarn binary release exists
         shell: bash
         env:
