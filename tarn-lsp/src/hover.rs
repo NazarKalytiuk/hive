@@ -31,14 +31,18 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::OnceLock;
 
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range, Url};
 use tarn::env::{self, EnvEntry, EnvSource};
 use tarn::model::{Step, TestFile};
 use tarn::parser;
 
+use crate::schema::schema_key_cache;
 use crate::server::DocumentStore;
+use crate::token::{
+    byte_offset_to_position, find_line_end, find_subslice, is_identifier, position_to_byte_offset,
+    position_to_line_start,
+};
 
 /// Static documentation for a single `$builtin` function. Mirrors the
 /// `BUILTIN_FUNCTIONS` table shipped by the VS Code extension so hover
@@ -230,13 +234,6 @@ fn find_interpolation_token(source: &str, position: Position) -> Option<HoverTok
     None
 }
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    (0..=haystack.len() - needle.len()).find(|&i| &haystack[i..i + needle.len()] == needle)
-}
-
 fn classify_expression(raw: &str) -> Option<HoverToken> {
     if raw.is_empty() {
         return None;
@@ -335,167 +332,14 @@ const SCHEMA_KEY_NAMES: &[&str] = &[
     "include",
 ];
 
-fn is_identifier(s: &str) -> bool {
-    let mut chars = s.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    if !(first.is_ascii_alphabetic() || first == '_') {
-        return false;
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-fn position_to_byte_offset(source: &str, position: Position) -> Option<usize> {
-    let line_start = position_to_line_start(source, position.line as usize)?;
-    // `character` in LSP is UTF-16 code units. Tarn YAML is ASCII in the
-    // overwhelming majority of cases, but we clamp defensively: a cursor
-    // past the end of the line folds to the line end.
-    let line_end = find_line_end(source, line_start);
-    let line = &source[line_start..line_end];
-    let char_count_limit = position.character as usize;
-    let offset_in_line: usize = line
-        .chars()
-        .take(char_count_limit)
-        .map(char::len_utf8)
-        .sum();
-    Some(line_start + offset_in_line.min(line.len()))
-}
-
-fn byte_offset_to_position(source: &str, offset: usize) -> Position {
-    let mut line = 0u32;
-    let mut col = 0u32;
-    let clamped = offset.min(source.len());
-    for (i, ch) in source.char_indices() {
-        if i >= clamped {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-    }
-    Position::new(line, col)
-}
-
-fn position_to_line_start(source: &str, target_line: usize) -> Option<usize> {
-    if target_line == 0 {
-        return Some(0);
-    }
-    let mut newline_count = 0usize;
-    for (i, b) in source.bytes().enumerate() {
-        if b == b'\n' {
-            newline_count += 1;
-            if newline_count == target_line {
-                return Some(i + 1);
-            }
-        }
-    }
-    // Cursor on a line past the document end — return `Some(len)` so
-    // callers get a well-defined empty slice.
-    Some(source.len())
-}
-
-fn find_line_end(source: &str, line_start: usize) -> usize {
-    source[line_start..]
-        .bytes()
-        .position(|b| b == b'\n')
-        .map(|rel| line_start + rel)
-        .unwrap_or(source.len())
-}
-
 /// Schema-key `description` lookup, parsed once at first access.
 ///
-/// The JSON Schema ships alongside the crate at
-/// `schemas/v1/testfile.json`. We load it via `include_str!` so editors
-/// do not need the workspace on disk at runtime — the bytes are compiled
-/// into the binary.
+/// Thin re-export over [`crate::schema::schema_key_cache`] so legacy
+/// callers (and the hover tests) can still ask for the description
+/// map directly. New code should prefer the shared cache so it can
+/// also see the per-scope key lists.
 pub fn schema_key_descriptions() -> &'static HashMap<String, String> {
-    static CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let raw = include_str!("../../schemas/v1/testfile.json");
-        parse_schema_descriptions(raw).unwrap_or_default()
-    })
-}
-
-fn parse_schema_descriptions(raw: &str) -> Option<HashMap<String, String>> {
-    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-    let mut out = HashMap::new();
-    // Gather descriptions from every `properties` block in the whole
-    // schema (top level + $defs). A single key might appear in several
-    // sub-schemas; the first description wins. Top-level properties go
-    // first (so `status`, `body`, `headers` get their top-level
-    // descriptions) and `$defs` are walked afterwards. Properties whose
-    // only description lives inside a referenced type (like `defaults`,
-    // which is just `$ref: #/$defs/Defaults`) follow the local `$ref`
-    // so the reference chain is not lost.
-    collect_descriptions_recursive(&value, &value, &mut out);
-    Some(out)
-}
-
-fn collect_descriptions_recursive(
-    root: &serde_json::Value,
-    value: &serde_json::Value,
-    out: &mut HashMap<String, String>,
-) {
-    match value {
-        serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::Object(props)) = map.get("properties") {
-                for (key, prop) in props {
-                    let desc = extract_description(root, prop);
-                    if let Some(desc) = desc {
-                        out.entry(key.clone()).or_insert(desc);
-                    }
-                }
-            }
-            for v in map.values() {
-                collect_descriptions_recursive(root, v, out);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for v in arr {
-                collect_descriptions_recursive(root, v, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Return the `description` field for a property entry. If the entry
-/// has an inline `description`, that wins. Otherwise, when the entry is
-/// a local `$ref`, follow the ref and return the referenced schema's
-/// own `description`. External refs (http://…) are ignored.
-fn extract_description(root: &serde_json::Value, prop: &serde_json::Value) -> Option<String> {
-    if let Some(serde_json::Value::String(desc)) = prop.get("description") {
-        return Some(desc.clone());
-    }
-    if let Some(serde_json::Value::String(r)) = prop.get("$ref") {
-        if let Some(target) = resolve_local_ref(root, r) {
-            if let Some(serde_json::Value::String(desc)) = target.get("description") {
-                return Some(desc.clone());
-            }
-        }
-    }
-    None
-}
-
-/// Resolve a local JSON Schema `$ref` of the form `#/$defs/Name` against
-/// the parsed schema root. External refs (anything that does not start
-/// with `#/`) return `None` — the LSP does not fetch remote schemas.
-fn resolve_local_ref<'a>(
-    root: &'a serde_json::Value,
-    reference: &str,
-) -> Option<&'a serde_json::Value> {
-    let path = reference.strip_prefix("#/")?;
-    let mut current = root;
-    for segment in path.split('/') {
-        // JSON Pointer un-escaping: `~1` → `/`, `~0` → `~`.
-        let unescaped = segment.replace("~1", "/").replace("~0", "~");
-        current = current.get(&unescaped)?;
-    }
-    Some(current)
+    schema_key_cache().descriptions()
 }
 
 /// Which container of steps the cursor line is closest to. The

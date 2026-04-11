@@ -30,10 +30,11 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _,
 };
-use lsp_types::request::{HoverRequest, Request as _};
-use lsp_types::{HoverParams, InitializeParams, Url};
+use lsp_types::request::{Completion, HoverRequest, Request as _};
+use lsp_types::{CompletionParams, HoverParams, InitializeParams, Url};
 
 use crate::capabilities::server_capabilities;
+use crate::completion;
 use crate::debounce::DebounceTracker;
 use crate::diagnostics;
 use crate::hover;
@@ -180,10 +181,10 @@ fn main_loop(connection: &Connection) -> Result<(), Box<dyn Error + Sync + Send>
                     // the connection is closed and the receiver loop ends.
                     return Ok(());
                 }
-                // Dispatch typed LSP requests. L1.3 adds `textDocument/hover`.
-                // Anything else falls through to a JSON-RPC "method not
-                // found" response until later L1 tickets add real handlers
-                // for completion / document symbols.
+                // Dispatch typed LSP requests. L1.3 added `textDocument/hover`,
+                // L1.4 adds `textDocument/completion`. Anything else falls
+                // through to a JSON-RPC "method not found" response until
+                // L1.5 adds the document-symbol handler.
                 let resp = dispatch_request(req, &store);
                 connection.sender.send(Message::Response(resp))?;
             }
@@ -228,7 +229,9 @@ fn is_timeout(err: &crossbeam_channel::RecvTimeoutError) -> bool {
 /// a silent hang.
 ///
 /// L1.3 dispatches `textDocument/hover` through [`hover::text_document_hover`];
-/// the remaining request methods are added in L1.4 and L1.5.
+/// L1.4 adds `textDocument/completion` via
+/// [`completion::text_document_completion`]. The remaining request methods
+/// are added in L1.5.
 fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
     // Capture the id up-front: `Request::extract` takes `self` by value
     // so we can't read `req.id` after a failed extract.
@@ -241,35 +244,64 @@ fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
                 let result = hover::text_document_hover(store, &uri, position);
                 // LSP spec: hover may return `null` when there is nothing
                 // to show. We serialize `None` as JSON null via serde_json.
-                match serde_json::to_value(result) {
-                    Ok(value) => Response {
-                        id: req_id,
-                        result: Some(value),
-                        error: None,
-                    },
-                    Err(err) => Response {
-                        id: req_id,
-                        result: None,
-                        error: Some(lsp_server::ResponseError {
-                            code: lsp_server::ErrorCode::InternalError as i32,
-                            message: format!("failed to serialize hover: {err}"),
-                            data: None,
-                        }),
-                    },
-                }
+                serialize_response(req_id, &result, "hover")
             }
             Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
-            Err(ExtractError::JsonError { method, error }) => Response {
-                id,
-                result: None,
-                error: Some(lsp_server::ResponseError {
-                    code: lsp_server::ErrorCode::InvalidParams as i32,
-                    message: format!("failed to parse {method} params: {error}"),
-                    data: None,
-                }),
-            },
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+        },
+        Completion::METHOD => match req.extract::<CompletionParams>(Completion::METHOD) {
+            Ok((req_id, params)) => {
+                let uri = params.text_document_position.text_document.uri;
+                let position = params.text_document_position.position;
+                let result = completion::text_document_completion(store, &uri, position);
+                // LSP spec: completion may return `null`. The helper
+                // returns `None` when the cursor has no valid context.
+                serialize_response(req_id, &result, "completion")
+            }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
         },
         _ => method_not_found(req),
+    }
+}
+
+/// Shared JSON serialization for successful request handlers. Produces
+/// a `Response` carrying either the serialized result or an
+/// `InternalError` with the formatting failure details.
+fn serialize_response<T: serde::Serialize>(
+    req_id: lsp_server::RequestId,
+    value: &T,
+    method_label: &str,
+) -> Response {
+    match serde_json::to_value(value) {
+        Ok(json) => Response {
+            id: req_id,
+            result: Some(json),
+            error: None,
+        },
+        Err(err) => Response {
+            id: req_id,
+            result: None,
+            error: Some(lsp_server::ResponseError {
+                code: lsp_server::ErrorCode::InternalError as i32,
+                message: format!("failed to serialize {method_label}: {err}"),
+                data: None,
+            }),
+        },
+    }
+}
+
+/// Shared JSON-RPC "invalid params" response builder for the request
+/// dispatcher. Keeps the hover and completion branches terse.
+fn invalid_params(id: lsp_server::RequestId, method: String, err: serde_json::Error) -> Response {
+    Response {
+        id,
+        result: None,
+        error: Some(lsp_server::ResponseError {
+            code: lsp_server::ErrorCode::InvalidParams as i32,
+            message: format!("failed to parse {method} params: {err}"),
+            data: None,
+        }),
     }
 }
 

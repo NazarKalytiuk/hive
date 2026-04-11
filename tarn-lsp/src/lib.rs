@@ -9,10 +9,13 @@
 //! the `tarn-lsp` binary, not this library.
 
 pub mod capabilities;
+pub mod completion;
 pub mod debounce;
 pub mod diagnostics;
 pub mod hover;
+pub mod schema;
 pub mod server;
+pub mod token;
 
 pub use capabilities::server_capabilities;
 pub use server::{run, run_with_connection, DocumentStore, SERVER_NAME, SERVER_VERSION};

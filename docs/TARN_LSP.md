@@ -27,7 +27,7 @@ Phase L1 is delivered as five tickets under Epic NAZ-289. Each ticket flips on e
 - [x] **L1.1 — bootstrap (NAZ-290)**: workspace crate, stdio lifecycle (`initialize` / `initialized` / `shutdown` / `exit`), in-memory `DocumentStore`, full text document sync, integration tests over `Connection::memory()`. This ticket ships the skeleton only — no language intelligence yet.
 - [x] **L1.2 — diagnostics (NAZ-291)**: parse every open document through `tarn::parser` on `didOpen`/`didChange`/`didSave` and publish YAML + schema diagnostics via `textDocument/publishDiagnostics`. Debounced at 300ms on `didChange`; flushes immediately on open and save; clears on close.
 - [x] **L1.3 — hover (NAZ-292)**: `textDocument/hover` resolves `{{ env.x }}`, `{{ capture.x }}`, `{{ $builtin }}`, and top-level schema keys to Markdown tooltips using the same env resolution chain and parser the runner uses.
-- [ ] **L1.4 — completion (NAZ-293)**: `textDocument/completion` offers snippet expansions, assertion keywords, env/capture identifiers, and HTTP method names with trigger characters `{`, `.`, `"`.
+- [x] **L1.4 — completion (NAZ-293)**: `textDocument/completion` offers env keys, visible captures, built-in functions, and schema-valid YAML keys with trigger characters `.` and `$`.
 - [ ] **L1.5 — symbols + docs (NAZ-294)**: `textDocument/documentSymbol` returns the test/step tree; README and Claude Code docs are finalised and `tarn-lsp` is added to the release pipeline.
 
 ## Running locally
@@ -86,6 +86,25 @@ The source text is classified through a single pure helper, `tarn_lsp::hover::re
 Capture-value-from-report (the optional sub-bullet on NAZ-292) is deferred to a follow-up. Locating a report on disk is non-trivial today (no stable path convention) and the "declaring step + source" hover already lands the primary value of this ticket.
 
 See `tarn-lsp/src/hover.rs` for the pure helpers (`resolve_hover_token`, `hover_for_token`, `collect_visible_captures`) and `tarn-lsp/tests/hover_test.rs` for the end-to-end LSP round-trip.
+
+## Completion
+
+`tarn-lsp` answers `textDocument/completion` requests in four distinct contexts — matching the behaviour of the VS Code extension's `CompletionProvider.ts` so a single user experience spans every editor that talks LSP. The server advertises the feature with `completion_provider.trigger_characters = [".", "$"]`, the two punctuation marks that open a new completion popup inside an interpolation.
+
+| Context                                | Trigger                  | Items                                                                                                                 | Kind        |
+| -------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------- |
+| **Inside `{{ env.<prefix> }}`**        | `.` after `env`          | Every key from `tarn::env::resolve_env_with_sources`, each carrying its resolved value as `detail`. Sorted by resolution priority via `sort_text` (CLI > shell > local > named > default > inline). | `Variable`  |
+| **Inside `{{ capture.<prefix> }}`**    | `.` after `capture`      | Every capture declared by a strictly earlier step visible from the cursor (same rules as the hover provider). Later declarations override earlier ones. | `Variable`  |
+| **Inside `{{ $<prefix> }}`**           | `$` after `{{`           | The five Tarn built-ins (`$uuid`, `$timestamp`, `$now_iso`, `$random_hex`, `$random_int`). `random_hex` and `random_int` ship as LSP snippet strings with tabstops for their arguments. | `Function`  |
+| **Blank YAML mapping-key line**        | newline / manual trigger | Schema-valid keys for the cursor's scope — root (`name`, `env`, `tests`, `steps`, …), test group (`description`, `steps`, `tags`), or step (`name`, `request`, `assert`, `capture`, `poll`, …). Descriptions come from the shared `schemas/v1/testfile.json` cache.  | `Property`  |
+
+Context detection runs through a single pure helper, `tarn_lsp::completion::resolve_completion_context(source, position) -> Option<CompletionContext>`, mirroring the hover provider's `resolve_hover_token` pattern so both features share the scanning primitives in `tarn_lsp::token` (`line_at_position`, `column_to_line_byte_offset`, `find_subslice`, etc). The schema-key descriptions live in the shared `tarn_lsp::schema::SchemaKeyCache` so hover and completion never duplicate schema parsing.
+
+Env completion keeps working even while the document has a transient parse error (e.g. a mistyped step-level field). When the full `tarn::parser` rejects the buffer, completion falls back to a permissive raw-YAML walk that extracts just the `env:` mapping, so users do not lose env completions mid-edit. Capture completion intentionally does _not_ degrade — capture scoping needs a full parsed AST, and offering stale captures would mislead more than it helps.
+
+Nested-object completion (inside `request.*` or `assert.body.*`) is out of scope for Phase L1; it will be revisited in Phase L3 if the VS Code provider grows the same capability.
+
+See `tarn-lsp/src/completion.rs` for the pure helpers and per-scope list builders, `tarn-lsp/src/token.rs` for the shared token scanner, `tarn-lsp/src/schema.rs` for the shared schema cache, and `tarn-lsp/tests/completion_test.rs` for the end-to-end LSP round-trip.
 
 ## Design choices
 

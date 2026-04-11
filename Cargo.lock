@@ -2463,13 +2463,14 @@ dependencies = [
 
 [[package]]
 name = "tarn-lsp"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "crossbeam-channel",
  "lsp-server",
  "lsp-types",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tarn",
 ]
 

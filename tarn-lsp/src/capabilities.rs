@@ -13,8 +13,8 @@
 //!   capability field — `textDocument/publishDiagnostics` is a
 //!   server-pushed notification and does not require a capability flag.
 //! - L1.3 (NAZ-292): `hover_provider: Simple(true)`. Shipped.
-//! - L1.4 (NAZ-293): set `completion_provider: Some(CompletionOptions { .. })`
-//!   with trigger characters for `{`, `.`, `"`.
+//! - L1.4 (NAZ-293): `completion_provider: Some(CompletionOptions { .. })`
+//!   with trigger characters `.` and `$`. Shipped.
 //! - L1.5 (NAZ-294): set `document_symbol_provider: Some(OneOf::Left(true))`
 //!   and publish the final Claude Code configuration snippet.
 //!
@@ -22,7 +22,8 @@
 //! is on, it is on for every client and every workspace.
 
 use lsp_types::{
-    HoverProviderCapability, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionOptions, HoverProviderCapability, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind,
 };
 
 /// Return the `ServerCapabilities` this server currently advertises.
@@ -44,6 +45,17 @@ pub fn server_capabilities() -> ServerCapabilities {
         // always Markdown, so `Simple(true)` is the correct signal — we
         // do not need the structured `HoverOptions` variant.
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+
+        // L1.4: context-aware completion for interpolation tokens and
+        // top-level schema keys. Trigger characters `.` and `$` match the
+        // two punctuation marks that fire completion inside an
+        // interpolation (`{{ env.`, `{{ $…`). Resolve is not implemented —
+        // the list builders populate every field on each item up-front.
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_owned(), "$".to_owned()]),
+            resolve_provider: Some(false),
+            ..Default::default()
+        }),
 
         // All other capabilities are intentionally left unset. See the module
         // docs for the ticket that turns each one on.

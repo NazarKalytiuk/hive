@@ -1,6 +1,6 @@
 [package]
 name = "tarn-lsp"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Language Server Protocol implementation for Tarn .tarn.yaml test files"
 license = "MIT"
@@ -29,3 +29,8 @@ lsp-types = "0.95"
 crossbeam-channel = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Permissive YAML parse fallback used by the completion provider when
+# the full `tarn::parser` returns `Err` mid-edit (e.g. unknown field,
+# missing required field). Keeps env / capture completions working
+# even when the buffer would not round-trip through `tarn validate`.
+serde_yaml = "0.9"

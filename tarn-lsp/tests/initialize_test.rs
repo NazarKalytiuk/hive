@@ -39,11 +39,26 @@ fn server_capabilities_advertises_full_text_sync_and_hover() {
         "L1.3 must advertise hover provider as Simple(true)"
     );
 
+    // L1.4 (NAZ-293): completion is on with trigger characters `.` and `$`.
+    let completion = caps
+        .completion_provider
+        .as_ref()
+        .expect("L1.4 must advertise completion provider");
+    assert_eq!(
+        completion.trigger_characters.as_deref(),
+        Some(&[".".to_owned(), "$".to_owned()][..]),
+        "L1.4 must advertise `.` and `$` as completion trigger characters"
+    );
+    assert_eq!(
+        completion.resolve_provider,
+        Some(false),
+        "L1.4 does not implement completionItem/resolve"
+    );
+
     // Every other feature capability must still be unset. These flip on
     // in later L1 tickets — if one of them is already set, capabilities.rs
     // has drifted from the roadmap and needs a compensating update to the
     // doc + tests.
-    assert!(caps.completion_provider.is_none(), "completion is NAZ-293");
     assert!(
         caps.document_symbol_provider.is_none(),
         "symbols are NAZ-294"
@@ -119,7 +134,15 @@ fn full_lifecycle_over_memory_transport() {
         caps.hover_provider,
         Some(lsp_types::HoverProviderCapability::Simple(true))
     );
-    assert!(caps.completion_provider.is_none());
+    // L1.4 wires completion with trigger characters `.` and `$`.
+    let completion = caps
+        .completion_provider
+        .as_ref()
+        .expect("L1.4 must advertise completion provider");
+    assert_eq!(
+        completion.trigger_characters.as_deref(),
+        Some(&[".".to_owned(), "$".to_owned()][..])
+    );
 
     // ---- initialized ----
     client_conn
