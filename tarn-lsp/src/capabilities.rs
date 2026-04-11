@@ -22,13 +22,17 @@
 //! - L2.2 (NAZ-298): `references_provider: Some(OneOf::Left(true))` —
 //!   `textDocument/references` for capture and env interpolation tokens,
 //!   with a workspace-wide walk for env keys. Shipped.
+//! - L2.3 (NAZ-299): `rename_provider: Some(OneOf::Right(RenameOptions { prepare_provider: Some(true), .. }))` —
+//!   `textDocument/rename` + `textDocument/prepareRename` for capture
+//!   and env interpolation tokens, with identifier validation and
+//!   per-scope collision detection. Shipped.
 //!
 //! Nothing in this file should ever grow conditional logic — if a capability
 //! is on, it is on for every client and every workspace.
 
 use lsp_types::{
-    CompletionOptions, HoverProviderCapability, OneOf, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionOptions, HoverProviderCapability, OneOf, RenameOptions, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, WorkDoneProgressOptions,
 };
 
 /// Return the `ServerCapabilities` this server currently advertises.
@@ -83,6 +87,18 @@ pub fn server_capabilities() -> ServerCapabilities {
         // every `.tarn.yaml` under the workspace root, bounded by the
         // 5000-file safety net inside `crate::workspace::WorkspaceIndex`.
         references_provider: Some(OneOf::Left(true)),
+
+        // L2.3: the server answers `textDocument/rename` and
+        // `textDocument/prepareRename` for capture and env interpolation
+        // tokens. `prepare_provider: true` asks the client to send a
+        // prepareRename round-trip before firing the rename so the UI
+        // can highlight just the identifier under the cursor. Rename
+        // semantics, identifier validation, and collision rules live in
+        // `crate::rename`.
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
 
         // All other capabilities are intentionally left unset. See the module
         // docs for the ticket that turns each one on.

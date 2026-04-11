@@ -38,6 +38,7 @@ Phase L2 layers navigation features onto the L1 MVP. Each ticket is a thin wrapp
 
 - [x] **L2.1 — go-to-definition (NAZ-297)**: `textDocument/definition` jumps from `{{ capture.* }}` / `{{ env.* }}` interpolation tokens to their declaration sites.
 - [x] **L2.2 — references (NAZ-298)**: `textDocument/references` lists every use site of a capture (per test, current file) or env key (every `.tarn.yaml` under the workspace root, bounded at 5000 files).
+- [x] **L2.3 — rename (NAZ-299)**: `textDocument/rename` + `textDocument/prepareRename` rewrite a capture (per test, current file) or env key (every env source file that declares it, plus every `.tarn.yaml` in the workspace) in a single `WorkspaceEdit`, with identifier validation and per-scope collision detection.
 
 ## Installation
 
@@ -179,6 +180,16 @@ Invoking "Find references" on a `{{ env.KEY }}` token walks every `.tarn.yaml` f
 
 Built-in functions and top-level schema keys are non-navigable, the same way they are for go-to-definition.
 
+### 7. Rename (`textDocument/rename` + `textDocument/prepareRename`) — new in L2.3
+
+Invoking "Rename symbol" on a `{{ capture.NAME }}` or `{{ env.KEY }}` token — or on the corresponding declaration — rewrites every declaration and every use site in a single atomic `WorkspaceEdit`. Before the rename fires, the server answers a `textDocument/prepareRename` round-trip that returns the sub-range of the identifier under the cursor so the client can highlight exactly the text the user is about to replace. `prepareRename` returns `null` for tokens that are not renamable (built-in functions, top-level schema keys, and tokens whose identifier is empty or still being typed).
+
+**Capture rename is single-file, single-test.** Capture scopes never cross file boundaries in Tarn's data model, so the resulting edit touches only the current file. Setup captures are visible from every test, so a rename that starts on a capture declared in `setup:` updates every test's use sites; a rename that starts on a capture declared inside a named `tests:` group only updates that test. If the new name collides with another capture already visible from the cursor scope, the server rejects the rename with an `InvalidParams` response error naming the conflicting key.
+
+**Env rename is workspace-wide.** The edit updates every env source file that declares the old name — inline `env:` block of the current test file, `tarn.env.yaml`, `tarn.env.{name}.yaml`, `tarn.env.local.yaml` — and every `{{ env.KEY }}` use site across every `.tarn.yaml` file in the workspace index. Layers that do not live in a YAML file (`--var` overrides, shell expansion, named profile vars) are left untouched because there is nothing on disk to edit; the use sites are still rewritten. Collision detection runs per env source file that declares the old name: if any such file also already declares the new name, the server rejects the rename so the user does not end up with two keys of the same name in one file.
+
+**Identifier validation.** Both capture and env keys must match the Tarn identifier grammar `^[A-Za-z_][A-Za-z0-9_]*$`. The validator is ASCII only — Unicode letters are intentionally rejected so the YAML key, the interpolation token, and the `${VAR}` shell-expansion placeholder all agree on what is a valid identifier. An invalid new name surfaces as an `InvalidParams` response error with a human-readable message the client can show in a toast. Built-ins and schema keys surface as `RequestFailed` so clients can tell the difference between "bad name" and "this token is not renamable".
+
 ## Client configuration
 
 The binary speaks stdio LSP 3.17 — any client that can spawn an LSP server and speak JSON-RPC over stdio will work. Below are the three most common configurations.
@@ -304,7 +315,7 @@ Save the file — some clients only publish diagnostics on save regardless of th
 
 If the banner is present but diagnostics are empty, run `tarn validate path/to/file.tarn.yaml` from a terminal in the same directory. If the CLI reports errors but the LSP does not, file an issue with the file path and expected diagnostics — that is a real bug, not a configuration problem.
 
-The banner string updates with every release — at the time of writing it is `tarn-lsp 0.5.6 initialized`.
+The banner string updates with every release — at the time of writing it is `tarn-lsp 0.5.7 initialized`.
 
 ### Document symbols pane is empty
 
@@ -320,7 +331,7 @@ Phase L1 is the MVP. Phase L2 and L3 pick up the long tail of LSP features and a
 
 - [x] **`textDocument/definition`** (NAZ-297) — jump from `{{ env.x }}` / `{{ capture.y }}` to where the variable is declared.
 - [x] **`textDocument/references`** (NAZ-298) — find every use of a capture (per-test, current file) or env key (every `.tarn.yaml` under the workspace root, bounded at 5000 files).
-- **`textDocument/rename`** — rename a capture or env key across the file safely.
+- [x] **`textDocument/rename`** (NAZ-299) — rename a capture (per-test, current file) or env key (every env source file that declares it + every workspace use site) in a single `WorkspaceEdit`, with identifier validation and per-scope collision detection.
 - **`textDocument/codeLens`** — inline "Run this test" / "Run this step" affordances that invoke the CLI.
 - **Claude Code config integration** — finalise the Claude Code LSP config snippet once the harness schema is public.
 - **VS Code extension migration** — migrate `editors/vscode/` off its direct providers onto `tarn-lsp`, so there is one implementation of every language feature.

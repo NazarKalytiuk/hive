@@ -105,7 +105,7 @@ pub enum CaptureScopeOwned {
 }
 
 impl CaptureScopeOwned {
-    fn as_borrowed(&self) -> CaptureScope<'_> {
+    pub fn as_borrowed(&self) -> CaptureScope<'_> {
         match self {
             CaptureScopeOwned::Setup => CaptureScope::Setup,
             CaptureScopeOwned::Teardown => CaptureScope::Teardown,

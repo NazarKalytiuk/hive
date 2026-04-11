@@ -79,8 +79,20 @@ fn server_capabilities_advertises_every_phase_l1_feature() {
         "L2.2 must advertise references_provider as OneOf::Left(true)"
     );
 
+    // L2.3 (NAZ-299): rename is on with prepare-rename support so the
+    // client can highlight the renamable identifier under the cursor.
+    match &caps.rename_provider {
+        Some(lsp_types::OneOf::Right(opts)) => {
+            assert_eq!(
+                opts.prepare_provider,
+                Some(true),
+                "L2.3 must advertise prepare_provider = Some(true)"
+            );
+        }
+        other => panic!("L2.3 must advertise rename_provider with options, got {other:?}"),
+    }
+
     // Phase L2/L3 capabilities that have not shipped yet remain unset.
-    assert!(caps.rename_provider.is_none(), "L2: rename symbol");
     assert!(caps.code_action_provider.is_none(), "L3: code actions");
     assert!(
         caps.execute_command_provider.is_none(),

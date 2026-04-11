@@ -31,11 +31,12 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Request as _,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest,
+    References, Rename, Request as _,
 };
 use lsp_types::{
     CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams, InitializeParams,
-    ReferenceParams, Url,
+    ReferenceParams, RenameParams, TextDocumentPositionParams, Url,
 };
 
 use crate::capabilities::server_capabilities;
@@ -45,6 +46,7 @@ use crate::definition;
 use crate::diagnostics;
 use crate::hover;
 use crate::references;
+use crate::rename;
 use crate::symbols;
 use crate::workspace::WorkspaceIndex;
 
@@ -357,6 +359,29 @@ fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
                 // LSP spec: references returns an array (possibly empty).
                 serialize_response(req_id, &result, "references")
             }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+        },
+        PrepareRenameRequest::METHOD => {
+            match req.extract::<TextDocumentPositionParams>(PrepareRenameRequest::METHOD) {
+                Ok((req_id, params)) => {
+                    let result = rename::text_document_prepare_rename(state, params);
+                    // LSP spec: prepareRename returns `null` to decline.
+                    serialize_response(req_id, &result, "prepareRename")
+                }
+                Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+                Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+            }
+        }
+        Rename::METHOD => match req.extract::<RenameParams>(Rename::METHOD) {
+            Ok((req_id, params)) => match rename::text_document_rename(state, params) {
+                Ok(edit) => serialize_response(req_id, &edit, "rename"),
+                Err(err) => Response {
+                    id: req_id,
+                    result: None,
+                    error: Some(err),
+                },
+            },
             Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
             Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
         },
