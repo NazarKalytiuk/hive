@@ -30,19 +30,19 @@
 //! # Stable action kinds
 //!
 //! The capability struct in [`crate::capabilities`] advertises three
-//! kinds right now:
+//! kinds:
 //!
 //!   * [`CodeActionKind::REFACTOR_EXTRACT`] — used by **extract env var**.
 //!     Every "lift a value into a named reference" refactor goes here.
-//!   * [`CodeActionKind::REFACTOR`] — reserved for L3.3 (capture-field
-//!     refactor). Declared now so the capability struct is stable from
-//!     this ticket forward and clients do not see a capability
-//!     regression when L3.3 ships.
+//!   * [`CodeActionKind::REFACTOR`] — used by **capture this field**
+//!     and **scaffold assert from last response** (both shipped in
+//!     NAZ-304, Phase L3.3).
 //!   * [`CodeActionKind::QUICKFIX`] — reserved for L3.4 (fix-plan
-//!     quick fix). Same reasoning.
+//!     quick fix).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use lsp_types::{
     CodeAction, CodeActionContext as LspCodeActionContext, CodeActionOrCommand, CodeActionParams,
@@ -53,7 +53,13 @@ use tarn::parser;
 
 use crate::server::ServerState;
 
+pub mod capture_field;
 pub mod extract_env;
+pub mod jsonpath_name;
+pub mod response_source;
+pub mod scaffold_assert;
+
+use response_source::{DiskResponseSource, RecordedResponseSource};
 
 /// Context every code-action provider receives.
 ///
@@ -73,6 +79,18 @@ pub struct CodeActionContext<'a> {
     /// default — clients send `only` / `diagnostics` when they want to
     /// filter the returned actions.
     pub lsp_ctx: &'a LspCodeActionContext,
+    /// Pluggable reader for recorded step responses (NAZ-304).
+    ///
+    /// The **scaffold-assert** code action consults this to read the
+    /// last recorded response of the step under the cursor and turn
+    /// its top-level fields into `assert.body` entries. The trait is
+    /// owned through an `Arc` so the dispatcher and tests can share a
+    /// single instance without cloning JSON payloads. `None` means
+    /// the feature is dormant (the action simply does not trigger),
+    /// which is the documented graceful-degradation path from the
+    /// ticket — a tarn-lsp build without a wired reader is the
+    /// current production reality.
+    pub recorded_response_reader: Option<Arc<dyn RecordedResponseSource>>,
 }
 
 /// Pure dispatcher: walk every provider and collect their results.
@@ -94,7 +112,17 @@ pub fn code_actions_for_range(
         out.push(action);
     }
 
-    // Future providers (NAZ-304, NAZ-305) plug in here.
+    // Provider 2: capture this field (NAZ-304).
+    if let Some(action) = capture_field::capture_field_code_action(uri, source, range, ctx) {
+        out.push(action);
+    }
+
+    // Provider 3: scaffold assert from last response (NAZ-304).
+    if let Some(action) = scaffold_assert::scaffold_assert_code_action(uri, source, range, ctx) {
+        out.push(action);
+    }
+
+    // Future providers (NAZ-305) plug in here.
 
     out
 }
@@ -118,12 +146,14 @@ pub fn text_document_code_action(
     };
 
     let env_map = build_env_map(&uri, &source);
+    let reader: Option<Arc<dyn RecordedResponseSource>> = Some(Arc::new(DiskResponseSource));
 
     let ctx = CodeActionContext {
         uri: &uri,
         source: &source,
         env: &env_map,
         lsp_ctx: &lsp_ctx,
+        recorded_response_reader: reader,
     };
 
     let actions = code_actions_for_range(&uri, &source, range, &ctx);

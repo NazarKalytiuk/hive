@@ -628,6 +628,7 @@ mod tests {
             source,
             env,
             lsp_ctx,
+            recorded_response_reader: None,
         }
     }
 

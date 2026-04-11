@@ -1,6 +1,6 @@
 [package]
 name = "tarn-lsp"
-version = "0.5.10"
+version = "0.5.11"
 edition = "2021"
 description = "Language Server Protocol implementation for Tarn .tarn.yaml test files"
 license = "MIT"

@@ -49,8 +49,9 @@ Phase L3 layers editing features onto the L1/L2 surface. Each ticket is a thin w
 
 - [x] **L3.1 — formatting (NAZ-302)**: `textDocument/formatting` reformats the whole document in-process via `tarn::format::format_document` — the same library function the `tarn fmt` CLI calls. Range formatting (`textDocument/rangeFormatting`) is deliberately **not** advertised; the Tarn formatter re-renders the whole buffer so a range-only edit cannot be produced without touching surrounding YAML.
 - [x] **L3.2 — code actions + extract env var (NAZ-303)**: `textDocument/codeAction` wires up a pure dispatcher over a flat list of provider functions. The first provider is **extract env var** (`refactor.extract`), which lifts a selected string literal inside a request field into a new env key and rewrites the original site as a `{{ env.<name> }}` interpolation. Collision detection against the full env chain (inline block + `tarn.env.yaml` + `tarn.env.local.yaml` + `tarn.env.{name}.yaml`) suffixes the coined name with a counter (`new_env_key`, `new_env_key_2`, …). Capability advertises `refactor.extract`, `refactor`, and `quickfix` now so later L3 tickets (capture-field refactor, fix-plan quick fix) can plug into the same dispatcher without shipping a capability regression.
+- [x] **L3.3 — capture-field + scaffold-assert code actions (NAZ-304)**: two new providers plug into the L3.2 dispatcher. **Capture this field** (`refactor`) lifts a JSONPath literal inside an `assert.body:` entry into a new `capture:` block on the same step, deriving the capture name from the last non-wildcard path segment. **Scaffold assert.body from last response** (`refactor`) walks the top-level fields of a recorded response (pluggable `RecordedResponseSource` trait) and emits an `assert.body` block pre-populated with one `type: …` entry per field. Both actions merge into existing `capture:` / `assert.body:` blocks instead of overwriting them, and collision-suffix any coined capture name (`id`, `id_2`, …) on the way out.
 
-Remaining L3 tickets (L3.3 capture-field / scaffold-assert, L3.4 fix-plan quick fix, L3.5 nested completion, L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
+Remaining L3 tickets (L3.4 fix-plan quick fix, L3.5 nested completion, L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
 
 ## Installation
 
@@ -255,13 +256,13 @@ The server always responds with one of two shapes:
 
 The capability advertises three stable action kinds from this ticket forward:
 
-| Kind                 | Provider                         | Status                    |
-| -------------------- | -------------------------------- | ------------------------- |
-| `refactor.extract`   | **Extract env var** (this ticket) | shipped in L3.2 (NAZ-303) |
-| `refactor`           | Capture field, scaffold assert    | reserved for L3.3         |
-| `quickfix`           | Fix-plan quick fix                | reserved for L3.4         |
+| Kind                 | Provider                              | Status                    |
+| -------------------- | ------------------------------------- | ------------------------- |
+| `refactor.extract`   | **Extract env var**                   | shipped in L3.2 (NAZ-303) |
+| `refactor`           | **Capture this field**, **Scaffold assert.body from last response** | shipped in L3.3 (NAZ-304) |
+| `quickfix`           | Fix-plan quick fix                    | reserved for L3.4         |
 
-Declaring the latter two kinds now means later tickets plug new providers into the same dispatcher without regressing the capability advertisement. `resolve_provider: false` is pinned for the whole dispatcher — every provider must return a fully resolved action.
+Both `refactor` providers plug into the same `code_actions_for_range` dispatcher that `extract_env` uses — new providers are just a function call and a provider name away. `resolve_provider: false` is pinned for the whole dispatcher — every provider must return a fully resolved action.
 
 #### Extract env var (`refactor.extract`)
 
@@ -281,7 +282,96 @@ Declaring the latter two kinds now means later tickets plug new providers into t
 - scalars that are not inside a request field (step `name:`, `tags:`, `capture:`, `assert:`, `defaults:`),
 - selections that span more than one YAML node.
 
-After shipping L3.2, Phase L3 is half-complete — L3.3 through L3.6 (capture-field refactor, fix-plan quick fix, nested completion, JSONPath evaluator) are still pending under Epic NAZ-301.
+#### Capture this field (`refactor`) — new in L3.3
+
+**Trigger.** Place the cursor on the JSONPath literal that serves as the key of an `assert.body:` entry — e.g. `"$.data[0].id"` inside:
+
+```yaml
+assert:
+  body:
+    "$.data[0].id":
+      eq: 5
+```
+
+Clients see the action as `"Capture as capture variable…"` in the refactor menu. The URL-id heuristic variant sketched in NAZ-304's description is deferred to a follow-up — the body-assertion trigger is the shipped MVP.
+
+**Edit shape.** A single `WorkspaceEdit` on the current file with one `TextEdit` that inserts a `capture:` entry into the enclosing step. The generated entry uses the extended `{ jsonpath: … }` form:
+
+```yaml
+capture:
+  id:
+    jsonpath: "$.data[0].id"
+```
+
+If the step already has a `capture:` block, the new entry is **appended** to it — duplicates by name are skipped and existing entries are never overwritten. If the step has no `capture:` block yet, a fresh one is inserted at the end of the step mapping at the same indent as `name:`, `request:`, `assert:`, and its other top-level siblings.
+
+**Leaf-name derivation.** The capture key is the last non-wildcard segment of the JSONPath:
+
+| Path                  | Coined name |
+| --------------------- | ----------- |
+| `$.id`                | `id`        |
+| `$.data[0]`           | `data_0`    |
+| `$.data[0].id`        | `id`        |
+| `$.user.email`        | `email`     |
+| `$.tags[*]`           | `tags`      |
+| `$["weird-key"]`      | `weird_key` |
+
+Empty, wildcard-only, and otherwise unrepresentable paths fall back to `field`. Names are then sanitised to the Tarn identifier grammar (`[A-Za-z_][A-Za-z0-9_]*`) — non-identifier characters become `_`, leading digits are prefixed with `_`, and collisions against existing captures in the same step are resolved by counter-suffix (`id`, `id_2`, …), exactly the same shape the env-key collision resolver uses.
+
+**Excluded positions.** The action declines on:
+
+- scalars whose value is not a JSONPath literal (does not start with `$.` or `$[`),
+- positions that are not inside an `assert.body:` key,
+- buffers the outline walker cannot locate a step for.
+
+#### Scaffold assert.body from last response (`refactor`) — new in L3.3
+
+**Trigger.** Place the cursor anywhere inside a `request:` block of a named step — e.g. on the `url:`, `method:`, or a header value — **and** the LSP must have a recorded response for that step on disk. Clients see the action as `"Scaffold assert.body from last response"` in the refactor menu.
+
+**Edit shape.** A single `WorkspaceEdit` on the current file with one `TextEdit` that inserts an `assert.body:` block pre-populated with one entry per top-level field of the recorded response, keyed on the JSONPath and bound to the inferred type:
+
+```yaml
+assert:
+  body:
+    "$.id":
+      type: number
+    "$.name":
+      type: string
+    "$.tags":
+      type: array
+```
+
+Inferred types follow the JSON-to-Tarn mapping `number | string | boolean | array | object | null`. Integers and floats both fold to `number`. Only top-level fields are in scope — the user can drill into nested paths manually.
+
+**Merge behavior.** If the step already has an `assert.body:` block, new entries are **appended**. Paths that are already declared (by key string) are skipped, so re-running the action never duplicates an existing assertion. If every top-level field of the response is already asserted, the action declines — nothing to do. If the step has `assert:` but no `body:` child, a fresh `body:` sub-block is appended to the existing `assert:` mapping. If the step has neither, a brand new `assert:\n  body: …` block is inserted at the end of the step.
+
+**Recorded-response sidecar convention.** The LSP reads recorded responses from a pluggable [`RecordedResponseSource`](../tarn-lsp/src/code_actions/response_source.rs) trait whose default disk implementation expects sidecar files at:
+
+```text
+<file>.tarn.yaml
+<file>.tarn.yaml.last-run/
+  <test-slug>/
+    <step-slug>.response.json
+```
+
+`<test-slug>` and `<step-slug>` are URL-safe versions of the respective names (lowercase, whitespace replaced with `-`, everything outside `[a-z0-9_-]` stripped). Top-level setup and teardown steps use the sentinel test slugs `setup` / `teardown`; top-level flat `steps:` use the sentinel `flat`. Example for a step named `POST /users` inside a test named `create_user`:
+
+```text
+users.tarn.yaml.last-run/create_user/post-users.response.json
+```
+
+The VS Code extension keeps its own last-run cache **in memory only** (see `editors/vscode/src/testing/LastRunCache.ts`) and does not yet write these sidecars. Until the writer lands as a separate ticket, the disk reader always returns `None` and the action simply does not trigger — a documented no-op. The trait seam means unit and integration tests substitute an `InMemoryResponseSource` so they never depend on the writer.
+
+**Excluded positions.** The action declines when:
+
+- `CodeActionContext.recorded_response_reader` is `None` (server wiring omitted),
+- the reader returns `None` (no recording available),
+- the recorded response is not a JSON object (arrays, scalars, `null` have no top-level fields),
+- every top-level field is already present in the step's `assert.body:`,
+- the cursor is not inside a `request:` block,
+- the enclosing step has no `name:` (synthetic `<step N>` placeholder names have no deterministic sidecar slug).
+
+After shipping L3.3, Phase L3 is past halfway — L3.4 (fix-plan quick fix), L3.5 (nested completion), and L3.6 (inline JSONPath evaluator) are still pending under Epic NAZ-301.
 
 ## Client configuration
 

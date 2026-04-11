@@ -1,21 +1,12 @@
-//! End-to-end integration tests for L3.2 code actions (NAZ-303).
+//! End-to-end integration tests for L3 code actions (NAZ-303, NAZ-304).
 //!
 //! Drives the full `initialize → didOpen → codeAction → shutdown →
 //! exit` loop over an in-memory `lsp_server::Connection`, the same
-//! transport the other Phase L3 handler tests use. The unit tests in
-//! `src/code_actions/extract_env.rs` exercise the pure renderer's
-//! behaviour; this file only confirms:
-//!
-//!   * the dispatch in `server.rs` hands the request to the renderer
-//!     and returns a `Vec<CodeActionOrCommand>` the client can
-//!     deserialize,
-//!   * the capability advertisement actually works end-to-end,
-//!   * a `.tarn.yaml` buffer with a plain URL under the cursor
-//!     produces one `"Extract to env var…"` action with a
-//!     `WorkspaceEdit` carrying two edits,
-//!   * collision-suffix resolution survives the round-trip,
-//!   * unrelated positions (cursor on a step name) return an empty
-//!     array rather than an error.
+//! transport the other Phase L3 handler tests use. Unit tests under
+//! `src/code_actions/*` exercise each pure renderer in isolation;
+//! this file confirms the dispatcher, server wiring, and on-disk
+//! integration (sidecar response file) behave as a client would see
+//! them.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -148,6 +139,198 @@ fn code_action_collision_suffix_flows_through_server_round_trip() {
     assert!(
         any_suffixed_interpolation,
         "collision must suffix the env key to new_env_key_2, got {edits:#?}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+// -- L3.3 (NAZ-304): capture-field + scaffold-assert ------------------
+
+const FIXTURE_CAPTURE_FIELD: &str = "name: fixture\nsteps:\n  - name: s1\n    request:\n      method: GET\n      url: http://example.com/items\n    assert:\n      body:\n        \"$.data[0].id\":\n          eq: 5\n";
+
+#[test]
+fn code_action_capture_field_happy_path_returns_refactor_action() {
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/ca-capture-field.tarn.yaml").unwrap();
+    send_did_open(&client_conn, &uri, FIXTURE_CAPTURE_FIELD);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Cursor on the JSONPath key `"$.data[0].id"` — line 9 (0-based 8).
+    let range = Range::new(Position::new(8, 12), Position::new(8, 12));
+    let actions = request_code_action(&client_conn, &uri, range);
+
+    let capture = actions
+        .iter()
+        .find_map(|ac| match ac {
+            CodeActionOrCommand::CodeAction(a) if a.title.contains("Capture") => Some(a.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected a capture-field action, got {actions:#?}"));
+    assert_eq!(capture.kind, Some(CodeActionKind::REFACTOR));
+    let edit = capture.edit.expect("workspace edit");
+    let changes = edit.changes.expect("changes");
+    let edits = changes.get(&uri).expect("edits for current uri");
+    let text = &edits[0].new_text;
+    assert!(
+        text.contains("capture:") && text.contains("id:") && text.contains("jsonpath:"),
+        "expected fresh capture block, got: {text}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn code_action_capture_field_declines_outside_jsonpath_position() {
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/ca-capture-noop.tarn.yaml").unwrap();
+    send_did_open(&client_conn, &uri, FIXTURE_CAPTURE_FIELD);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Cursor on the step's `name: s1` scalar — never triggers
+    // capture-field, since a step name is not a JSONPath literal.
+    let range = Range::new(Position::new(2, 12), Position::new(2, 12));
+    let actions = request_code_action(&client_conn, &uri, range);
+    let any_capture = actions.iter().any(|ac| match ac {
+        CodeActionOrCommand::CodeAction(a) => a.title.contains("Capture"),
+        _ => false,
+    });
+    assert!(
+        !any_capture,
+        "capture-field must not fire on step name, got {actions:#?}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn code_action_scaffold_assert_reads_sidecar_and_emits_assert_body() {
+    // The production server wires up `DiskResponseSource`, which
+    // reads sidecar files per the NAZ-304 convention:
+    //   <file>.last-run/<test-slug>/<step-slug>.response.json
+    //
+    // We stage a real tempdir with a `.tarn.yaml` and the matching
+    // sidecar so the production code path exercises real disk I/O
+    // instead of a mock reader.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let yaml_path = tmp.path().join("scaffold.tarn.yaml");
+    let yaml = "name: fixture\nsteps:\n  - name: get_user\n    request:\n      method: GET\n      url: http://example.com/users/1\n";
+    std::fs::write(&yaml_path, yaml).unwrap();
+
+    // Step name `get_user` and sentinel test slug `<flat>` for a
+    // top-level flat steps sequence.
+    let sidecar_dir = tmp.path().join("scaffold.tarn.yaml.last-run").join("flat");
+    std::fs::create_dir_all(&sidecar_dir).unwrap();
+    let sidecar_file = sidecar_dir.join("get_user.response.json");
+    std::fs::write(
+        &sidecar_file,
+        r#"{"id": 1, "name": "Alice", "tags": ["admin"]}"#,
+    )
+    .unwrap();
+
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::from_file_path(&yaml_path).expect("file url");
+    send_did_open(&client_conn, &uri, yaml);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Cursor inside the `url:` value on line 6 (0-based 5).
+    let range = Range::new(Position::new(5, 15), Position::new(5, 15));
+    let actions = request_code_action(&client_conn, &uri, range);
+    let scaffold = actions
+        .iter()
+        .find_map(|ac| match ac {
+            CodeActionOrCommand::CodeAction(a) if a.title.contains("Scaffold assert.body") => {
+                Some(a.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!("expected scaffold-assert action for sidecar-backed step, got {actions:#?}")
+        });
+    assert_eq!(scaffold.kind, Some(CodeActionKind::REFACTOR));
+    let edit = scaffold.edit.expect("workspace edit");
+    let changes = edit.changes.expect("changes");
+    let edits = changes.get(&uri).expect("edits for current uri");
+    let text = &edits[0].new_text;
+    assert!(
+        text.contains("assert:") && text.contains("body:"),
+        "expected fresh assert.body block, got: {text}"
+    );
+    assert!(text.contains("\"$.id\":"));
+    assert!(text.contains("\"$.name\":"));
+    assert!(text.contains("\"$.tags\":"));
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn code_action_dispatcher_returns_both_extract_and_scaffold_for_request_url() {
+    // Cursor inside a request URL is a position that satisfies
+    // BOTH `extract_env` (URL is a string literal inside a request
+    // field) and `scaffold_assert` (cursor is inside a `request:`
+    // block and a sidecar exists). The dispatcher must return both.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let yaml_path = tmp.path().join("both.tarn.yaml");
+    let yaml = "name: fixture\nsteps:\n  - name: get_user\n    request:\n      method: GET\n      url: http://example.com/items\n";
+    std::fs::write(&yaml_path, yaml).unwrap();
+
+    // Plant the sidecar so scaffold_assert has a response to work
+    // with. Uses the `_flat` slug for the top-level flat-steps
+    // container and the step's own name slug for the file name.
+    let sidecar_dir = tmp.path().join("both.tarn.yaml.last-run").join("flat");
+    std::fs::create_dir_all(&sidecar_dir).unwrap();
+    let sidecar_file = sidecar_dir.join("get_user.response.json");
+    std::fs::write(&sidecar_file, r#"{"id": 1}"#).unwrap();
+
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::from_file_path(&yaml_path).expect("file url");
+    send_did_open(&client_conn, &uri, yaml);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Cursor inside the `url:` value on line 6 (0-based 5).
+    let range = Range::new(Position::new(5, 15), Position::new(5, 15));
+    let actions = request_code_action(&client_conn, &uri, range);
+    let any_extract = actions.iter().any(|ac| match ac {
+        CodeActionOrCommand::CodeAction(a) => a.title.contains("Extract to env var"),
+        _ => false,
+    });
+    assert!(
+        any_extract,
+        "extract-env must be returned for a request URL literal, got {actions:#?}"
+    );
+    // scaffold-assert must also fire for this position — the
+    // sidecar is planted and the cursor is inside the request
+    // block.
+    let any_scaffold = actions.iter().any(|ac| match ac {
+        CodeActionOrCommand::CodeAction(a) => a.title.contains("Scaffold assert.body"),
+        _ => false,
+    });
+    assert!(
+        any_scaffold,
+        "expected scaffold-assert to fire alongside extract-env, got {actions:#?}"
+    );
+    assert!(
+        actions.len() >= 2,
+        "expected at least two actions, got {actions:#?}"
     );
 
     shutdown_and_join(client_conn, server_thread);
