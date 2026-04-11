@@ -175,6 +175,7 @@ export class WorkspaceIndex implements vscode.Disposable {
         // this specific call so the broken file still shows up in
         // the Test Explorer tree (the diagnostics provider will
         // surface the actual parse error separately).
+        // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
         getOutputChannel().appendLine(
           `[tarn] scoped list rejected ${uri.fsPath}, using AST: ${outcome.error}`,
         );
@@ -186,12 +187,14 @@ export class WorkspaceIndex implements vscode.Disposable {
       // `Tarn: Refresh Discovery` re-runs `initialize()`, which
       // resets the flag via `resetScopedDiscoverySupport`.
       this.scopedDiscoverySupported = false;
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(
         "[tarn] scoped discovery disabled (tarn list --file unsupported); falling back to AST",
       );
       return undefined;
     } catch (err) {
       this.scopedDiscoverySupported = false;
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(
         `[tarn] scoped discovery errored, falling back to AST: ${String(err)}`,
       );

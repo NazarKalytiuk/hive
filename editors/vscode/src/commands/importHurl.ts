@@ -23,19 +23,24 @@ async function runImportHurlWizard(deps: ImportHurlDeps): Promise<void> {
   const dest = await vscode.window.showSaveDialog({
     defaultUri: defaultDest,
     filters: { Tarn: ["tarn.yaml", "tarn.yml", "yaml", "yml"] },
-    saveLabel: "Import Hurl File",
-    title: "Choose destination for imported Tarn file",
+    saveLabel: vscode.l10n.t("Import Hurl File"),
+    title: vscode.l10n.t("Choose destination for imported Tarn file"),
   });
   if (!dest) return;
 
   const cwd = resolveCwd(source);
   const result = await runImportHurl(deps.backend, source.fsPath, dest.fsPath, cwd);
   if (!result.success) {
-    vscode.window.showErrorMessage(
-      `Tarn: import-hurl failed${
-        result.exitCode !== null ? ` (exit ${result.exitCode})` : ""
-      }. Check the Tarn output channel for details.`,
-    );
+    const message =
+      result.exitCode !== null
+        ? vscode.l10n.t(
+            "Tarn: import-hurl failed (exit {0}). Check the Tarn output channel for details.",
+            String(result.exitCode),
+          )
+        : vscode.l10n.t(
+            "Tarn: import-hurl failed. Check the Tarn output channel for details.",
+          );
+    vscode.window.showErrorMessage(message);
     return;
   }
 
@@ -44,19 +49,21 @@ async function runImportHurlWizard(deps: ImportHurlDeps): Promise<void> {
     await vscode.window.showTextDocument(doc, { preview: false });
   } catch (err) {
     vscode.window.showErrorMessage(
-      `Tarn: imported file but could not open it: ${String(err)}`,
+      vscode.l10n.t("Tarn: imported file but could not open it: {0}", String(err)),
     );
     return;
   }
 
+  const runAction = vscode.l10n.t("Run");
+  const validateAction = vscode.l10n.t("Validate");
   const action = await vscode.window.showInformationMessage(
-    `Tarn: imported ${path.basename(dest.fsPath)}`,
-    "Run",
-    "Validate",
+    vscode.l10n.t("Tarn: imported {0}", path.basename(dest.fsPath)),
+    runAction,
+    validateAction,
   );
-  if (action === "Run") {
+  if (action === runAction) {
     await vscode.commands.executeCommand("tarn.runFile");
-  } else if (action === "Validate") {
+  } else if (action === validateAction) {
     await vscode.commands.executeCommand("tarn.validateFile");
   }
 }
@@ -66,8 +73,8 @@ async function pickHurlSource(): Promise<vscode.Uri | undefined> {
     canSelectFiles: true,
     canSelectFolders: false,
     canSelectMany: false,
-    openLabel: "Import Hurl File",
-    title: "Select a .hurl file to import",
+    openLabel: vscode.l10n.t("Import Hurl File"),
+    title: vscode.l10n.t("Select a .hurl file to import"),
     filters: { Hurl: ["hurl"] },
   });
   return uris?.[0];
@@ -92,11 +99,12 @@ export async function runImportHurl(
 ): Promise<{ success: boolean; exitCode: number | null; stderr: string }> {
   const out = getOutputChannel();
   const cts = new vscode.CancellationTokenSource();
+  // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
   out.appendLine(`[tarn] import-hurl ${source} -> ${dest}`);
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: `Tarn: importing ${path.basename(source)}…`,
+      title: vscode.l10n.t("Tarn: importing {0}…", path.basename(source)),
       cancellable: true,
     },
     async (_progress, token) => {

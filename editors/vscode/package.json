@@ -1,8 +1,9 @@
 {
   "name": "tarn-vscode",
-  "displayName": "Tarn",
-  "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.25.0",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.26.0",
+  "l10n": "./l10n",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -36,7 +37,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "In untrusted workspaces, Tarn provides read-only features (grammar, snippets, schema validation). Running tests, validating files, and spawning the Tarn binary are disabled."
+      "description": "%capabilities.untrustedWorkspaces.description%"
     }
   },
   "main": "./out/extension.js",
@@ -77,177 +78,177 @@
     "commands": [
       {
         "command": "tarn.runAll",
-        "title": "Tarn: Run All Tests",
-        "category": "Tarn"
+        "title": "%command.tarn.runAll.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.runFile",
-        "title": "Tarn: Run Current File",
-        "category": "Tarn"
+        "title": "%command.tarn.runFile.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.dryRunFile",
-        "title": "Tarn: Dry Run Current File",
-        "category": "Tarn"
+        "title": "%command.tarn.dryRunFile.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.validateFile",
-        "title": "Tarn: Validate Current File",
-        "category": "Tarn"
+        "title": "%command.tarn.validateFile.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.rerunLast",
-        "title": "Tarn: Rerun Last Run",
-        "category": "Tarn"
+        "title": "%command.tarn.rerunLast.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.runFailed",
-        "title": "Tarn: Run Failed Tests",
-        "category": "Tarn"
+        "title": "%command.tarn.runFailed.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.selectEnvironment",
-        "title": "Tarn: Select Environment…",
-        "category": "Tarn"
+        "title": "%command.tarn.selectEnvironment.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.setTagFilter",
-        "title": "Tarn: Set Tag Filter…",
-        "category": "Tarn"
+        "title": "%command.tarn.setTagFilter.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.clearTagFilter",
-        "title": "Tarn: Clear Tag Filter",
-        "category": "Tarn"
+        "title": "%command.tarn.clearTagFilter.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.showOutput",
-        "title": "Tarn: Show Output",
-        "category": "Tarn"
+        "title": "%command.tarn.showOutput.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.installTarn",
-        "title": "Tarn: Install / Update Tarn",
-        "category": "Tarn"
+        "title": "%command.tarn.installTarn.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.runTestFromCodeLens",
-        "title": "Run",
-        "category": "Tarn"
+        "title": "%command.tarn.runTestFromCodeLens.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.dryRunTestFromCodeLens",
-        "title": "Dry Run",
-        "category": "Tarn"
+        "title": "%command.tarn.dryRunTestFromCodeLens.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.exportCurl",
-        "title": "Tarn: Export Current File as curl",
-        "category": "Tarn"
+        "title": "%command.tarn.exportCurl.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.clearHistory",
-        "title": "Tarn: Clear Run History",
-        "category": "Tarn",
+        "title": "%command.tarn.clearHistory.title%",
+        "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
         "command": "tarn.showWalkthrough",
-        "title": "Tarn: Open Getting Started",
-        "category": "Tarn"
+        "title": "%command.tarn.showWalkthrough.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.initProject",
-        "title": "Tarn: Init Project Here",
-        "category": "Tarn"
+        "title": "%command.tarn.initProject.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.refreshDiscovery",
-        "title": "Tarn: Refresh Test Discovery",
-        "category": "Tarn"
+        "title": "%command.tarn.refreshDiscovery.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.reloadEnvironments",
-        "title": "Tarn: Reload Environments",
-        "category": "Tarn",
+        "title": "%command.tarn.reloadEnvironments.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "tarn.setEnvironmentFromTree",
-        "title": "Tarn: Set Active (from tree)",
-        "category": "Tarn"
+        "title": "%command.tarn.setEnvironmentFromTree.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.openEnvironmentSource",
-        "title": "Tarn: Open Environment Source File",
-        "category": "Tarn"
+        "title": "%command.tarn.openEnvironmentSource.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.copyEnvironmentAsFlag",
-        "title": "Tarn: Copy as --env Flag",
-        "category": "Tarn"
+        "title": "%command.tarn.copyEnvironmentAsFlag.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.showStepDetails",
-        "title": "Tarn: Show Step Details",
-        "category": "Tarn"
+        "title": "%command.tarn.showStepDetails.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.copyCaptureValue",
-        "title": "Tarn: Copy Capture Value",
-        "category": "Tarn"
+        "title": "%command.tarn.copyCaptureValue.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.toggleHideCaptures",
-        "title": "Tarn: Toggle Hide All Capture Values",
-        "category": "Tarn",
+        "title": "%command.tarn.toggleHideCaptures.title%",
+        "category": "%command.category%",
         "icon": "$(eye-closed)"
       },
       {
         "command": "tarn.jumpToFailure",
-        "title": "Tarn: Jump to Failure",
-        "category": "Tarn"
+        "title": "%command.tarn.jumpToFailure.title%",
+        "category": "%command.category%"
       },
       {
         "command": "tarn.openHtmlReport",
-        "title": "Tarn: Open HTML Report",
-        "category": "Tarn",
+        "title": "%command.tarn.openHtmlReport.title%",
+        "category": "%command.category%",
         "icon": "$(graph)"
       },
       {
         "command": "tarn.benchStep",
-        "title": "Tarn: Benchmark Step…",
-        "category": "Tarn",
+        "title": "%command.tarn.benchStep.title%",
+        "category": "%command.category%",
         "icon": "$(dashboard)"
       },
       {
         "command": "tarn.importHurl",
-        "title": "Tarn: Import Hurl File…",
-        "category": "Tarn",
+        "title": "%command.tarn.importHurl.title%",
+        "category": "%command.category%",
         "icon": "$(arrow-down)"
       },
       {
         "command": "tarn.pinHistoryEntry",
-        "title": "Tarn: Pin Run",
-        "category": "Tarn",
+        "title": "%command.tarn.pinHistoryEntry.title%",
+        "category": "%command.category%",
         "icon": "$(pin)"
       },
       {
         "command": "tarn.unpinHistoryEntry",
-        "title": "Tarn: Unpin Run",
-        "category": "Tarn",
+        "title": "%command.tarn.unpinHistoryEntry.title%",
+        "category": "%command.category%",
         "icon": "$(pinned)"
       },
       {
         "command": "tarn.rerunFromHistory",
-        "title": "Tarn: Rerun from History",
-        "category": "Tarn",
+        "title": "%command.tarn.rerunFromHistory.title%",
+        "category": "%command.category%",
         "icon": "$(debug-rerun)"
       },
       {
         "command": "tarn.filterHistory",
-        "title": "Tarn: Filter Run History…",
-        "category": "Tarn",
+        "title": "%command.tarn.filterHistory.title%",
+        "category": "%command.category%",
         "icon": "$(filter)"
       }
     ],
@@ -255,7 +256,7 @@
       "activitybar": [
         {
           "id": "tarn",
-          "title": "Tarn",
+          "title": "%viewsContainers.tarn.title%",
           "icon": "media/tarn-icon.svg"
         }
       ]
@@ -264,72 +265,72 @@
       "tarn": [
         {
           "id": "tarn.environments",
-          "name": "Environments",
+          "name": "%views.tarn.environments.name%",
           "icon": "$(symbol-variable)",
-          "contextualTitle": "Tarn Environments"
+          "contextualTitle": "%views.tarn.environments.contextualTitle%"
         },
         {
           "id": "tarn.runHistory",
-          "name": "Run History",
+          "name": "%views.tarn.runHistory.name%",
           "icon": "$(history)",
-          "contextualTitle": "Tarn Run History"
+          "contextualTitle": "%views.tarn.runHistory.contextualTitle%"
         },
         {
           "id": "tarn.captures",
-          "name": "Captures Inspector",
+          "name": "%views.tarn.captures.name%",
           "icon": "$(list-tree)",
-          "contextualTitle": "Tarn Captures Inspector"
+          "contextualTitle": "%views.tarn.captures.contextualTitle%"
         },
         {
           "id": "tarn.fixPlan",
-          "name": "Fix Plan",
+          "name": "%views.tarn.fixPlan.name%",
           "icon": "$(lightbulb)",
-          "contextualTitle": "Tarn Fix Plan"
+          "contextualTitle": "%views.tarn.fixPlan.contextualTitle%"
         }
       ]
     },
     "walkthroughs": [
       {
         "id": "tarn.gettingStarted",
-        "title": "Get started with Tarn",
-        "description": "Run your first Tarn test, inspect failures, and customize your workspace.",
+        "title": "%walkthrough.gettingStarted.title%",
+        "description": "%walkthrough.gettingStarted.description%",
         "steps": [
           {
             "id": "tarn.install",
-            "title": "Install the Tarn CLI",
-            "description": "The extension drives the `tarn` binary. Install it from the [project README](https://github.com/NazarKalytiuk/hive#install) and verify with `tarn --version`.\n[Open install instructions](command:tarn.installTarn)",
+            "title": "%walkthrough.step.install.title%",
+            "description": "%walkthrough.step.install.description%",
             "media": {
               "markdown": "media/walkthrough/install.md"
             }
           },
           {
             "id": "tarn.openExample",
-            "title": "Open or create a test file",
-            "description": "Tarn test files use the `.tarn.yaml` extension. Open an existing file or create `tests/health.tarn.yaml` to get started.\n[Create new file](command:workbench.action.files.newUntitledFile)",
+            "title": "%walkthrough.step.openExample.title%",
+            "description": "%walkthrough.step.openExample.description%",
             "media": {
               "markdown": "media/walkthrough/example.md"
             }
           },
           {
             "id": "tarn.runFirst",
-            "title": "Run your first test",
-            "description": "Open the Test Explorer to see discovered tests and click Run, or run the active file directly.\n[Run current file](command:tarn.runFile)",
+            "title": "%walkthrough.step.runFirst.title%",
+            "description": "%walkthrough.step.runFirst.description%",
             "media": {
               "markdown": "media/walkthrough/run.md"
             }
           },
           {
             "id": "tarn.pickEnv",
-            "title": "Select an environment",
-            "description": "Add a `tarn.env.staging.yaml` next to your tests and pick it from the status bar to run against that environment.\n[Select environment](command:tarn.selectEnvironment)",
+            "title": "%walkthrough.step.pickEnv.title%",
+            "description": "%walkthrough.step.pickEnv.description%",
             "media": {
               "markdown": "media/walkthrough/env.md"
             }
           },
           {
             "id": "tarn.inspectFailure",
-            "title": "Inspect a failure",
-            "description": "When a step fails, hover the red marker or open the Test Explorer entry to see expected vs actual, full request, full response, and remediation hints.",
+            "title": "%walkthrough.step.inspectFailure.title%",
+            "description": "%walkthrough.step.inspectFailure.description%",
             "media": {
               "markdown": "media/walkthrough/failure.md"
             }
@@ -471,18 +472,18 @@
       ]
     },
     "configuration": {
-      "title": "Tarn",
+      "title": "%configuration.title%",
       "properties": {
         "tarn.binaryPath": {
           "type": "string",
           "default": "tarn",
-          "description": "Path to the tarn CLI binary. Use an absolute path if it is not on PATH.",
+          "description": "%configuration.tarn.binaryPath.description%",
           "scope": "machine-overridable"
         },
         "tarn.testFileGlob": {
           "type": "string",
           "default": "**/*.tarn.yaml",
-          "description": "Glob pattern used to discover Tarn test files.",
+          "description": "%configuration.tarn.testFileGlob.description%",
           "scope": "resource"
         },
         "tarn.excludeGlobs": {
@@ -495,7 +496,7 @@
             "**/node_modules/**",
             "**/.git/**"
           ],
-          "description": "Globs excluded from discovery.",
+          "description": "%configuration.tarn.excludeGlobs.description%",
           "scope": "resource"
         },
         "tarn.defaultEnvironment": {
@@ -504,7 +505,7 @@
             "null"
           ],
           "default": null,
-          "description": "Default Tarn environment passed as --env. Overridden by the active environment selection.",
+          "description": "%configuration.tarn.defaultEnvironment.description%",
           "scope": "resource"
         },
         "tarn.defaultTags": {
@@ -513,13 +514,13 @@
             "type": "string"
           },
           "default": [],
-          "description": "Default tag filter applied to runs.",
+          "description": "%configuration.tarn.defaultTags.description%",
           "scope": "resource"
         },
         "tarn.parallel": {
           "type": "boolean",
           "default": true,
-          "description": "Pass --parallel to tarn run.",
+          "description": "%configuration.tarn.parallel.description%",
           "scope": "resource"
         },
         "tarn.jsonMode": {
@@ -529,31 +530,31 @@
             "compact"
           ],
           "default": "verbose",
-          "description": "Controls --json-mode for tarn run.",
+          "description": "%configuration.tarn.jsonMode.description%",
           "scope": "resource"
         },
         "tarn.requestTimeoutMs": {
           "type": "number",
           "default": 120000,
-          "description": "Process-level watchdog (ms) for tarn invocations. Marked machine-overridable so a slow Remote SSH / WSL / Dev Container host can set a longer timeout without leaking that value back into the local workspace.",
+          "description": "%configuration.tarn.requestTimeoutMs.description%",
           "scope": "machine-overridable"
         },
         "tarn.showCodeLens": {
           "type": "boolean",
           "default": true,
-          "description": "Show Run and Dry Run CodeLens actions above each test and step.",
+          "description": "%configuration.tarn.showCodeLens.description%",
           "scope": "resource"
         },
         "tarn.statusBar.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the Tarn status bar entry.",
+          "description": "%configuration.tarn.statusBar.enabled.description%",
           "scope": "resource"
         },
         "tarn.validateOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Run `tarn validate --format json` on every save of a .tarn.yaml and surface parse errors as diagnostics in the Problems panel.",
+          "description": "%configuration.tarn.validateOnSave.description%",
           "scope": "resource"
         },
         "tarn.notifications.failure": {
@@ -564,12 +565,12 @@
             "off"
           ],
           "enumDescriptions": [
-            "Always show a warning toast after a failing run",
-            "Only show when the Tarn activity bar is not focused (default)",
-            "Never show a failure toast"
+            "%configuration.tarn.notifications.failure.enum.always%",
+            "%configuration.tarn.notifications.failure.enum.focused%",
+            "%configuration.tarn.notifications.failure.enum.off%"
           ],
           "default": "focused",
-          "description": "When to show a warning notification after a failing Tarn run. Dry runs never trigger this notification.",
+          "description": "%configuration.tarn.notifications.failure.description%",
           "scope": "resource"
         },
         "tarn.cookieJarMode": {
@@ -579,11 +580,11 @@
             "per-test"
           ],
           "enumDescriptions": [
-            "Honor the file's declared `cookies:` mode (shared jar by default)",
-            "Pass --cookie-jar-per-test to every tarn run so the default jar is reset between named tests"
+            "%configuration.tarn.cookieJarMode.enum.default%",
+            "%configuration.tarn.cookieJarMode.enum.per-test%"
           ],
           "default": "default",
-          "description": "Cookie jar isolation mode. `per-test` forces the CLI `--cookie-jar-per-test` flag on every run so subset runs (run-at-cursor, run-step) never inherit stale session state from tests that happen not to be in scope.",
+          "description": "%configuration.tarn.cookieJarMode.description%",
           "scope": "resource"
         }
       }

@@ -66,7 +66,7 @@ export class EnvironmentsView
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) {
       this.cache = undefined;
-      this.loadErrors = ["No workspace folder available"];
+      this.loadErrors = [vscode.l10n.t("No workspace folder available")];
       this.emitter.fire(undefined);
       return;
     }
@@ -79,12 +79,15 @@ export class EnvironmentsView
           // this branch. Keep the cache empty and show an explanatory
           // placeholder node.
           this.cache = { environments: [] };
-          this.loadErrors = ["No environments returned by `tarn env --json`."];
+          this.loadErrors = [
+            vscode.l10n.t("No environments returned by `tarn env --json`."),
+          ];
         } else {
           this.cache = report;
           this.loadErrors = [];
         }
       } catch (err) {
+        // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
         getOutputChannel().appendLine(
           `[tarn] EnvironmentsView reload failed: ${String(err)}`,
         );
@@ -113,12 +116,16 @@ export class EnvironmentsView
         vscode.TreeItemCollapsibleState.None,
       );
       const varCount = Object.keys(element.entry.vars).length;
-      item.description = `${element.entry.source_file} · ${varCount} vars`;
+      item.description = vscode.l10n.t(
+        "{0} · {1} vars",
+        element.entry.source_file,
+        varCount,
+      );
       item.contextValue = isActive ? "tarnEnvEntryActive" : "tarnEnvEntry";
       item.tooltip = this.renderTooltip(element.entry, isActive);
       item.command = {
         command: "tarn.setEnvironmentFromTree",
-        title: "Set Active",
+        title: vscode.l10n.t("Set Active"),
         arguments: [element.entry.name],
       };
       item.iconPath = new vscode.ThemeIcon(isActive ? "pass" : "symbol-variable");
@@ -140,7 +147,12 @@ export class EnvironmentsView
       return [];
     }
     if (!this.cache) {
-      return [{ kind: "placeholder", message: "Loading environments…" }];
+      return [
+        {
+          kind: "placeholder",
+          message: vscode.l10n.t("Loading environments…"),
+        },
+      ];
     }
     if (this.cache.environments.length === 0) {
       const hint = this.loadErrors.length > 0 ? this.loadErrors[0] : undefined;
@@ -148,8 +160,8 @@ export class EnvironmentsView
         {
           kind: "placeholder",
           message: hint
-            ? `No environments configured (${hint})`
-            : "No environments configured in tarn.config.yaml",
+            ? vscode.l10n.t("No environments configured ({0})", hint)
+            : vscode.l10n.t("No environments configured in tarn.config.yaml"),
         },
       ];
     }
@@ -161,13 +173,17 @@ export class EnvironmentsView
 
   private renderTooltip(entry: EnvEntry, isActive: boolean): vscode.MarkdownString {
     const lines: string[] = [];
-    lines.push(`**${entry.name}**${isActive ? " (active)" : ""}`);
-    lines.push(`Source: \`${entry.source_file}\``);
+    lines.push(
+      isActive
+        ? vscode.l10n.t("**{0}** (active)", entry.name)
+        : `**${entry.name}**`,
+    );
+    lines.push(vscode.l10n.t("Source: `{0}`", entry.source_file));
     const keys = Object.keys(entry.vars);
     if (keys.length === 0) {
-      lines.push("No inline vars");
+      lines.push(vscode.l10n.t("No inline vars"));
     } else {
-      lines.push(`Inline vars (${keys.length}):`);
+      lines.push(vscode.l10n.t("Inline vars ({0}):", keys.length));
       for (const key of keys.sort()) {
         const value = entry.vars[key];
         lines.push(`- \`${key}\`: \`${value}\``);

@@ -35,21 +35,23 @@ async function runBenchWizard(deps: BenchCommandDeps): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     vscode.window.showInformationMessage(
-      "Tarn: open a .tarn.yaml file first to benchmark one of its steps.",
+      vscode.l10n.t(
+        "Tarn: open a .tarn.yaml file first to benchmark one of its steps.",
+      ),
     );
     return;
   }
   const parsed = deps.index.get(editor.document.uri);
   if (!parsed) {
     vscode.window.showInformationMessage(
-      "Tarn: the current file is not a discovered Tarn test file.",
+      vscode.l10n.t("Tarn: the current file is not a discovered Tarn test file."),
     );
     return;
   }
   const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
   if (!folder) {
     vscode.window.showInformationMessage(
-      "Tarn: no workspace folder for the active file.",
+      vscode.l10n.t("Tarn: no workspace folder for the active file."),
     );
     return;
   }
@@ -62,13 +64,13 @@ async function runBenchWizard(deps: BenchCommandDeps): Promise<void> {
   if (!stepPick) return;
 
   const requests = await promptPositiveInt(
-    "Total number of requests (N)",
+    vscode.l10n.t("Total number of requests (N)"),
     lastSettings.requests,
   );
   if (requests === undefined) return;
 
   const concurrency = await promptPositiveInt(
-    "Concurrency (number of workers)",
+    vscode.l10n.t("Concurrency (number of workers)"),
     lastSettings.concurrency,
   );
   if (concurrency === undefined) return;
@@ -89,6 +91,7 @@ async function runBenchWizard(deps: BenchCommandDeps): Promise<void> {
   const activeEnv = deps.tarnController.state.activeEnvironment;
   const cts = new vscode.CancellationTokenSource();
   const out = getOutputChannel();
+  // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
   out.appendLine(
     `[tarn] bench ${relFile} step=${stepPick.stepIndex} (${stepPick.label}) n=${requests} c=${concurrency}${
       newSettings.rampUp ? ` ramp-up=${newSettings.rampUp}` : ""
@@ -98,7 +101,7 @@ async function runBenchWizard(deps: BenchCommandDeps): Promise<void> {
   const outcome = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: `Tarn: benchmarking ${stepPick.label}…`,
+      title: vscode.l10n.t("Tarn: benchmarking {0}…", stepPick.label),
       cancellable: true,
     },
     async (_progress, token) => {
@@ -121,8 +124,10 @@ async function runBenchWizard(deps: BenchCommandDeps): Promise<void> {
     const detail =
       outcome.stderr.trim() ||
       outcome.stdout.trim() ||
-      `tarn bench exited with code ${outcome.exitCode}`;
-    vscode.window.showErrorMessage(`Tarn bench failed: ${truncate(detail, 200)}`);
+      vscode.l10n.t("tarn bench exited with code {0}", String(outcome.exitCode));
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Tarn bench failed: {0}", truncate(detail, 200)),
+    );
     if (outcome.stderr) out.appendLine(outcome.stderr);
     return;
   }
@@ -148,16 +153,16 @@ async function pickStep(
   const items: Item[] = [];
   for (const setup of parsed.ranges.setup) {
     items.push({
-      label: `setup / ${setup.name}`,
-      description: `step ${setup.index}`,
+      label: vscode.l10n.t("setup / {0}", setup.name),
+      description: vscode.l10n.t("step {0}", setup.index),
       step: { stepIndex: setup.index, testName: undefined, label: `setup/${setup.name}` },
     });
   }
   for (const test of parsed.ranges.tests) {
     for (const step of test.steps) {
       items.push({
-        label: `${test.name} / ${step.name}`,
-        description: `step ${step.index}`,
+        label: vscode.l10n.t("{0} / {1}", test.name, step.name),
+        description: vscode.l10n.t("step {0}", step.index),
         step: {
           stepIndex: step.index,
           testName: test.name,
@@ -168,8 +173,8 @@ async function pickStep(
   }
   for (const teardown of parsed.ranges.teardown) {
     items.push({
-      label: `teardown / ${teardown.name}`,
-      description: `step ${teardown.index}`,
+      label: vscode.l10n.t("teardown / {0}", teardown.name),
+      description: vscode.l10n.t("step {0}", teardown.index),
       step: {
         stepIndex: teardown.index,
         testName: undefined,
@@ -179,7 +184,7 @@ async function pickStep(
   }
   if (items.length === 0) {
     vscode.window.showInformationMessage(
-      "Tarn: the current file has no steps to benchmark.",
+      vscode.l10n.t("Tarn: the current file has no steps to benchmark."),
     );
     return undefined;
   }
@@ -194,7 +199,7 @@ async function pickStep(
     return aMatch ? -1 : 1;
   });
   const picked = await vscode.window.showQuickPick(sorted, {
-    placeHolder: "Select step to benchmark",
+    placeHolder: vscode.l10n.t("Select step to benchmark"),
     matchOnDescription: true,
   });
   return picked?.step;
@@ -210,7 +215,7 @@ async function promptPositiveInt(
     validateInput: (input) => {
       const n = Number(input);
       if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-        return "Enter a positive integer";
+        return vscode.l10n.t("Enter a positive integer");
       }
       return undefined;
     },
@@ -221,12 +226,14 @@ async function promptPositiveInt(
 
 async function promptRampUp(defaultValue: string | undefined): Promise<string | undefined> {
   return vscode.window.showInputBox({
-    prompt: 'Ramp-up duration (e.g. "5s", "500ms") — leave empty to skip',
+    prompt: vscode.l10n.t(
+      'Ramp-up duration (e.g. "5s", "500ms") — leave empty to skip',
+    ),
     value: defaultValue ?? "",
     validateInput: (input) => {
       if (input.trim().length === 0) return undefined;
       if (/^\d+(ms|s|m)?$/.test(input.trim())) return undefined;
-      return "Use a format like 5s, 500ms, or 2m";
+      return vscode.l10n.t("Use a format like 5s, 500ms, or 2m");
     },
   });
 }

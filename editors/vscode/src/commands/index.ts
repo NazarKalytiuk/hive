@@ -87,11 +87,13 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         token,
       );
       if (result.exitCode === 0) {
-        vscode.window.showInformationMessage("Tarn: file is valid.");
+        vscode.window.showInformationMessage(vscode.l10n.t("Tarn: file is valid."));
       } else {
         const out = getOutputChannel();
         out.show(true);
-        out.appendLine(result.stdout || result.stderr || "Tarn validation failed");
+        out.appendLine(
+          result.stdout || result.stderr || vscode.l10n.t("Tarn validation failed"),
+        );
       }
     }),
   );
@@ -106,7 +108,9 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
     vscode.commands.registerCommand("tarn.runFailed", async () => {
       const failedIds = deps.tarnController.state.lastFailedItemIds;
       if (failedIds.size === 0) {
-        vscode.window.showInformationMessage("Tarn: no failures from the last run.");
+        vscode.window.showInformationMessage(
+          vscode.l10n.t("Tarn: no failures from the last run."),
+        );
         return;
       }
       const items: vscode.TestItem[] = [];
@@ -119,7 +123,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
       deps.tarnController.controller.items.forEach(visit);
       if (items.length === 0) {
         vscode.window.showInformationMessage(
-          "Tarn: failed items from the last run are no longer present.",
+          vscode.l10n.t("Tarn: failed items from the last run are no longer present."),
         );
         return;
       }
@@ -137,22 +141,26 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
       const entries = await deps.environmentsView.getEntries();
       type Pick = vscode.QuickPickItem & { value: string | null };
       const items: Pick[] = [
-        { label: "$(close) (none)", description: "clear active environment", value: null },
+        {
+          label: vscode.l10n.t("$(close) (none)"),
+          description: vscode.l10n.t("clear active environment"),
+          value: null,
+        },
         ...entries.map<Pick>((e) => ({
           label: e.name,
           description: e.source_file,
-          detail: `${Object.keys(e.vars).length} inline vars`,
+          detail: vscode.l10n.t("{0} inline vars", Object.keys(e.vars).length),
           value: e.name,
         })),
       ];
       if (items.length === 1) {
         vscode.window.showInformationMessage(
-          "Tarn: no environments configured in tarn.config.yaml.",
+          vscode.l10n.t("Tarn: no environments configured in tarn.config.yaml."),
         );
         return;
       }
       const picked = await vscode.window.showQuickPick<Pick>(items, {
-        placeHolder: "Select Tarn environment",
+        placeHolder: vscode.l10n.t("Select Tarn environment"),
       });
       if (!picked) {
         return;
@@ -184,7 +192,9 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
       async (envName: string) => {
         const entry = deps.environmentsView.findByName(envName);
         if (!entry) {
-          vscode.window.showWarningMessage(`Tarn: no environment named '${envName}'.`);
+          vscode.window.showWarningMessage(
+            vscode.l10n.t("Tarn: no environment named '{0}'.", envName),
+          );
           return;
         }
         const folder = vscode.workspace.workspaceFolders?.[0];
@@ -197,8 +207,13 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
           await vscode.window.showTextDocument(doc);
         } catch (err) {
           vscode.window.showWarningMessage(
-            `Tarn: source file for '${envName}' not found at ${uri.fsPath}.`,
+            vscode.l10n.t(
+              "Tarn: source file for '{0}' not found at {1}.",
+              envName,
+              uri.fsPath,
+            ),
           );
+          // l10n-ignore: debug log; engineers read this in the output channel.
           getOutputChannel().appendLine(
             `[tarn] openEnvironmentSource failed: ${String(err)}`,
           );
@@ -217,7 +232,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         }
         await vscode.env.clipboard.writeText(`--env ${entry.name}`);
         vscode.window.showInformationMessage(
-          `Tarn: copied '--env ${entry.name}' to clipboard.`,
+          vscode.l10n.t("Tarn: copied '--env {0}' to clipboard.", entry.name),
         );
       },
     ),
@@ -237,11 +252,10 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
           return;
         }
         await vscode.env.clipboard.writeText(value);
-        const hint = label ? ` (${label})` : "";
-        vscode.window.setStatusBarMessage(
-          `Tarn: copied capture value${hint}`,
-          2000,
-        );
+        const message = label
+          ? vscode.l10n.t("Tarn: copied capture value ({0})", label)
+          : vscode.l10n.t("Tarn: copied capture value");
+        vscode.window.setStatusBarMessage(message, 2000);
       },
     ),
   );
@@ -271,6 +285,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
             preserveFocus: false,
           });
         } catch (err) {
+          // l10n-ignore: debug log; engineers read this in the output channel.
           getOutputChannel().appendLine(
             `[tarn] jumpToFailure failed: ${String(err)}`,
           );
@@ -291,7 +306,9 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         }
         if (!snapshot) {
           vscode.window.showInformationMessage(
-            "Tarn: no step details available. Run some tests first and click this command on a failing step.",
+            vscode.l10n.t(
+              "Tarn: no step details available. Run some tests first and click this command on a failing step.",
+            ),
           );
           return;
         }
@@ -303,7 +320,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
   registrations.push(
     vscode.commands.registerCommand("tarn.setTagFilter", async () => {
       const input = await vscode.window.showInputBox({
-        prompt: "Comma-separated tag filter (leave empty to clear)",
+        prompt: vscode.l10n.t("Comma-separated tag filter (leave empty to clear)"),
         value: deps.tarnController.state.activeTags.join(","),
       });
       if (input === undefined) {
@@ -350,14 +367,18 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
       }
       const mode = await vscode.window.showQuickPick(
         [
-          { label: "All steps", description: "--format curl-all", value: "all" as const },
           {
-            label: "Failed steps only",
+            label: vscode.l10n.t("All steps"),
+            description: "--format curl-all",
+            value: "all" as const,
+          },
+          {
+            label: vscode.l10n.t("Failed steps only"),
             description: "--format curl",
             value: "failed" as const,
           },
         ],
-        { placeHolder: "Export mode" },
+        { placeHolder: vscode.l10n.t("Export mode") },
       );
       if (!mode) {
         return;
@@ -370,7 +391,9 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         token,
       );
       if (result.stdout.length === 0) {
-        vscode.window.showInformationMessage("Tarn: nothing to export.");
+        vscode.window.showInformationMessage(
+          vscode.l10n.t("Tarn: nothing to export."),
+        );
         return;
       }
       const doc = await vscode.workspace.openTextDocument({
@@ -388,7 +411,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder) {
           vscode.window.showInformationMessage(
-            "Tarn: no workspace folder available.",
+            vscode.l10n.t("Tarn: no workspace folder available."),
           );
           return;
         }
@@ -399,14 +422,16 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
           const editor = vscode.window.activeTextEditor;
           if (!editor) {
             vscode.window.showInformationMessage(
-              "Tarn: open a .tarn.yaml file first to generate its HTML report.",
+              vscode.l10n.t(
+                "Tarn: open a .tarn.yaml file first to generate its HTML report.",
+              ),
             );
             return;
           }
           const editorFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
           if (!editorFolder) {
             vscode.window.showInformationMessage(
-              "Tarn: no workspace folder for the active file.",
+              vscode.l10n.t("Tarn: no workspace folder for the active file."),
             );
             return;
           }
@@ -423,7 +448,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         const outcome = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: "Tarn: generating HTML report…",
+            title: vscode.l10n.t("Tarn: generating HTML report…"),
             cancellable: true,
           },
           async (_progress, token) => {
@@ -440,7 +465,10 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         cts.dispose();
         if (!outcome.htmlPath) {
           vscode.window.showErrorMessage(
-            `Tarn: HTML report not generated (exit ${outcome.exitCode}).`,
+            vscode.l10n.t(
+              "Tarn: HTML report not generated (exit {0}).",
+              String(outcome.exitCode),
+            ),
           );
           if (outcome.stderr) {
             out.appendLine(outcome.stderr);
@@ -450,11 +478,11 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
         }
         try {
           const html = await fs.promises.readFile(outcome.htmlPath, "utf8");
-          const title = `Tarn Report — ${path.basename(relFile)}`;
+          const title = vscode.l10n.t("Tarn Report — {0}", path.basename(relFile));
           deps.reportWebview.show(html, title);
         } catch (err) {
           vscode.window.showErrorMessage(
-            `Tarn: failed to read HTML report: ${String(err)}`,
+            vscode.l10n.t("Tarn: failed to read HTML report: {0}", String(err)),
           );
         } finally {
           // The HTML is self-contained and already loaded into the webview;
@@ -512,7 +540,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
               : undefined;
         if (!entry) {
           vscode.window.showInformationMessage(
-            "Tarn: this history entry is no longer available.",
+            vscode.l10n.t("Tarn: this history entry is no longer available."),
           );
           return;
         }
@@ -588,7 +616,7 @@ export function registerCommands(deps: CommandDeps): vscode.Disposable {
     const parsed = deps.index.get(editor.document.uri);
     if (!parsed) {
       vscode.window.showInformationMessage(
-        "Tarn: current file is not indexed as a Tarn test file.",
+        vscode.l10n.t("Tarn: current file is not indexed as a Tarn test file."),
       );
       return;
     }
@@ -629,24 +657,24 @@ async function showHistoryFilterPicker(deps: CommandDeps): Promise<void> {
 
   type Item = vscode.QuickPickItem & { filter: RunHistoryFilter };
   const items: Item[] = [
-    { label: "$(list-flat) All runs", filter: { kind: "all" } },
-    { label: "$(check) Passed only", filter: { kind: "passed" } },
-    { label: "$(x) Failed or errored", filter: { kind: "failed" } },
+    { label: vscode.l10n.t("$(list-flat) All runs"), filter: { kind: "all" } },
+    { label: vscode.l10n.t("$(check) Passed only"), filter: { kind: "passed" } },
+    { label: vscode.l10n.t("$(x) Failed or errored"), filter: { kind: "failed" } },
   ];
   for (const env of envs) {
     items.push({
-      label: `$(symbol-variable) env · ${env}`,
+      label: vscode.l10n.t("$(symbol-variable) env · {0}", env),
       filter: { kind: "env", value: env },
     });
   }
   for (const tag of tags) {
     items.push({
-      label: `$(tag) tag · ${tag}`,
+      label: vscode.l10n.t("$(tag) tag · {0}", tag),
       filter: { kind: "tag", value: tag },
     });
   }
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "Filter Run History",
+    placeHolder: vscode.l10n.t("Filter Run History"),
     matchOnDescription: true,
   });
   if (!picked) return;
@@ -659,7 +687,9 @@ async function rerunHistoryEntry(
 ): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
-    vscode.window.showInformationMessage("Tarn: no workspace folder available.");
+    vscode.window.showInformationMessage(
+      vscode.l10n.t("Tarn: no workspace folder available."),
+    );
     return;
   }
 

@@ -43,9 +43,12 @@ export class TarnFormatProvider implements vscode.DocumentFormattingEditProvider
 
     if (error) {
       const out = getOutputChannel();
+      // l10n-ignore: debug log for engineers, shown with [tarn fmt] prefix.
       out.appendLine(`[tarn fmt] ${document.uri.fsPath}: ${error}`);
       vscode.window.showWarningMessage(
-        "Tarn: format failed. Fix the parse error first. See the Tarn output channel for details.",
+        vscode.l10n.t(
+          "Tarn: format failed. Fix the parse error first. See the Tarn output channel for details.",
+        ),
       );
       return [];
     }

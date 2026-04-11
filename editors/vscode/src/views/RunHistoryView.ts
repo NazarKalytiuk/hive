@@ -105,7 +105,11 @@ export class RunHistoryStore {
     return {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: Date.now(),
-      label: `${report.summary.steps.passed}/${report.summary.steps.total} steps`,
+      label: vscode.l10n.t(
+        "{0}/{1} steps",
+        report.summary.steps.passed,
+        report.summary.steps.total,
+      ),
       environment: args.environment,
       tags: args.tags,
       status: report.summary.status,
@@ -222,7 +226,7 @@ export class RunHistoryTreeProvider
       item.resourceUri = vscode.Uri.file(element.file);
       item.command = {
         command: "vscode.open",
-        title: "Open",
+        title: vscode.l10n.t("Open"),
         arguments: [item.resourceUri],
       };
       return item;
@@ -236,9 +240,8 @@ export class RunHistoryTreeProvider
           : "$(alert)";
     const pinIcon = entry.pinned ? "$(pinned) " : "";
     const date = new Date(entry.timestamp).toLocaleTimeString();
-    const label = `${pinIcon}${statusIcon} ${date} · ${entry.label}${
-      entry.dryRun ? " (dry)" : ""
-    }`;
+    const suffix = entry.dryRun ? vscode.l10n.t(" (dry)") : "";
+    const label = `${pinIcon}${statusIcon} ${date} · ${entry.label}${suffix}`;
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
     item.tooltip = this.renderTooltip(entry);
     item.description = this.renderDescription(entry);

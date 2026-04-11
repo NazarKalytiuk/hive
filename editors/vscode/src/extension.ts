@@ -41,9 +41,11 @@ export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<TarnExtensionApi | undefined> {
   const output = getOutputChannel();
+  // l10n-ignore: debug log with static prefix; not user-facing copy.
   output.appendLine("[tarn] activating");
 
   if (!vscode.workspace.isTrusted) {
+    // l10n-ignore: debug log only, shown in Tarn output channel for diagnostics.
     output.appendLine("[tarn] workspace is untrusted; only passive features available");
     context.subscriptions.push(
       vscode.workspace.onDidGrantWorkspaceTrust(() => {
@@ -201,6 +203,7 @@ export async function activate(
     }),
   );
 
+  // l10n-ignore: debug log with tarn prefix; engineers read this in the output channel.
   output.appendLine(
     `[tarn] ready (${index.all.length} test file(s) indexed)`,
   );

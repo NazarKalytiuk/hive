@@ -14,7 +14,7 @@ export class TarnStatusBar implements vscode.Disposable {
       100,
     );
     this.envItem.command = "tarn.selectEnvironment";
-    this.envItem.tooltip = "Tarn: select environment";
+    this.envItem.tooltip = vscode.l10n.t("Tarn: select environment");
 
     this.summaryItem = vscode.window.createStatusBarItem(
       "tarn.summary",
@@ -22,7 +22,7 @@ export class TarnStatusBar implements vscode.Disposable {
       100,
     );
     this.summaryItem.command = "tarn.showOutput";
-    this.summaryItem.tooltip = "Tarn: last run summary";
+    this.summaryItem.tooltip = vscode.l10n.t("Tarn: last run summary");
 
     this.refresh();
   }
@@ -33,8 +33,8 @@ export class TarnStatusBar implements vscode.Disposable {
       this.summaryItem.hide();
       return;
     }
-    const env = this.state.activeEnvironment ?? "default";
-    this.envItem.text = `$(beaker) Tarn: ${env}`;
+    const env = this.state.activeEnvironment ?? vscode.l10n.t("default");
+    this.envItem.text = vscode.l10n.t("$(beaker) Tarn: {0}", env);
     this.envItem.show();
     if (this.summaryText.length > 0) {
       this.summaryItem.text = this.summaryText;
@@ -45,14 +45,20 @@ export class TarnStatusBar implements vscode.Disposable {
   }
 
   setRunning(progress: string): void {
-    this.summaryText = `$(sync~spin) Tarn ${progress}`;
+    this.summaryText = vscode.l10n.t("$(sync~spin) Tarn {0}", progress);
     this.refresh();
   }
 
   setSummary(passed: number, failed: number, durationMs: number): void {
     const seconds = (durationMs / 1000).toFixed(1);
     const icon = failed === 0 ? "$(check)" : "$(x)";
-    this.summaryText = `${icon} Tarn ${passed}/${passed + failed} · ${seconds}s`;
+    this.summaryText = vscode.l10n.t(
+      "{0} Tarn {1}/{2} · {3}s",
+      icon,
+      passed,
+      passed + failed,
+      seconds,
+    );
     this.refresh();
   }
 

@@ -60,9 +60,10 @@ export class FixPlanView
         humanizeCategory(element.category),
         vscode.TreeItemCollapsibleState.Expanded,
       );
-      item.description = `${element.entries.length} hint${
-        element.entries.length === 1 ? "" : "s"
-      }`;
+      item.description =
+        element.entries.length === 1
+          ? vscode.l10n.t("{0} hint", element.entries.length)
+          : vscode.l10n.t("{0} hints", element.entries.length);
       item.iconPath = new vscode.ThemeIcon(iconForCategory(element.category));
       item.contextValue = "tarnFixPlanGroup";
       return item;
@@ -72,14 +73,14 @@ export class FixPlanView
       element.hint,
       vscode.TreeItemCollapsibleState.None,
     );
-    item.description = `${element.testName} / ${element.stepName}`;
+    item.description = vscode.l10n.t("{0} / {1}", element.testName, element.stepName);
     item.iconPath = new vscode.ThemeIcon("lightbulb");
     item.tooltip = renderTooltip(element);
     item.contextValue = "tarnFixPlanEntry";
     if (element.location) {
       item.command = {
         command: "tarn.jumpToFailure",
-        title: "Jump to failure",
+        title: vscode.l10n.t("Jump to failure"),
         arguments: [
           element.location.uri.toString(),
           serializeRange(element.location.range),
@@ -95,8 +96,9 @@ export class FixPlanView
         return [
           {
             kind: "placeholder",
-            message:
+            message: vscode.l10n.t(
               "No fix plan available. Run a test that fails to populate remediation hints here.",
+            ),
           },
         ];
       }
@@ -194,8 +196,11 @@ function hintsForStep(step: StepResult): string[] {
   // A failure with no remediation hints would otherwise disappear
   // from the view. Surface it with a minimal placeholder so users
   // can still click-through to the failing line.
-  const code = step.error_code ? ` (${step.error_code})` : "";
-  return [`No remediation hints available${code}.`];
+  return [
+    step.error_code
+      ? vscode.l10n.t("No remediation hints available ({0}).", step.error_code)
+      : vscode.l10n.t("No remediation hints available."),
+  ];
 }
 
 function locationForStep(
@@ -252,7 +257,7 @@ export function deserializeRange(
 function renderTooltip(entry: FixPlanEntry): vscode.MarkdownString {
   const lines = [
     `**${entry.stepName}** — ${entry.testName}`,
-    `Category: \`${entry.category}\``,
+    vscode.l10n.t("Category: `{0}`", entry.category),
     "",
     entry.hint,
   ];
@@ -282,19 +287,19 @@ export function categoryOrder(category: string): number {
 export function humanizeCategory(category: string): string {
   switch (category) {
     case "assertion_failed":
-      return "Assertion failed";
+      return vscode.l10n.t("Assertion failed");
     case "capture_error":
-      return "Capture error";
+      return vscode.l10n.t("Capture error");
     case "unresolved_template":
-      return "Unresolved template";
+      return vscode.l10n.t("Unresolved template");
     case "parse_error":
-      return "Parse error";
+      return vscode.l10n.t("Parse error");
     case "connection_error":
-      return "Connection error";
+      return vscode.l10n.t("Connection error");
     case "timeout":
-      return "Timeout";
+      return vscode.l10n.t("Timeout");
     case "unknown":
-      return "Other";
+      return vscode.l10n.t("Other");
     default:
       return category;
   }

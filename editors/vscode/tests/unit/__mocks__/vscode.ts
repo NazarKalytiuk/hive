@@ -53,6 +53,32 @@ export const window = {
   },
 };
 
+/**
+ * Minimal `vscode.l10n` stub for unit tests.
+ *
+ * VS Code's real implementation looks up `message` in a bundle keyed
+ * by locale and falls back to the English key when no translation is
+ * available. Unit tests always see the EN fallback, so we faithfully
+ * reproduce the fallback: return `message` with `{N}` placeholders
+ * substituted by positional args.
+ */
+export const l10n = {
+  t(message: string, ...args: Array<string | number | boolean>): string {
+    if (args.length === 0) {
+      return message;
+    }
+    return message.replace(/\{(\d+)\}/g, (match, indexStr) => {
+      const index = Number(indexStr);
+      if (Number.isInteger(index) && index >= 0 && index < args.length) {
+        return String(args[index]);
+      }
+      return match;
+    });
+  },
+  bundle: undefined as Record<string, string> | undefined,
+  uri: undefined,
+};
+
 export default {
   Position,
   Range,
@@ -62,4 +88,5 @@ export default {
   Uri,
   workspace,
   window,
+  l10n,
 };

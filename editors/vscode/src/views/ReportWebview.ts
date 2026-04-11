@@ -22,7 +22,7 @@ export class ReportWebview implements vscode.Disposable {
   constructor(private readonly index: WorkspaceIndex) {}
 
   /** Render the given HTML in a reused panel (creating one if needed). */
-  show(htmlContent: string, title = "Tarn HTML Report"): void {
+  show(htmlContent: string, title = vscode.l10n.t("Tarn HTML Report")): void {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         "tarn.report",
@@ -62,6 +62,7 @@ export class ReportWebview implements vscode.Disposable {
     }
     const parsed = findParsedByRelativePath(this.index, message.file);
     if (!parsed) {
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(
         `[tarn] ReportWebview: no parsed file matches ${message.file}`,
       );
@@ -71,6 +72,7 @@ export class ReportWebview implements vscode.Disposable {
     const step = test?.steps.find((s) => s.index === message.stepIndex);
     const range = step?.nameRange ?? test?.nameRange;
     if (!range) {
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(
         `[tarn] ReportWebview: no range for ${message.file}::${message.test}::${message.stepIndex}`,
       );

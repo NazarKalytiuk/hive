@@ -59,7 +59,9 @@ function applyTest(parsed: ParsedFile, test: TestResult, ctx: MapContext): void 
   if (test.status === "PASSED") {
     ctx.run.passed(testItem, test.duration_ms);
   } else {
-    const message = new vscode.TestMessage(`Test "${test.name}" failed`);
+    const message = new vscode.TestMessage(
+      vscode.l10n.t('Test "{0}" failed', test.name),
+    );
     ctx.run.failed(testItem, message, test.duration_ms);
   }
 }
@@ -196,19 +198,19 @@ function renderAssertionFailure(
     parts.push(failure.message);
   }
   if (failure.expected !== undefined) {
-    parts.push(`Expected: \`${failure.expected}\``);
+    parts.push(vscode.l10n.t("Expected: `{0}`", String(failure.expected)));
   }
   if (failure.actual !== undefined) {
-    parts.push(`Actual: \`${failure.actual}\``);
+    parts.push(vscode.l10n.t("Actual: `{0}`", String(failure.actual)));
   }
   if (step.failure_category) {
-    parts.push(`Category: \`${step.failure_category}\``);
+    parts.push(vscode.l10n.t("Category: `{0}`", step.failure_category));
   }
   if (step.error_code) {
-    parts.push(`Error code: \`${step.error_code}\``);
+    parts.push(vscode.l10n.t("Error code: `{0}`", step.error_code));
   }
   if (step.remediation_hints && step.remediation_hints.length > 0) {
-    parts.push("Hints:");
+    parts.push(vscode.l10n.t("Hints:"));
     for (const hint of step.remediation_hints) {
       parts.push(`- ${hint}`);
     }
@@ -219,7 +221,7 @@ function renderAssertionFailure(
     parts.push("```");
   }
   if (step.request) {
-    parts.push("Request:");
+    parts.push(vscode.l10n.t("Request:"));
     parts.push("```http");
     parts.push(`${step.request.method} ${step.request.url}`);
     if (step.request.headers) {
@@ -234,7 +236,7 @@ function renderAssertionFailure(
     parts.push("```");
   }
   if (step.response) {
-    parts.push("Response:");
+    parts.push(vscode.l10n.t("Response:"));
     parts.push("```http");
     parts.push(`HTTP ${step.response.status}`);
     if (step.response.headers) {
@@ -270,12 +272,12 @@ function renderGenericFailure(
   location: vscode.Location | undefined,
 ): vscode.TestMessage {
   const parts: string[] = [];
-  parts.push(`**${step.name}** failed`);
+  parts.push(vscode.l10n.t("**{0}** failed", step.name));
   if (step.failure_category) {
-    parts.push(`Category: \`${step.failure_category}\``);
+    parts.push(vscode.l10n.t("Category: `{0}`", step.failure_category));
   }
   if (step.error_code) {
-    parts.push(`Error code: \`${step.error_code}\``);
+    parts.push(vscode.l10n.t("Error code: `{0}`", step.error_code));
   }
   if (step.remediation_hints) {
     for (const hint of step.remediation_hints) {

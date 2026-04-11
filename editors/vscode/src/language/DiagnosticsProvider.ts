@@ -76,7 +76,10 @@ export class TarnDiagnosticsProvider implements vscode.Disposable {
 
       if (report.error) {
         this.collection.set(doc.uri, [
-          this.fileDiagnostic(doc, `Tarn validate: ${report.error}`),
+          this.fileDiagnostic(
+            doc,
+            vscode.l10n.t("Tarn validate: {0}", report.error),
+          ),
         ]);
         return;
       }
@@ -97,6 +100,7 @@ export class TarnDiagnosticsProvider implements vscode.Disposable {
       );
       this.collection.set(doc.uri, diagnostics);
     } catch (err) {
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(
         `[tarn] validate-on-save failed for ${doc.uri.fsPath}: ${String(err)}`,
       );

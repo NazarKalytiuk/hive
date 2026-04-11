@@ -36,7 +36,7 @@ export class RequestResponsePanel implements vscode.Disposable {
     }
     this.panel = vscode.window.createWebviewPanel(
       PANEL_ID,
-      "Tarn: Step Details",
+      vscode.l10n.t("Tarn: Step Details"),
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true },
     );
@@ -74,7 +74,7 @@ export class RequestResponsePanel implements vscode.Disposable {
 
   private refresh(): void {
     if (!this.panel || !this.current) return;
-    this.panel.title = `Tarn: ${this.current.stepName}`;
+    this.panel.title = vscode.l10n.t("Tarn: {0}", this.current.stepName);
     this.panel.webview.html = renderHtml(this.current);
   }
 
@@ -144,13 +144,17 @@ export function truncateBody(content: string): {
 function renderHtml(snapshot: StepSnapshot): string {
   const step = snapshot.step;
   const nonce = String(Date.now()) + Math.random().toString(36).slice(2);
+  const titleText = vscode.l10n.t("Tarn: Step Details");
+  const tabRequest = vscode.l10n.t("Request");
+  const tabResponse = vscode.l10n.t("Response");
+  const tabAssertions = vscode.l10n.t("Assertions");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
-<title>Tarn: Step Details</title>
+<title>${escapeHtml(titleText)}</title>
 <style>
   body {
     font-family: var(--vscode-font-family);
@@ -288,9 +292,9 @@ function renderHtml(snapshot: StepSnapshot): string {
   </div>
 
   <div class="tabs" role="tablist">
-    <button class="tab-button active" data-tab="request" role="tab">Request</button>
-    <button class="tab-button" data-tab="response" role="tab">Response</button>
-    <button class="tab-button" data-tab="assertions" role="tab">Assertions</button>
+    <button class="tab-button active" data-tab="request" role="tab">${escapeHtml(tabRequest)}</button>
+    <button class="tab-button" data-tab="response" role="tab">${escapeHtml(tabResponse)}</button>
+    <button class="tab-button" data-tab="assertions" role="tab">${escapeHtml(tabAssertions)}</button>
   </div>
 
   <div class="tab-panel active" id="tab-request">
@@ -328,22 +332,23 @@ function renderHtml(snapshot: StepSnapshot): string {
 
 function renderRequestPanel(step: StepResult): string {
   if (!step.request) {
-    return `<p class="empty">No request captured for this step.</p>`;
+    return `<p class="empty">${escapeHtml(vscode.l10n.t("No request captured for this step."))}</p>`;
   }
   const req = step.request;
   const headersHtml = renderHeadersTable(req.headers);
   const { display, truncated } = truncateBody(stringifyBody(req.body));
+  const bodyLabel = vscode.l10n.t("Body");
   const bodyHtml = req.body !== undefined
-    ? `<h3>Body</h3>
+    ? `<h3>${escapeHtml(bodyLabel)}</h3>
        ${truncated ? renderTruncationBanner("request") : ""}
        <pre>${escapeHtml(display)}</pre>`
     : "";
   return `
     <table class="headers">
-      <tr><td class="name">Method</td><td>${escapeHtml(req.method)}</td></tr>
-      <tr><td class="name">URL</td><td>${escapeHtml(req.url)}</td></tr>
+      <tr><td class="name">${escapeHtml(vscode.l10n.t("Method"))}</td><td>${escapeHtml(req.method)}</td></tr>
+      <tr><td class="name">${escapeHtml(vscode.l10n.t("URL"))}</td><td>${escapeHtml(req.url)}</td></tr>
     </table>
-    <h3>Headers</h3>
+    <h3>${escapeHtml(vscode.l10n.t("Headers"))}</h3>
     ${headersHtml}
     ${bodyHtml}
   `;
@@ -352,24 +357,25 @@ function renderRequestPanel(step: StepResult): string {
 function renderResponsePanel(step: StepResult): string {
   if (!step.response) {
     if (step.response_status !== undefined) {
-      return `<table class="headers"><tr><td class="name">Status</td><td>${step.response_status}</td></tr></table>
-              <p class="empty">Full response not captured (step passed). Response bodies are only included for failed steps.</p>`;
+      return `<table class="headers"><tr><td class="name">${escapeHtml(vscode.l10n.t("Status"))}</td><td>${step.response_status}</td></tr></table>
+              <p class="empty">${escapeHtml(vscode.l10n.t("Full response not captured (step passed). Response bodies are only included for failed steps."))}</p>`;
     }
-    return `<p class="empty">No response captured.</p>`;
+    return `<p class="empty">${escapeHtml(vscode.l10n.t("No response captured."))}</p>`;
   }
   const res = step.response;
   const headersHtml = renderHeadersTable(res.headers);
   const { display, truncated } = truncateBody(stringifyBody(res.body));
+  const bodyLabel = vscode.l10n.t("Body");
   const bodyHtml = res.body !== undefined
-    ? `<h3>Body</h3>
+    ? `<h3>${escapeHtml(bodyLabel)}</h3>
        ${truncated ? renderTruncationBanner("response") : ""}
        <pre>${escapeHtml(display)}</pre>`
     : "";
   return `
     <table class="headers">
-      <tr><td class="name">Status</td><td>${res.status}</td></tr>
+      <tr><td class="name">${escapeHtml(vscode.l10n.t("Status"))}</td><td>${res.status}</td></tr>
     </table>
-    <h3>Headers</h3>
+    <h3>${escapeHtml(vscode.l10n.t("Headers"))}</h3>
     ${headersHtml}
     ${bodyHtml}
   `;
@@ -378,7 +384,7 @@ function renderResponsePanel(step: StepResult): string {
 function renderAssertionsPanel(step: StepResult): string {
   const assertions = step.assertions;
   if (!assertions) {
-    return `<p class="empty">No assertions recorded for this step.</p>`;
+    return `<p class="empty">${escapeHtml(vscode.l10n.t("No assertions recorded for this step."))}</p>`;
   }
 
   const rows: string[] = [];
@@ -391,16 +397,18 @@ function renderAssertionsPanel(step: StepResult): string {
   const source = allDetails.length > 0 ? allDetails : failuresOnly;
 
   if (source.length === 0) {
-    rows.push(`<p class="empty">No assertion details recorded.</p>`);
+    rows.push(
+      `<p class="empty">${escapeHtml(vscode.l10n.t("No assertion details recorded."))}</p>`,
+    );
   } else {
     for (const a of source) {
       const status = a.passed ? "passed" : "failed";
-      const statusLabel = a.passed ? "PASSED" : "FAILED";
+      const statusLabel = a.passed ? vscode.l10n.t("PASSED") : vscode.l10n.t("FAILED");
       const expectedHtml = a.expected !== undefined
-        ? `<div class="assertion-detail">Expected: <code>${escapeHtml(String(a.expected))}</code></div>`
+        ? `<div class="assertion-detail">${escapeHtml(vscode.l10n.t("Expected:"))} <code>${escapeHtml(String(a.expected))}</code></div>`
         : "";
       const actualHtml = a.actual !== undefined
-        ? `<div class="assertion-detail">Actual: <code>${escapeHtml(String(a.actual))}</code></div>`
+        ? `<div class="assertion-detail">${escapeHtml(vscode.l10n.t("Actual:"))} <code>${escapeHtml(String(a.actual))}</code></div>`
         : "";
       const messageHtml = a.message
         ? `<div class="assertion-detail">${escapeHtml(a.message)}</div>`
@@ -410,7 +418,7 @@ function renderAssertionsPanel(step: StepResult): string {
         : "";
       rows.push(`
         <div class="assertion-row ${status}">
-          <div class="assertion-label">${escapeHtml(a.assertion)} <span class="status ${status}">${statusLabel}</span></div>
+          <div class="assertion-label">${escapeHtml(a.assertion)} <span class="status ${status}">${escapeHtml(statusLabel)}</span></div>
           ${expectedHtml}
           ${actualHtml}
           ${messageHtml}
@@ -422,7 +430,14 @@ function renderAssertionsPanel(step: StepResult): string {
 
   return `
     <p class="meta">
-      ${assertions.passed} passed · ${assertions.failed} failed · ${assertions.total} total
+      ${escapeHtml(
+        vscode.l10n.t(
+          "{0} passed · {1} failed · {2} total",
+          assertions.passed,
+          assertions.failed,
+          assertions.total,
+        ),
+      )}
     </p>
     ${rows.join("")}
   `;
@@ -430,7 +445,7 @@ function renderAssertionsPanel(step: StepResult): string {
 
 function renderHeadersTable(headers: Record<string, string> | undefined): string {
   if (!headers || Object.keys(headers).length === 0) {
-    return `<p class="empty">No headers.</p>`;
+    return `<p class="empty">${escapeHtml(vscode.l10n.t("No headers."))}</p>`;
   }
   const rows = Object.entries(headers)
     .map(
@@ -444,8 +459,8 @@ function renderHeadersTable(headers: Record<string, string> | undefined): string
 function renderTruncationBanner(body: "request" | "response"): string {
   return `
     <div class="truncation">
-      Body truncated to 10 KB.
-      <button data-open-full="${body}">Open full in new editor</button>
+      ${escapeHtml(vscode.l10n.t("Body truncated to 10 KB."))}
+      <button data-open-full="${body}">${escapeHtml(vscode.l10n.t("Open full in new editor"))}</button>
     </div>
   `;
 }

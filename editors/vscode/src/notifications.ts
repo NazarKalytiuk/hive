@@ -31,20 +31,30 @@ export function shouldNotifyOnFailure(args: {
  * Build the message shown in the warning toast. Keeps the name list
  * short so the toast doesn't wrap aggressively in VS Code's tight
  * notification column.
+ *
+ * Every template variant is routed through `vscode.l10n.t` so the
+ * English strings land in `l10n/bundle.l10n.json` and translators
+ * can localize the singular/plural/scope variants independently.
  */
 export function formatFailureMessage(report: Report): string {
   const failed = report.summary.steps.failed;
   const files = report.files
     .filter((f) => f.status === "FAILED")
     .map((f) => f.name || f.file);
-  const suffix =
-    files.length === 0
-      ? ""
-      : files.length <= 3
-        ? ` in ${files.join(", ")}`
-        : ` across ${files.length} files`;
-  const noun = failed === 1 ? "step" : "steps";
-  return `Tarn: ${failed} failed ${noun}${suffix}`;
+  if (files.length === 0) {
+    return failed === 1
+      ? vscode.l10n.t("Tarn: {0} failed step", failed)
+      : vscode.l10n.t("Tarn: {0} failed steps", failed);
+  }
+  if (files.length <= 3) {
+    const joined = files.join(", ");
+    return failed === 1
+      ? vscode.l10n.t("Tarn: {0} failed step in {1}", failed, joined)
+      : vscode.l10n.t("Tarn: {0} failed steps in {1}", failed, joined);
+  }
+  return failed === 1
+    ? vscode.l10n.t("Tarn: {0} failed step across {1} files", failed, files.length)
+    : vscode.l10n.t("Tarn: {0} failed steps across {1} files", failed, files.length);
 }
 
 /**
@@ -88,19 +98,22 @@ export class FailureNotifier {
     if (!shouldShow) return false;
 
     const message = formatFailureMessage(report);
+    const actionShowFixPlan = vscode.l10n.t("Show Fix Plan");
+    const actionOpenReport = vscode.l10n.t("Open Report");
+    const actionRerunFailed = vscode.l10n.t("Rerun Failed");
     const pick = await vscode.window.showWarningMessage(
       message,
-      "Show Fix Plan",
-      "Open Report",
-      "Rerun Failed",
+      actionShowFixPlan,
+      actionOpenReport,
+      actionRerunFailed,
     );
     if (!pick) return true;
     try {
-      if (pick === "Show Fix Plan") {
+      if (pick === actionShowFixPlan) {
         await this.handlers.showFixPlan();
-      } else if (pick === "Open Report") {
+      } else if (pick === actionOpenReport) {
         await this.handlers.openReport(options.files);
-      } else if (pick === "Rerun Failed") {
+      } else if (pick === actionRerunFailed) {
         await this.handlers.rerunFailed();
       }
     } catch {

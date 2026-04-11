@@ -47,12 +47,16 @@ async function runInitProjectWizard(deps: InitProjectDeps): Promise<void> {
 
   const existing = await detectExistingScaffold(folderUri);
   if (existing) {
+    const proceedAction = vscode.l10n.t("Proceed");
     const choice = await vscode.window.showWarningMessage(
-      `The folder already contains '${existing}'. Running Tarn init here will overwrite scaffold files.`,
+      vscode.l10n.t(
+        "The folder already contains '{0}'. Running Tarn init here will overwrite scaffold files.",
+        existing,
+      ),
       { modal: true },
-      "Proceed",
+      proceedAction,
     );
-    if (choice !== "Proceed") return;
+    if (choice !== proceedAction) return;
   }
 
   const flavor = await pickScaffoldFlavor();
@@ -69,7 +73,8 @@ async function runInitProjectWizard(deps: InitProjectDeps): Promise<void> {
 
   if (!outcome.success) {
     vscode.window.showErrorMessage(
-      outcome.errorMessage ?? "Tarn: init failed. See the output channel.",
+      outcome.errorMessage ??
+        vscode.l10n.t("Tarn: init failed. See the output channel."),
     );
     return;
   }
@@ -89,11 +94,18 @@ async function runInitProjectWizard(deps: InitProjectDeps): Promise<void> {
 
   if (outcome.validationErrors > 0) {
     vscode.window.showWarningMessage(
-      `Tarn: scaffold created but ${outcome.validationErrors} file(s) failed validation. See the output channel.`,
+      vscode.l10n.t(
+        "Tarn: scaffold created but {0} file(s) failed validation. See the output channel.",
+        outcome.validationErrors,
+      ),
     );
   } else {
     vscode.window.showInformationMessage(
-      `Tarn: project ready in ${vscode.workspace.asRelativePath(folderUri)} (${flavor} scaffold).`,
+      vscode.l10n.t(
+        "Tarn: project ready in {0} ({1} scaffold).",
+        vscode.workspace.asRelativePath(folderUri),
+        flavor,
+      ),
     );
   }
 
@@ -103,16 +115,18 @@ async function runInitProjectWizard(deps: InitProjectDeps): Promise<void> {
     (f) => f.uri.fsPath === folderUri.fsPath,
   );
   if (!inWorkspace) {
+    const openNewWindow = vscode.l10n.t("Open in New Window");
+    const openCurrentWindow = vscode.l10n.t("Open in Current Window");
     const action = await vscode.window.showInformationMessage(
-      "Tarn: open the scaffolded project folder?",
-      "Open in New Window",
-      "Open in Current Window",
+      vscode.l10n.t("Tarn: open the scaffolded project folder?"),
+      openNewWindow,
+      openCurrentWindow,
     );
-    if (action === "Open in New Window") {
+    if (action === openNewWindow) {
       await vscode.commands.executeCommand("vscode.openFolder", folderUri, {
         forceNewWindow: true,
       });
-    } else if (action === "Open in Current Window") {
+    } else if (action === openCurrentWindow) {
       await vscode.commands.executeCommand("vscode.openFolder", folderUri);
     }
   } else {
@@ -130,6 +144,7 @@ export async function runInitProject(
   options: InitProjectOptions,
 ): Promise<InitProjectOutcome> {
   const out = getOutputChannel();
+  // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
   out.appendLine(
     `[tarn] init project in ${options.folder} (flavor=${options.flavor})`,
   );
@@ -138,7 +153,9 @@ export async function runInitProject(
   cts.dispose();
 
   if (initResult.exitCode !== 0) {
-    out.appendLine(initResult.stderr || initResult.stdout || "tarn init failed");
+    out.appendLine(
+      initResult.stderr || initResult.stdout || vscode.l10n.t("tarn init failed"),
+    );
     out.show(true);
     return {
       success: false,
@@ -146,7 +163,10 @@ export async function runInitProject(
       created: [],
       deleted: [],
       validationErrors: 0,
-      errorMessage: `tarn init exited with code ${initResult.exitCode}`,
+      errorMessage: vscode.l10n.t(
+        "tarn init exited with code {0}",
+        String(initResult.exitCode),
+      ),
     };
   }
   if (initResult.stdout.trim().length > 0) out.appendLine(initResult.stdout.trimEnd());
@@ -176,6 +196,7 @@ export async function runInitProject(
         await fs.promises.writeFile(envPath, rewritten, "utf8");
       }
     } catch (err) {
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       out.appendLine(`[tarn] failed to rewrite tarn.env.yaml: ${String(err)}`);
     }
   }
@@ -262,19 +283,19 @@ async function pickDestinationFolder(): Promise<vscode.Uri | undefined> {
   const items: Pick[] = [];
   for (const folder of workspaces) {
     items.push({
-      label: `$(folder) ${folder.name}`,
+      label: vscode.l10n.t("$(folder) {0}", folder.name),
       description: folder.uri.fsPath,
-      detail: "Scaffold into this workspace folder",
+      detail: vscode.l10n.t("Scaffold into this workspace folder"),
       value: folder.uri,
     });
   }
   items.push({
-    label: "$(folder-opened) Browse…",
-    description: "Pick another folder on disk",
+    label: vscode.l10n.t("$(folder-opened) Browse…"),
+    description: vscode.l10n.t("Pick another folder on disk"),
     value: "browse",
   });
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "Where should Tarn scaffold the new project?",
+    placeHolder: vscode.l10n.t("Where should Tarn scaffold the new project?"),
   });
   if (!picked) return undefined;
   if (picked.value === "browse") {
@@ -282,7 +303,7 @@ async function pickDestinationFolder(): Promise<vscode.Uri | undefined> {
       canSelectFiles: false,
       canSelectFolders: true,
       canSelectMany: false,
-      openLabel: "Initialize Tarn here",
+      openLabel: vscode.l10n.t("Initialize Tarn here"),
     });
     return picks?.[0];
   }
@@ -293,18 +314,22 @@ async function pickScaffoldFlavor(): Promise<ScaffoldFlavor | undefined> {
   type Item = vscode.QuickPickItem & { value: ScaffoldFlavor };
   const items: Item[] = [
     {
-      label: "$(rocket) All templates (recommended)",
-      description: "health check + auth / multipart / polling / multi-user examples",
+      label: vscode.l10n.t("$(rocket) All templates (recommended)"),
+      description: vscode.l10n.t(
+        "health check + auth / multipart / polling / multi-user examples",
+      ),
       value: "all",
     },
     {
-      label: "$(file-code) Basic",
-      description: "just the health check and configs — no examples/ folder",
+      label: vscode.l10n.t("$(file-code) Basic"),
+      description: vscode.l10n.t(
+        "just the health check and configs — no examples/ folder",
+      ),
       value: "basic",
     },
   ];
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "Pick a scaffold flavor",
+    placeHolder: vscode.l10n.t("Pick a scaffold flavor"),
   });
   return picked?.value;
 }
@@ -315,44 +340,48 @@ async function promptEnvOverrides(): Promise<
   const answer = await vscode.window.showQuickPick(
     [
       {
-        label: "$(check) Use defaults",
-        description: "base_url=http://localhost:3000, admin@example.com / secret",
+        label: vscode.l10n.t("$(check) Use defaults"),
+        description: vscode.l10n.t(
+          "base_url=http://localhost:3000, admin@example.com / secret",
+        ),
         value: false,
       },
       {
-        label: "$(edit) Customize env values",
-        description: "Prompt for base_url and admin credentials",
+        label: vscode.l10n.t("$(edit) Customize env values"),
+        description: vscode.l10n.t("Prompt for base_url and admin credentials"),
         value: true,
       },
     ],
-    { placeHolder: "Customize starter env values?" },
+    { placeHolder: vscode.l10n.t("Customize starter env values?") },
   );
   if (!answer) return undefined;
   if (!answer.value) return {};
 
   const overrides: Record<string, string> = {};
   const baseUrl = await vscode.window.showInputBox({
-    prompt: "Base URL for the API under test",
+    prompt: vscode.l10n.t("Base URL for the API under test"),
     value: "http://localhost:3000",
     validateInput: (raw) =>
       /^https?:\/\//.test(raw.trim())
         ? undefined
-        : "Enter a URL starting with http:// or https://",
+        : vscode.l10n.t("Enter a URL starting with http:// or https://"),
   });
   if (baseUrl === undefined) return undefined;
   overrides.base_url = baseUrl.trim();
 
   const adminEmail = await vscode.window.showInputBox({
-    prompt: "Admin email (used by the auth-flow template)",
+    prompt: vscode.l10n.t("Admin email (used by the auth-flow template)"),
     value: "admin@example.com",
     validateInput: (raw) =>
-      raw.includes("@") ? undefined : "Enter a valid email address",
+      raw.includes("@")
+        ? undefined
+        : vscode.l10n.t("Enter a valid email address"),
   });
   if (adminEmail === undefined) return undefined;
   overrides.admin_email = adminEmail.trim();
 
   const adminPassword = await vscode.window.showInputBox({
-    prompt: "Admin password (stored as plaintext — only for local dev!)",
+    prompt: vscode.l10n.t("Admin password (stored as plaintext — only for local dev!)"),
     value: "secret",
     password: true,
   });
@@ -408,11 +437,13 @@ async function validateGeneratedFiles(
     for (const fileResult of report.files) {
       if (fileResult.valid) continue;
       errors += fileResult.errors.length;
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       out.appendLine(
         `[tarn] validate: ${fileResult.file} has ${fileResult.errors.length} error(s)`,
       );
       for (const err of fileResult.errors) {
         const at = err.line !== undefined ? ` line ${err.line}` : "";
+        // l10n-ignore: debug log line following the validate summary above.
         out.appendLine(`  -${at} ${err.message}`);
       }
     }

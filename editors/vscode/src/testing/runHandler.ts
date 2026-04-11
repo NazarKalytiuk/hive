@@ -42,12 +42,18 @@ export function createRunHandler(
     deps.state.lastRequest = request;
     deps.state.lastDryRun = dryRun;
 
-    const run = deps.controller.createTestRun(request, dryRun ? "Tarn Dry Run" : "Tarn Run", true);
+    const runLabel = dryRun
+      ? vscode.l10n.t("Tarn Dry Run")
+      : vscode.l10n.t("Tarn Run");
+    const run = deps.controller.createTestRun(request, runLabel, true);
     try {
       await executeRun(deps, request, run, token, dryRun);
     } catch (err) {
+      // l10n-ignore: debug log for engineers, shown with [tarn] prefix.
       getOutputChannel().appendLine(`[tarn] run failed: ${String(err)}`);
-      vscode.window.showErrorMessage(`Tarn run failed: ${String(err)}`);
+      vscode.window.showErrorMessage(
+        vscode.l10n.t("Tarn run failed: {0}", String(err)),
+      );
     } finally {
       run.end();
     }
@@ -63,7 +69,9 @@ async function executeRun(
 ): Promise<void> {
   const cwd = primaryWorkspaceFolder();
   if (!cwd) {
-    run.appendOutput("No workspace folder found; cannot invoke tarn.\r\n");
+    run.appendOutput(
+      vscode.l10n.t("No workspace folder found; cannot invoke tarn.") + "\r\n",
+    );
     return;
   }
 
@@ -75,7 +83,9 @@ async function executeRun(
 
   const { filesToRun, selectors } = planRun(deps, request, cwd);
   if (filesToRun.length === 0) {
-    run.appendOutput("No Tarn test files matched this run.\r\n");
+    run.appendOutput(
+      vscode.l10n.t("No Tarn test files matched this run.") + "\r\n",
+    );
     return;
   }
 

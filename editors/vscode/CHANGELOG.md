@@ -10,6 +10,100 @@ What this means for the extension itself: the stable surface is now CI-enforced.
 
 The `1.0.0` release itself is cut by NAZ-288's version alignment step — the extension version, the Tarn `Cargo.toml` version, and the matching git tag all bump together. Between now and then, the extension keeps shipping normal minor releases on the `0.x` track (see `0.24.0` below for the staging release that introduces the API promise mechanics).
 
+## 0.26.0 — Phase 6: Localization baseline (NAZ-286)
+
+Locks in the extension's user-visible string surface so future
+translators can land non-English locales without touching a line of
+TypeScript. Every command title, quick-pick placeholder, notification
+toast, tree-item label, webview tab, and inline markdown block shipped
+so far now flows through a single localization layer, and a CI lint
+refuses to merge a new hardcoded string into `src/` on the sly.
+
+This is the "catalog in place" deliverable — no translations are
+bundled yet. An EN-only extension still behaves identically to
+`0.25.0`; the difference is that the strings are now load-bearing
+keys in a dedicated bundle instead of being scattered across forty
+source files.
+
+### Added
+
+- **`vscode.l10n.t(...)` wrapping across every user-visible string**
+  in `src/**/*.ts`. Covers the four command modules
+  (`commands/{index,bench,importHurl,initProject}.ts`), every view
+  in `src/views/`, `src/testing/{runHandler,ResultMapper,TestController}.ts`,
+  `src/language/{HoverProvider,DiagnosticsProvider,FormatProvider}.ts`,
+  `src/codelens/TestCodeLensProvider.ts`, `src/notifications.ts`,
+  `src/statusBar.ts`, and `src/backend/binaryResolver.ts`. Pluralization
+  and file-scope variants in `formatFailureMessage` expand into six
+  distinct keys so each branch can be translated independently
+  instead of being glued together by string concatenation.
+- **`editors/vscode/l10n/bundle.l10n.json`** — the canonical EN
+  catalog, 236 keys and growing. Every entry is `"English": "English"`
+  for the baseline; future locale files (`bundle.l10n.fr.json`, etc.)
+  slot in beside it without touching this file. VS Code picks the
+  directory up automatically thanks to the new top-level `"l10n":
+  "./l10n"` field in `package.json`.
+- **`editors/vscode/package.nls.json`** for `package.json`-level
+  strings: every `contributes.commands[*].title`, every
+  `contributes.configuration.properties[*].description` and
+  `enumDescriptions`, every view name / container title /
+  walkthrough step, and the untrusted-workspace capability blurb.
+  Each `package.json` entry now reads `%key.name%` and the English
+  default lives in `package.nls.json`. Locale variants use sibling
+  `package.nls.<locale>.json` files.
+- **`tests/unit/l10nLint.test.ts`** — CI lint that scans every
+  `.ts` under `src/` for hardcoded literals passed to user-visible
+  VS Code APIs (`showInformationMessage`, `showWarningMessage`,
+  `showErrorMessage`, `placeHolder:`, `prompt:`, `saveLabel:`,
+  `openLabel:`). Literals are flagged unless the call already
+  routes through `vscode.l10n.t(...)` or the line carries an
+  explicit `// l10n-ignore` override (used for engineer-facing
+  `[tarn]` debug log lines). The test also enforces the bundle
+  invariant: every `t()` literal in source must have a matching
+  entry in `l10n/bundle.l10n.json`, and every bundle key must be
+  used by at least one call site. Drift in either direction fails
+  the build.
+- **`tests/unit/l10nFallback.test.ts`** — acceptance test for the
+  EN-fallback contract. Exercises `vscode.l10n.t` with unknown
+  keys (returns the source verbatim) and positional `{0}`/`{1}`
+  substitution, then drives the full `formatFailureMessage`
+  formatter matrix end-to-end to make sure every singular/plural
+  × file-count branch still yields the English baseline when no
+  translation is available.
+
+### Changed
+
+- **`formatFailureMessage`** in `src/notifications.ts` now routes
+  every variant through `vscode.l10n.t(...)` instead of building
+  the final string with template concatenation. The output stays
+  byte-identical in English — every existing
+  `notifications.test.ts` assertion still passes — but each
+  branch is now a standalone translatable key.
+- **`editors/vscode/tests/unit/__mocks__/vscode.ts`** mock gained
+  an `l10n.t` helper that reproduces the production fallback
+  behavior (return the key verbatim, substitute positional
+  `{N}` placeholders from the trailing args). Without this the
+  unit suite would have had to stub `vscode.l10n` in every
+  individual test.
+- **`editors/vscode/package.json`** bumped to `0.26.0` and gained
+  `"l10n": "./l10n"` at the top level so VS Code's extension
+  host loads `bundle.l10n.json` on activation.
+
+### Tests
+
+- **Unit** (`tests/unit/l10nLint.test.ts`, 7 tests). The lint
+  canary suite includes three self-checks (synthetic violation
+  detected, `// l10n-ignore` suppresses, already-wrapped `t()`
+  calls are clean) plus three bundle-drift checks (no missing
+  entries, no stale entries, identity-baseline values) plus the
+  real `src/`-wide scan itself.
+- **Unit** (`tests/unit/l10nFallback.test.ts`, 6 tests). Drives
+  the `t()` EN fallback directly and through
+  `formatFailureMessage` across the singular/plural × zero-file /
+  one-file / many-file matrix.
+- Total: 306 unit tests, 94 integration tests passing. Bundle
+  size: 288.9 KB, well under the 310 KB ceiling.
+
 ## 0.25.0 — Phase 6: Marketplace assets (NAZ-287)
 
 First polish pass at the Marketplace listing so that when `1.0.0` cuts the

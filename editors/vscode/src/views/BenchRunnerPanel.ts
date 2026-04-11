@@ -76,7 +76,7 @@ function buildTitle(context: BenchRunContext): string {
   const label = context.testName
     ? `${context.testName} / ${context.result.step_name}`
     : context.result.step_name;
-  return `Tarn Bench: ${label}`;
+  return vscode.l10n.t("Tarn Bench: {0}", label);
 }
 
 function renderHtml(context: BenchRunContext): string {
@@ -101,10 +101,12 @@ function renderHtml(context: BenchRunContext): string {
           .map((e) => `<li class="mono">${escapeHtml(e)}</li>`)
           .join("")}${
           result.errors.length > 20
-            ? `<li>…and ${result.errors.length - 20} more</li>`
+            ? `<li>${escapeHtml(
+                vscode.l10n.t("…and {0} more", result.errors.length - 20),
+              )}</li>`
             : ""
         }</ul>`
-      : '<div class="muted">No errors</div>';
+      : `<div class="muted">${escapeHtml(vscode.l10n.t("No errors"))}</div>`;
   const gates = result.gates ?? [];
   const gateRows = gates
     .map((gate) => {
@@ -203,42 +205,44 @@ function renderHtml(context: BenchRunContext): string {
 
   <div class="summary-grid">
     <div class="summary-card">
-      <div class="label">Throughput</div>
-      <div class="value">${formatNumber(result.throughput_rps)} req/s</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Throughput"))}</div>
+      <div class="value">${escapeHtml(vscode.l10n.t("{0} req/s", formatNumber(result.throughput_rps)))}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Total requests</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Total requests"))}</div>
       <div class="value">${result.total_requests}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Succeeded</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Succeeded"))}</div>
       <div class="value ok">${result.successful}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Failed</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Failed"))}</div>
       <div class="value ${result.failed > 0 ? "bad" : ""}">${result.failed}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Error rate</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Error rate"))}</div>
       <div class="value ${errorRateClass}">${formatPercent(result.error_rate)}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Wall-clock</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Wall-clock"))}</div>
       <div class="value">${formatDuration(result.total_duration_ms)}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Concurrency</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Concurrency"))}</div>
       <div class="value">${result.concurrency}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Outcome</div>
-      <div class="value ${summaryClass}">${
-    result.passed_gates === false ? "gates failed" : "ok"
-  }</div>
+      <div class="label">${escapeHtml(vscode.l10n.t("Outcome"))}</div>
+      <div class="value ${summaryClass}">${escapeHtml(
+        result.passed_gates === false
+          ? vscode.l10n.t("gates failed")
+          : vscode.l10n.t("ok"),
+      )}</div>
     </div>
   </div>
 
-  <h2>Latency</h2>
+  <h2>${escapeHtml(vscode.l10n.t("Latency"))}</h2>
   <div class="bars">
     ${renderBar("min", result.latency.min_ms, maxPercentile)}
     ${renderBar("mean", result.latency.mean_ms, maxPercentile)}
@@ -247,31 +251,31 @@ function renderHtml(context: BenchRunContext): string {
     ${renderBar("p99", result.latency.p99_ms, maxPercentile)}
     ${renderBar("max", result.latency.max_ms, maxPercentile)}
   </div>
-  <div class="muted" style="margin-top: 6px;">Std dev: ${formatNumber(
-    result.latency.stdev_ms,
-  )} ms</div>
+  <div class="muted" style="margin-top: 6px;">${escapeHtml(
+    vscode.l10n.t("Std dev: {0} ms", formatNumber(result.latency.stdev_ms)),
+  )}</div>
 
-  <h2>Status codes</h2>
+  <h2>${escapeHtml(vscode.l10n.t("Status codes"))}</h2>
   ${
     statusRows.length > 0
-      ? `<table><thead><tr><th>Code</th><th>Count</th></tr></thead><tbody>${statusRows}</tbody></table>`
-      : '<div class="muted">No status codes recorded</div>'
+      ? `<table><thead><tr><th>${escapeHtml(vscode.l10n.t("Code"))}</th><th>${escapeHtml(vscode.l10n.t("Count"))}</th></tr></thead><tbody>${statusRows}</tbody></table>`
+      : `<div class="muted">${escapeHtml(vscode.l10n.t("No status codes recorded"))}</div>`
   }
 
-  <h2>Errors</h2>
+  <h2>${escapeHtml(vscode.l10n.t("Errors"))}</h2>
   ${errorList}
 
   ${
     gates.length > 0
-      ? `<h2>Gates</h2>
+      ? `<h2>${escapeHtml(vscode.l10n.t("Gates"))}</h2>
          <table>
-           <thead><tr><th></th><th>Name</th><th>Threshold</th><th>Value</th><th>Message</th></tr></thead>
+           <thead><tr><th></th><th>${escapeHtml(vscode.l10n.t("Name"))}</th><th>${escapeHtml(vscode.l10n.t("Threshold"))}</th><th>${escapeHtml(vscode.l10n.t("Value"))}</th><th>${escapeHtml(vscode.l10n.t("Message"))}</th></tr></thead>
            <tbody>${gateRows}</tbody>
          </table>`
       : ""
   }
 
-  <h2>Raw JSON</h2>
+  <h2>${escapeHtml(vscode.l10n.t("Raw JSON"))}</h2>
   <pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>
 </body>
 </html>`;

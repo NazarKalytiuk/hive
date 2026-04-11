@@ -112,7 +112,10 @@ export class CapturesInspector
           vscode.TreeItemCollapsibleState.Expanded,
         );
         const testCount = element.tests.length;
-        item.description = `${testCount} test${testCount === 1 ? "" : "s"}`;
+        item.description =
+          testCount === 1
+            ? vscode.l10n.t("{0} test", testCount)
+            : vscode.l10n.t("{0} tests", testCount);
         item.tooltip = element.file;
         item.resourceUri = vscode.Uri.file(element.file);
         item.iconPath = new vscode.ThemeIcon("file-code");
@@ -125,7 +128,10 @@ export class CapturesInspector
           vscode.TreeItemCollapsibleState.Expanded,
         );
         const count = Object.keys(element.captures).length;
-        item.description = `${count} capture${count === 1 ? "" : "s"}`;
+        item.description =
+          count === 1
+            ? vscode.l10n.t("{0} capture", count)
+            : vscode.l10n.t("{0} captures", count);
         if (element.description) {
           item.tooltip = element.description;
         }
@@ -153,7 +159,9 @@ export class CapturesInspector
         return [
           {
             kind: "placeholder",
-            message: "No captures from the last run. Run a test that uses `capture:` to populate this view.",
+            message: vscode.l10n.t(
+              "No captures from the last run. Run a test that uses `capture:` to populate this view.",
+            ),
           },
         ];
       }
@@ -243,7 +251,7 @@ export class CapturesInspector
     // stay safe even when the user interacts with the tree.
     item.command = {
       command: "tarn.copyCaptureValue",
-      title: "Copy Capture Value",
+      title: vscode.l10n.t("Copy Capture Value"),
       arguments: [display.clipboard, element.path.join(".")],
     };
     return item;

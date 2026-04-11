@@ -28,6 +28,7 @@ export function createTarnTestController(
   failureNotifier: FailureNotifier,
   onHistoryChanged: () => void,
 ): TarnTestController {
+  // l10n-ignore: "Tarn" is a brand name and intentionally not translated.
   const controller = vscode.tests.createTestController("tarn", "Tarn");
 
   const state: RunState = {
@@ -54,13 +55,13 @@ export function createTarnTestController(
   const dryRunHandler = createRunHandler(deps, true);
 
   const runProfile = controller.createRunProfile(
-    "Run",
+    vscode.l10n.t("Run"),
     vscode.TestRunProfileKind.Run,
     runHandler,
     true,
   );
   const dryRunProfile = controller.createRunProfile(
-    "Dry Run",
+    vscode.l10n.t("Dry Run"),
     vscode.TestRunProfileKind.Run,
     dryRunHandler,
     false,
@@ -95,7 +96,9 @@ export function createTarnTestController(
     refresh,
     async rerunLast() {
       if (!state.lastRequest) {
-        vscode.window.showInformationMessage("No previous Tarn run to repeat.");
+        vscode.window.showInformationMessage(
+          vscode.l10n.t("No previous Tarn run to repeat."),
+        );
         return;
       }
       const handler = state.lastDryRun ? dryRunHandler : runHandler;

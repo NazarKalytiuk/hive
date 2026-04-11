@@ -28,14 +28,14 @@ export class TestCodeLensProvider implements vscode.CodeLensProvider {
       const testItemId = ids.test(document.uri, test.name);
       lenses.push(
         new vscode.CodeLens(test.nameRange, {
-          title: "$(play) Run",
+          title: vscode.l10n.t("$(play) Run"),
           command: "tarn.runTestFromCodeLens",
           arguments: [testItemId, false],
         }),
       );
       lenses.push(
         new vscode.CodeLens(test.nameRange, {
-          title: "$(debug-alt-small) Dry Run",
+          title: vscode.l10n.t("$(debug-alt-small) Dry Run"),
           command: "tarn.dryRunTestFromCodeLens",
           arguments: [testItemId, true],
         }),
@@ -45,7 +45,7 @@ export class TestCodeLensProvider implements vscode.CodeLensProvider {
         const stepItemId = ids.step(document.uri, test.name, step.index);
         lenses.push(
           new vscode.CodeLens(step.nameRange, {
-            title: "$(play) Run step",
+            title: vscode.l10n.t("$(play) Run step"),
             command: "tarn.runTestFromCodeLens",
             arguments: [stepItemId, false],
           }),

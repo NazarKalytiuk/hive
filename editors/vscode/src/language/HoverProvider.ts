@@ -60,12 +60,28 @@ export class TarnHoverProvider implements vscode.HoverProvider {
 
   private renderEmptyHelp(): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
-    md.appendMarkdown("**Tarn interpolation**\n\n");
-    md.appendMarkdown("- `{{ env.KEY }}` — value from the env resolution chain\n");
+    md.appendMarkdown(vscode.l10n.t("**Tarn interpolation**") + "\n\n");
     md.appendMarkdown(
-      "- `{{ capture.NAME }}` — value captured by a prior step in this test\n",
+      "- " +
+        vscode.l10n.t(
+          "`{{ env.KEY }}` — value from the env resolution chain",
+        ) +
+        "\n",
     );
-    md.appendMarkdown("- `{{ $uuid }}` — built-in function (also `$timestamp`, `$now_iso`, `$random_hex(n)`, `$random_int(min, max)`)\n");
+    md.appendMarkdown(
+      "- " +
+        vscode.l10n.t(
+          "`{{ capture.NAME }}` — value captured by a prior step in this test",
+        ) +
+        "\n",
+    );
+    md.appendMarkdown(
+      "- " +
+        vscode.l10n.t(
+          "`{{ $uuid }}` — built-in function (also `$timestamp`, `$now_iso`, `$random_hex(n)`, `$random_int(min, max)`)",
+        ) +
+        "\n",
+    );
     return md;
   }
 
@@ -79,13 +95,17 @@ export class TarnHoverProvider implements vscode.HoverProvider {
 
     if (key === "") {
       md.appendMarkdown("**`{{ env.KEY }}`**\n\n");
-      md.appendMarkdown("Resolves `KEY` from the env resolution chain:\n\n");
-      md.appendMarkdown("1. `--var KEY=VALUE` on the CLI\n");
+      md.appendMarkdown(
+        vscode.l10n.t("Resolves `KEY` from the env resolution chain:") + "\n\n",
+      );
+      md.appendMarkdown("1. `--var KEY=VALUE` " + vscode.l10n.t("on the CLI") + "\n");
       md.appendMarkdown("2. `tarn.env.local.yaml`\n");
       md.appendMarkdown("3. `tarn.env.{active}.yaml`\n");
-      md.appendMarkdown("4. shell environment\n");
+      md.appendMarkdown("4. " + vscode.l10n.t("shell environment") + "\n");
       md.appendMarkdown("5. `tarn.env.yaml`\n");
-      md.appendMarkdown("6. inline `env:` block in this test file\n");
+      md.appendMarkdown(
+        "6. " + vscode.l10n.t("inline `env:` block in this test file") + "\n",
+      );
       return md;
     }
 
@@ -97,12 +117,14 @@ export class TarnHoverProvider implements vscode.HoverProvider {
 
     if (declaringEntries.length === 0) {
       md.appendMarkdown(
-        `Not declared in any configured environment. Will resolve at runtime from \`tarn.env.yaml\`, a named env file, the shell, or an inline \`env:\` block — or fail with \`unresolved_template\` if none of those provide it.\n`,
+        vscode.l10n.t(
+          "Not declared in any configured environment. Will resolve at runtime from `tarn.env.yaml`, a named env file, the shell, or an inline `env:` block — or fail with `unresolved_template` if none of those provide it.",
+        ) + "\n",
       );
       return md;
     }
 
-    md.appendMarkdown("Declared in:\n\n");
+    md.appendMarkdown(vscode.l10n.t("Declared in:") + "\n\n");
     for (const entry of declaringEntries) {
       const value = entry.vars[key];
       md.appendMarkdown(
@@ -111,7 +133,10 @@ export class TarnHoverProvider implements vscode.HoverProvider {
     }
     if (declaringEntries.length > 1) {
       md.appendMarkdown(
-        "\n_The effective value depends on which environment is active (`--env NAME`) plus the resolution chain above._",
+        "\n" +
+          vscode.l10n.t(
+            "_The effective value depends on which environment is active (`--env NAME`) plus the resolution chain above._",
+          ),
       );
     }
     return md;
@@ -128,7 +153,9 @@ export class TarnHoverProvider implements vscode.HoverProvider {
     if (name === "") {
       md.appendMarkdown("**`{{ capture.NAME }}`**\n\n");
       md.appendMarkdown(
-        "Resolves `NAME` from the captures accumulated by earlier steps in the same test (plus any setup captures).",
+        vscode.l10n.t(
+          "Resolves `NAME` from the captures accumulated by earlier steps in the same test (plus any setup captures).",
+        ),
       );
       return md;
     }
@@ -138,26 +165,37 @@ export class TarnHoverProvider implements vscode.HoverProvider {
 
     if (matches.length === 0) {
       md.appendMarkdown(
-        `Not captured by any step visible from this position. Captures are only in scope within the same test (setup counts for every test). Check that an earlier step declares \`capture: { ${name}: ... }\`.`,
+        vscode.l10n.t(
+          "Not captured by any step visible from this position. Captures are only in scope within the same test (setup counts for every test). Check that an earlier step declares `capture: {{ {0}: ... }}`.",
+          name,
+        ),
       );
       return md;
     }
 
-    md.appendMarkdown("Captured by:\n\n");
+    md.appendMarkdown(vscode.l10n.t("Captured by:") + "\n\n");
     for (const cap of matches) {
       const scope =
         cap.phase === "setup"
-          ? "setup"
+          ? vscode.l10n.t("setup")
           : cap.testName
-            ? `test \`${cap.testName}\``
-            : "this file";
+            ? vscode.l10n.t("test `{0}`", cap.testName)
+            : vscode.l10n.t("this file");
       md.appendMarkdown(
-        `- step \`${cap.stepName}\` (index ${cap.stepIndex}, ${scope})\n`,
+        vscode.l10n.t(
+          "- step `{0}` (index {1}, {2})",
+          cap.stepName,
+          cap.stepIndex,
+          scope,
+        ) + "\n",
       );
     }
     if (matches.length > 1) {
       md.appendMarkdown(
-        "\n_Later declarations override earlier ones when the runner merges captures._",
+        "\n" +
+          vscode.l10n.t(
+            "_Later declarations override earlier ones when the runner merges captures._",
+          ),
       );
     }
     return md;
@@ -170,7 +208,7 @@ export class TarnHoverProvider implements vscode.HoverProvider {
 
     if (name === "") {
       md.appendMarkdown("**`{{ $builtin }}`**\n\n");
-      md.appendMarkdown("Tarn built-in functions:\n\n");
+      md.appendMarkdown(vscode.l10n.t("Tarn built-in functions:") + "\n\n");
       for (const fn of BUILTIN_FUNCTIONS) {
         md.appendMarkdown(`- \`${fn.signature}\` — ${fn.doc}\n`);
       }
@@ -182,7 +220,10 @@ export class TarnHoverProvider implements vscode.HoverProvider {
     if (!fn) {
       md.appendMarkdown(`**\`${lookupName}\`**\n\n`);
       md.appendMarkdown(
-        `Not a recognized Tarn built-in. Known functions: ${BUILTIN_FUNCTIONS.map((b) => `\`${b.name}\``).join(", ")}.`,
+        vscode.l10n.t(
+          "Not a recognized Tarn built-in. Known functions: {0}.",
+          BUILTIN_FUNCTIONS.map((b) => `\`${b.name}\``).join(", "),
+        ),
       );
       return md;
     }
