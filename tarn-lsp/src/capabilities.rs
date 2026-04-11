@@ -30,6 +30,11 @@
 //!   `textDocument/codeLens` emitting `Run test` / `Run step` actions
 //!   with stable `tarn.runTest` / `tarn.runStep` command IDs. Shipped.
 //!   This is the last Phase L2 capability — Phase L2 is now complete.
+//! - L3.1 (NAZ-302): `document_formatting_provider: Some(OneOf::Left(true))` —
+//!   whole-document formatting via `tarn::format::format_document`.
+//!   Range formatting is deliberately **not** advertised; the parser
+//!   re-renders the whole buffer so a range-only edit cannot be produced
+//!   without touching the surrounding YAML. Shipped.
 //!
 //! Nothing in this file should ever grow conditional logic — if a capability
 //! is on, it is on for every client and every workspace.
@@ -114,6 +119,16 @@ pub fn server_capabilities() -> ServerCapabilities {
         code_lens_provider: Some(CodeLensOptions {
             resolve_provider: Some(false),
         }),
+
+        // L3.1: the server answers `textDocument/formatting` requests
+        // for `.tarn.yaml` buffers by routing through
+        // `tarn::format::format_document` — the same library function
+        // the `tarn fmt` CLI calls. Range formatting is deliberately
+        // **not** advertised (see module doc comment above): the Tarn
+        // formatter re-renders the whole buffer, so a range edit
+        // cannot be produced without touching surrounding YAML.
+        // `document_range_formatting_provider` therefore stays unset.
+        document_formatting_provider: Some(OneOf::Left(true)),
 
         // All other capabilities are intentionally left unset. See the module
         // docs for the ticket that turns each one on.

@@ -9,6 +9,7 @@ use tarn::config::{self, TarnConfig};
 use tarn::cookie;
 use tarn::env;
 use tarn::error::TarnError;
+use tarn::format;
 use tarn::model::{HttpTransportConfig, HttpVersionPreference, TestFile};
 
 #[cfg(test)]
@@ -1335,11 +1336,30 @@ fn fmt_command(path: Option<String>, check: bool) -> i32 {
                 return 2;
             }
         };
-        let formatted = match parser::format_str(&original, path) {
+        // NAZ-302: route through the shared `tarn::format::format_document`
+        // library surface so CLI and LSP share one implementation. The
+        // library's "broken YAML → identity no-op" contract is right for
+        // the LSP (don't error while the user types) but wrong for the
+        // CLI (must still exit 2 on a broken file so CI fails loud). We
+        // pre-check YAML parseability and, if the pre-parse fails, route
+        // through `parser::format_str` once more to recover the same
+        // enhanced "file:line:col" error message the CLI used to emit.
+        // On every happy-path call this pre-check is a single O(file)
+        // serde_yaml parse, no extra format work.
+        if serde_yaml::from_str::<serde_yaml::Value>(&original).is_err() {
+            match parser::format_str(&original, path) {
+                Ok(_) => unreachable!("format_str cannot succeed after a raw parse failure"),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    return e.exit_code();
+                }
+            }
+        }
+        let formatted = match format::format_document(&original) {
             Ok(formatted) => formatted,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                return e.exit_code();
+                eprintln!("Error: Parse error: {}: {}", path.display(), e);
+                return 2;
             }
         };
 

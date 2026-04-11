@@ -31,12 +31,13 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    CodeLensRequest, Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest,
+    CodeLensRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
     PrepareRenameRequest, References, Rename, Request as _,
 };
 use lsp_types::{
-    CodeLensParams, CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
-    InitializeParams, ReferenceParams, RenameParams, TextDocumentPositionParams, Url,
+    CodeLensParams, CompletionParams, DocumentFormattingParams, DocumentSymbolParams,
+    GotoDefinitionParams, HoverParams, InitializeParams, ReferenceParams, RenameParams,
+    TextDocumentPositionParams, Url,
 };
 
 use crate::capabilities::server_capabilities;
@@ -45,6 +46,7 @@ use crate::completion;
 use crate::debounce::DebounceTracker;
 use crate::definition;
 use crate::diagnostics;
+use crate::formatting;
 use crate::hover;
 use crate::references;
 use crate::rename;
@@ -302,7 +304,9 @@ fn is_timeout(err: &crossbeam_channel::RecvTimeoutError) -> bool {
 /// [`references::text_document_references`]. L2.3 adds
 /// `textDocument/rename` + `prepareRename` via [`rename`]. L2.4 adds
 /// `textDocument/codeLens` via [`code_lens::text_document_code_lens`],
-/// which completes Phase L2.
+/// which completes Phase L2. L3.1 adds `textDocument/formatting` via
+/// [`formatting::text_document_formatting`], the first Phase L3 editing
+/// feature.
 fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
     // Capture the id up-front: `Request::extract` takes `self` by value
     // so we can't read `req.id` after a failed extract.
@@ -398,6 +402,22 @@ fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
                 // non-`*.tarn.yaml` URIs and unknown buffers, so clients
                 // always get a well-formed JSON array.
                 serialize_response(req_id, &result, "codeLens")
+            }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+        },
+        Formatting::METHOD => match req.extract::<DocumentFormattingParams>(Formatting::METHOD) {
+            Ok((req_id, params)) => {
+                let uri = params.text_document.uri;
+                // L3.1: `textDocument/formatting` runs `tarn fmt` in-process
+                // via `tarn::format::format_document` and returns a single
+                // whole-document `TextEdit`. An unknown URI, an
+                // un-parseable buffer, and a schema-invalid buffer all
+                // collapse to an empty array so the client never applies
+                // a destructive edit. Range formatting is deliberately
+                // not advertised — see `capabilities.rs`.
+                let result = formatting::text_document_formatting(&state.documents, &uri);
+                serialize_response(req_id, &result, "formatting")
             }
             Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
             Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),

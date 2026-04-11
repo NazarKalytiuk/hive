@@ -43,6 +43,14 @@ Phase L2 layers navigation features onto the L1 MVP. Each ticket is a thin wrapp
 
 **Phase L2 COMPLETE.** Every navigation and refactor capability listed under Epic NAZ-296 is now shipped.
 
+## Phase L3 status
+
+Phase L3 layers editing features onto the L1/L2 surface. Each ticket is a thin wrapper around an existing `tarn` crate primitive so edits stay consistent with the canonical format, the runner, and the validator.
+
+- [x] **L3.1 — formatting (NAZ-302)**: `textDocument/formatting` reformats the whole document in-process via `tarn::format::format_document` — the same library function the `tarn fmt` CLI calls. Range formatting (`textDocument/rangeFormatting`) is deliberately **not** advertised; the Tarn formatter re-renders the whole buffer so a range-only edit cannot be produced without touching surrounding YAML.
+
+Remaining L3 tickets (L3.2 code actions, L3.3 capture-field / scaffold-assert, L3.4 fix-plan quick fix, L3.5 nested completion, L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
+
 ## Installation
 
 `tarn-lsp` is a Cargo workspace crate in this repository. Until the crate is published to crates.io, the only supported install path is building from the workspace:
@@ -227,6 +235,19 @@ The `selector` string is the exact argument to pass to `tarn run --select`. It i
 
 **The server does not execute `tarn.runTest` / `tarn.runStep`.** These commands are handled by the client, which is expected to shell out to `tarn run --select <selector>` on its own side. Streaming NDJSON progress back through LSP notifications is deliberately deferred — a Phase L3 follow-up can revisit it if we decide the server should own execution as well.
 
+### 9. Formatting (`textDocument/formatting`) — new in L3.1
+
+Invoking "Format Document" (or any equivalent client-side shortcut — VS Code's `Shift+Alt+F`, Neovim's `vim.lsp.buf.format`, Helix's `:format`) reformats the whole `.tarn.yaml` buffer into the canonical Tarn layout by routing through `tarn::format::format_document`. That is the **same library function** the `tarn fmt` CLI calls — there is exactly one implementation, so a buffer formatted via LSP is byte-identical to the result of running `tarn fmt` on it from the terminal.
+
+The server always responds with one of two shapes:
+
+- An **empty array** when the buffer is already canonical, unknown to the server (never `didOpen`-ed), **unparseable** (broken YAML mid-edit), or schema-invalid. In the unparseable and schema-invalid cases the server logs a `tarn-lsp:` / `tarn::format:` prefixed warning to stderr so the "Language Server" output pane still tells the user why nothing changed. Formatting a broken document is a **no-op, never a failure** — the client never sees an error pop-up while the user is still typing.
+- A **single whole-document `TextEdit`** whose range starts at `(0, 0)` and ends past the last character of the old buffer. Clients merge the edit as one undo step, so a single Ctrl+Z reverts the entire format. There is no range-level diffing because the Tarn formatter re-renders the whole buffer — computing a minimal line diff would buy nothing the user can see, and would risk drift between CLI and LSP output.
+
+**Range formatting is not supported.** `textDocument/rangeFormatting` is deliberately left off the server capabilities, and the corresponding dispatch handler is absent. The Tarn formatter's contract is "normalise the whole document to canonical field order", which has no sensible subset-of-range interpretation — the `serde_yaml` round-trip produces bytes that differ from the input at arbitrary offsets, not just inside the selection. Clients that ask for range formatting will get a `MethodNotFound` response; well-behaved clients will never ask because the capability is not advertised.
+
+**CLI parity.** `tarn fmt file.tarn.yaml` and "Format Document" in the editor produce byte-identical output for the same input, because both paths call `tarn::format::format_document`. If a formatted buffer surprises you, run `tarn fmt --check file.tarn.yaml` from the terminal — the same canonical layout will surface there.
+
 ## Client configuration
 
 The binary speaks stdio LSP 3.17 — any client that can spawn an LSP server and speak JSON-RPC over stdio will work. Below are the three most common configurations.
@@ -376,9 +397,9 @@ Phase L1 is the MVP. Phase L2 and L3 pick up the long tail of LSP features and a
 - **Claude Code config integration** — finalise the Claude Code LSP config snippet once the harness schema is public.
 - **VS Code extension migration** — migrate `editors/vscode/` off its direct providers onto `tarn-lsp`, so there is one implementation of every language feature.
 
-### Phase L3 — polish and advanced refactor (future)
+### Phase L3 — editing polish (in progress)
 
-- **`textDocument/formatting`** — canonicalise `.tarn.yaml` indentation and key order.
+- [x] **`textDocument/formatting`** (NAZ-302) — whole-document formatting via `tarn::format::format_document`; identical output to `tarn fmt` from the terminal. Range formatting is deliberately **not** supported.
 - **`textDocument/codeAction`** — quick-fix squiggle hints, including integration with `tarn_fix_plan`.
 - **Inline JSONPath hover/completion** — resolve `$.foo.bar` against a cached response body for step-level assertions.
 - **Workspace-wide symbol search** — `workspace/symbol` across every open `.tarn.yaml` in the project.

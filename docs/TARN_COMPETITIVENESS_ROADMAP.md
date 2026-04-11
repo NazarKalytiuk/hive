@@ -260,9 +260,9 @@ Each item also adds its own golden or integration test so the new surface is cov
 
 ## Phase L: LSP for Claude Code
 
-Epic **NAZ-289** — `tarn-lsp` Language Server for Claude Code and non-VS-Code editors. Phase L1 (MVP) delivered as five tickets (L1.1 through L1.5) and Phase L2 (navigation) continues under Epic **NAZ-296**. Each ticket flips on exactly one LSP capability. Canonical spec lives in [`docs/TARN_LSP.md`](./TARN_LSP.md).
+Epic **NAZ-289** — `tarn-lsp` Language Server for Claude Code and non-VS-Code editors. Phase L1 (MVP) delivered as five tickets (L1.1 through L1.5), Phase L2 (navigation) under Epic **NAZ-296**, and Phase L3 (editing polish) under Epic **NAZ-301**. Each ticket flips on exactly one LSP capability. Canonical spec lives in [`docs/TARN_LSP.md`](./TARN_LSP.md).
 
-**Phase L1 COMPLETE** and **Phase L2 COMPLETE** — every L1 and L2 ticket below is shipped. Go-to-definition (L2.1), references (L2.2), rename (L2.3), and code lens (L2.4) have all landed. Phase L3 (formatter, fix plan, inline JSONPath, code actions) is deferred to a future epic.
+**Phase L1 COMPLETE**, **Phase L2 COMPLETE**, and **Phase L3 in progress**. L1/L2 are fully shipped (diagnostics, hover, completion, symbols, definition, references, rename, code lens). Phase L3 has landed its first ticket — L3.1 formatting (NAZ-302). Remaining L3 tickets (code actions framework, capture-field / scaffold-assert actions, fix-plan quick fix, nested completion, inline JSONPath evaluator) are tracked under Epic NAZ-301.
 
 | ID | Task | Impact | Effort | Depends | Files |
 |---|---|---:|---:|---|---|
@@ -275,6 +275,7 @@ Epic **NAZ-289** — `tarn-lsp` Language Server for Claude Code and non-VS-Code 
 | L2.2 | References (`textDocument/references`) for capture (per-test, current file) and env (workspace-wide, bounded at 5000 files) interpolation tokens **[shipped — NAZ-298]** | 7 | M | L2.1 | `tarn-lsp/src/references.rs`, `tarn-lsp/src/workspace.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/src/token.rs`, `docs/TARN_LSP.md` |
 | L2.3 | Rename (`textDocument/rename` + `textDocument/prepareRename`) for capture (per-test, current file) and env (every declaring env source file + every workspace use site) interpolation tokens with identifier validation and collision detection **[shipped — NAZ-299]** | 8 | M | L2.2 | `tarn-lsp/src/rename.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/src/references.rs`, `docs/TARN_LSP.md` |
 | L2.4 | Code lens (`textDocument/codeLens`) emitting `Run test` / `Run step` inline actions with stable `tarn.runTest` / `tarn.runStep` command IDs; shared selector composer extracted to `tarn::selector::format_*_selector` **[shipped — NAZ-300]** | 7 | S | L2.1-L2.3 | `tarn-lsp/src/code_lens.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn/src/selector.rs`, `docs/TARN_LSP.md` |
+| L3.1 | `textDocument/formatting` via new `tarn::format::format_document` library surface — one implementation, two call sites (CLI `tarn fmt` and LSP handler). Range formatting deliberately **not** supported. **[shipped — NAZ-302]** | 7 | S | L2.4 | `tarn/src/format.rs`, `tarn/src/lib.rs`, `tarn/src/main.rs`, `tarn-lsp/src/formatting.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/tests/formatting_test.rs`, `docs/TARN_LSP.md` |
 
 ### L1.1 scope (shipped)
 
