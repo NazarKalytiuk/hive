@@ -31,11 +31,11 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Request as _,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Request as _,
 };
 use lsp_types::{
     CompletionParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams, InitializeParams,
-    Url,
+    ReferenceParams, Url,
 };
 
 use crate::capabilities::server_capabilities;
@@ -44,7 +44,9 @@ use crate::debounce::DebounceTracker;
 use crate::definition;
 use crate::diagnostics;
 use crate::hover;
+use crate::references;
 use crate::symbols;
+use crate::workspace::WorkspaceIndex;
 
 /// Short tag used in the `eprintln!` server-info log. Tests grep for this.
 pub const SERVER_NAME: &str = "tarn-lsp";
@@ -102,6 +104,33 @@ impl DocumentStore {
     }
 }
 
+/// Aggregated server state passed to handlers that need more than just
+/// the in-memory document store.
+///
+/// L2.2 (NAZ-298) introduces the first cross-file feature
+/// (`textDocument/references`), which needs both the document store and
+/// the workspace index — the latter caches every `.tarn.yaml` outline
+/// in the workspace root so the references walker doesn't reparse the
+/// world on every keystroke. Existing handlers (hover, completion,
+/// definition, document symbols) still take `&DocumentStore` directly;
+/// only references reaches into the full state.
+#[derive(Debug, Default)]
+pub struct ServerState {
+    /// In-memory document store. Keys are LSP `Url`s exactly as the
+    /// client sends them.
+    pub documents: DocumentStore,
+    /// Bounded cross-file cache populated lazily on the first reference
+    /// query. See [`crate::workspace::WorkspaceIndex`] for the
+    /// invalidation rules.
+    pub workspace_index: WorkspaceIndex,
+}
+
+impl ServerState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Entry point for the real binary: hook up stdio and run the loop.
 pub fn run() -> Result<(), Box<dyn Error + Sync + Send>> {
     let (connection, io_threads) = Connection::stdio();
@@ -116,7 +145,22 @@ pub fn run() -> Result<(), Box<dyn Error + Sync + Send>> {
 /// full handshake over `Connection::memory()` without spawning a subprocess.
 pub fn run_with_connection(connection: Connection) -> Result<(), Box<dyn Error + Sync + Send>> {
     let (initialize_id, initialize_params) = connection.initialize_start()?;
-    let _params: InitializeParams = serde_json::from_value(initialize_params)?;
+    let params: InitializeParams = serde_json::from_value(initialize_params)?;
+
+    // Capture the workspace root URL up front so cross-file features
+    // (NAZ-298 references and beyond) know where to walk. The LSP spec
+    // prefers `workspace_folders` over the deprecated `root_uri`, so
+    // we check both — first folder wins when both are populated.
+    let workspace_root: Option<Url> = params
+        .workspace_folders
+        .as_ref()
+        .and_then(|folders| folders.first().map(|folder| folder.uri.clone()))
+        .or_else(|| {
+            #[allow(deprecated)]
+            {
+                params.root_uri.clone()
+            }
+        });
 
     let initialize_result = serde_json::json!({
         "capabilities": server_capabilities(),
@@ -132,7 +176,7 @@ pub fn run_with_connection(connection: Connection) -> Result<(), Box<dyn Error +
 
     connection.initialize_finish(initialize_id, initialize_result)?;
 
-    main_loop(&connection)?;
+    main_loop(&connection, workspace_root)?;
     Ok(())
 }
 
@@ -141,8 +185,12 @@ pub fn run_with_connection(connection: Connection) -> Result<(), Box<dyn Error +
 ///
 /// Uses `recv_timeout` whenever a debounce deadline is pending so the loop
 /// can wake itself and flush diagnostics without a separate thread.
-fn main_loop(connection: &Connection) -> Result<(), Box<dyn Error + Sync + Send>> {
-    let mut store = DocumentStore::new();
+fn main_loop(
+    connection: &Connection,
+    workspace_root: Option<Url>,
+) -> Result<(), Box<dyn Error + Sync + Send>> {
+    let mut state = ServerState::new();
+    state.workspace_index.set_root(workspace_root);
     let mut debounce = DebounceTracker::new();
 
     loop {
@@ -157,14 +205,19 @@ fn main_loop(connection: &Connection) -> Result<(), Box<dyn Error + Sync + Send>
                 if wait.is_zero() {
                     // Already past the deadline — flush before reading the
                     // next message so we don't sleep while diagnostics pile up.
-                    flush_due_debounces(&mut debounce, &store, connection, now)?;
+                    flush_due_debounces(&mut debounce, &state.documents, connection, now)?;
                     continue;
                 }
                 match connection.receiver.recv_timeout(wait) {
                     Ok(msg) => msg,
                     Err(err) if is_timeout(&err) => {
                         // Debounce fired — flush and loop back to recv().
-                        flush_due_debounces(&mut debounce, &store, connection, Instant::now())?;
+                        flush_due_debounces(
+                            &mut debounce,
+                            &state.documents,
+                            connection,
+                            Instant::now(),
+                        )?;
                         continue;
                     }
                     // Any other error means the connection is closed; exit
@@ -190,16 +243,17 @@ fn main_loop(connection: &Connection) -> Result<(), Box<dyn Error + Sync + Send>
                 }
                 // Dispatch typed LSP requests. Phase L1 handles hover
                 // (L1.3), completion (L1.4), and documentSymbol (L1.5).
+                // L2.1 added go-to-definition; L2.2 adds references.
                 // Anything else falls through to a JSON-RPC "method not
-                // found" response until Phase L2 adds more handlers.
-                let resp = dispatch_request(req, &store);
+                // found" response until later tickets add more handlers.
+                let resp = dispatch_request(req, &mut state);
                 connection.sender.send(Message::Response(resp))?;
             }
             Message::Response(_) => {
                 // We never send server-to-client requests today.
             }
             Message::Notification(note) => {
-                handle_notification(note, &mut store, &mut debounce, connection)?;
+                handle_notification(note, &mut state, &mut debounce, connection)?;
             }
         }
     }
@@ -241,7 +295,9 @@ fn is_timeout(err: &crossbeam_channel::RecvTimeoutError) -> bool {
 /// `textDocument/documentSymbol` via
 /// [`symbols::text_document_document_symbol`]. L2.1 adds
 /// `textDocument/definition` via [`definition::text_document_definition`].
-fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
+/// L2.2 adds `textDocument/references` via
+/// [`references::text_document_references`].
+fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
     // Capture the id up-front: `Request::extract` takes `self` by value
     // so we can't read `req.id` after a failed extract.
     let id = req.id.clone();
@@ -250,7 +306,7 @@ fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
             Ok((req_id, params)) => {
                 let uri = params.text_document_position_params.text_document.uri;
                 let position = params.text_document_position_params.position;
-                let result = hover::text_document_hover(store, &uri, position);
+                let result = hover::text_document_hover(&state.documents, &uri, position);
                 // LSP spec: hover may return `null` when there is nothing
                 // to show. We serialize `None` as JSON null via serde_json.
                 serialize_response(req_id, &result, "hover")
@@ -262,7 +318,7 @@ fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
             Ok((req_id, params)) => {
                 let uri = params.text_document_position.text_document.uri;
                 let position = params.text_document_position.position;
-                let result = completion::text_document_completion(store, &uri, position);
+                let result = completion::text_document_completion(&state.documents, &uri, position);
                 // LSP spec: completion may return `null`. The helper
                 // returns `None` when the cursor has no valid context.
                 serialize_response(req_id, &result, "completion")
@@ -274,7 +330,7 @@ fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
             match req.extract::<DocumentSymbolParams>(DocumentSymbolRequest::METHOD) {
                 Ok((req_id, params)) => {
                     let uri = params.text_document.uri;
-                    let result = symbols::text_document_document_symbol(store, &uri);
+                    let result = symbols::text_document_document_symbol(&state.documents, &uri);
                     serialize_response(req_id, &result, "documentSymbol")
                 }
                 Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
@@ -286,11 +342,20 @@ fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
             Ok((req_id, params)) => {
                 let uri = params.text_document_position_params.text_document.uri;
                 let position = params.text_document_position_params.position;
-                let result = definition::text_document_definition(store, &uri, position);
+                let result = definition::text_document_definition(&state.documents, &uri, position);
                 // LSP spec: definition may return `null`. The handler
                 // returns `None` for unknown URIs, non-navigable tokens,
                 // and empty lookups.
                 serialize_response(req_id, &result, "definition")
+            }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
+        },
+        References::METHOD => match req.extract::<ReferenceParams>(References::METHOD) {
+            Ok((req_id, params)) => {
+                let result = references::text_document_references(state, params);
+                // LSP spec: references returns an array (possibly empty).
+                serialize_response(req_id, &result, "references")
             }
             Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
             Err(ExtractError::JsonError { method, error }) => invalid_params(id, method, error),
@@ -357,10 +422,12 @@ fn method_not_found(req: Request) -> Response {
 ///
 /// This function is where L1.2 hooks into the handler surface that L1.1
 /// already owned. Each case matches an acceptance-criterion bullet on the
-/// ticket.
+/// ticket. L2.2 (NAZ-298) extends every change/save/close branch to
+/// invalidate the workspace index entry for the affected URL so the next
+/// reference query re-reads the freshest content.
 fn handle_notification(
     note: Notification,
-    store: &mut DocumentStore,
+    state: &mut ServerState,
     debounce: &mut DebounceTracker,
     connection: &Connection,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -368,10 +435,13 @@ fn handle_notification(
         DidOpenTextDocument::METHOD => {
             let params = cast_notification::<DidOpenTextDocument>(note)?;
             let uri = params.text_document.uri;
-            store.open(uri.clone(), params.text_document.text);
+            state.documents.open(uri.clone(), params.text_document.text);
+            // Drop any stale workspace-index entry — the buffer the
+            // client just opened is the source of truth from now on.
+            state.workspace_index.invalidate(&uri);
             // Acceptance: "On didOpen ... the server parses the document ...
             // and publishes publishDiagnostics for that URL." — flush now.
-            diagnostics::validate_and_publish(store, &uri, connection)?;
+            diagnostics::validate_and_publish(&state.documents, &uri, connection)?;
         }
         DidChangeTextDocument::METHOD => {
             let params = cast_notification::<DidChangeTextDocument>(note)?;
@@ -381,7 +451,8 @@ fn handle_notification(
             // case any client batches.
             if let Some(change) = params.content_changes.into_iter().next_back() {
                 let uri = params.text_document.uri;
-                store.change(uri.clone(), change.text);
+                state.documents.change(uri.clone(), change.text);
+                state.workspace_index.invalidate(&uri);
                 // Debounce the flush: a burst of keystrokes collapses to a
                 // single publishDiagnostics after 300ms of quiet.
                 debounce.record_change(uri, Instant::now());
@@ -394,7 +465,8 @@ fn handle_notification(
             // (publishDiagnostics with empty array)."
             diagnostics::publish_empty(connection, &uri)?;
             // Then tear down the store entry + any pending debounce.
-            store.close(&uri);
+            state.documents.close(&uri);
+            state.workspace_index.invalidate(&uri);
             debounce.forget(&uri);
         }
         DidSaveTextDocument::METHOD => {
@@ -404,7 +476,8 @@ fn handle_notification(
             // Save flushes immediately, bypassing the debounce, and cancels
             // any pending debounced fire for this URL (no double-publish).
             debounce.forget(&uri);
-            diagnostics::validate_and_publish(store, &uri, connection)?;
+            state.workspace_index.invalidate(&uri);
+            diagnostics::validate_and_publish(&state.documents, &uri, connection)?;
         }
         // `initialized` and `exit` are handled by `Connection::initialize_*`
         // and `Connection::handle_shutdown` respectively. Anything else we

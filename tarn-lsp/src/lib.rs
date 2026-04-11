@@ -14,10 +14,14 @@ pub mod debounce;
 pub mod definition;
 pub mod diagnostics;
 pub mod hover;
+pub mod references;
 pub mod schema;
 pub mod server;
 pub mod symbols;
 pub mod token;
+pub mod workspace;
 
 pub use capabilities::server_capabilities;
-pub use server::{run, run_with_connection, DocumentStore, SERVER_NAME, SERVER_VERSION};
+pub use server::{
+    run, run_with_connection, DocumentStore, ServerState, SERVER_NAME, SERVER_VERSION,
+};

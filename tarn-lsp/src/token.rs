@@ -22,7 +22,7 @@
 //! is LSP-types-only, which is why every helper is trivially
 //! unit-testable.
 
-use lsp_types::Position;
+use lsp_types::{Position, Range};
 
 // Re-export the token classifier + its token enum under the "interpolation"
 // naming so downstream modules (definition, references) can depend on a
@@ -34,6 +34,115 @@ pub use crate::hover::{
     resolve_hover_token as resolve_interpolation_token, HoverToken as InterpolationToken,
     HoverTokenSpan as InterpolationTokenSpan,
 };
+
+/// Every classified `{{ ... }}` interpolation token in `source`, in document
+/// order, with each token's LSP `Range` attached.
+///
+/// L2.2 (`textDocument/references`) needs a "scan the whole file" pass that
+/// hover and definition never required: those features classify the *one*
+/// token under the cursor, while references has to enumerate every use site
+/// of a given env key or capture name. This helper gives the references
+/// renderer a single source of truth — it scans `source` exactly once and
+/// returns a `Vec` the renderer can filter on.
+///
+/// Behaviour:
+///
+///   * Multi-token lines are supported. The scanner advances past each
+///     `}}` and continues looking for more `{{` after it on the same line.
+///   * Multi-line tokens are supported (a `{{` followed by a newline and
+///     then a `}}` on the next line still resolves into one token).
+///   * Unclosed `{{` (a typo or an in-progress edit) terminates the scan
+///     gracefully — every token already collected is still returned.
+///   * The scanner does not look at YAML structure: tokens that appear
+///     inside YAML comments are skipped, since interpolation in a `#`
+///     comment never fires at runtime and including those use sites
+///     would be misleading. Comment detection is line-local — a `#`
+///     anywhere on a line marks the rest of that line as a comment.
+///   * Empty token bodies (`{{ }}`) and tokens that classify into
+///     `None` (raw text we don't recognise) are skipped.
+pub fn scan_all_interpolations(source: &str) -> Vec<InterpolationTokenSpan> {
+    let mut out = Vec::new();
+    let bytes = source.as_bytes();
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        // Skip YAML line comments. A `#` following whitespace (or at the
+        // start of a line) starts a comment that runs to the next `\n`.
+        // Interpolations inside that comment have no runtime effect, so
+        // they should not appear as references.
+        if bytes[i] == b'#' && (i == 0 || is_yaml_comment_start(bytes, i)) {
+            // Fast-forward to the next newline.
+            let rest = &bytes[i..];
+            let advance = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
+            i += advance;
+            continue;
+        }
+        if bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            // Find the matching `}}`.
+            let after_open = i + 2;
+            let Some(rel_end) = find_subslice(&bytes[after_open..], b"}}") else {
+                // Unclosed `{{`. Stop scanning so we don't claim the
+                // rest of the file as a single token.
+                break;
+            };
+            let content_start = after_open;
+            let content_end = after_open + rel_end;
+            let token_end = content_end + 2;
+            let raw = &source[content_start..content_end];
+            if let Some(token) = classify_interpolation_body(raw.trim()) {
+                let start_pos = byte_offset_to_position(source, i);
+                let end_pos = byte_offset_to_position(source, token_end);
+                out.push(InterpolationTokenSpan {
+                    token,
+                    range: Range::new(start_pos, end_pos),
+                });
+            }
+            i = token_end;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Classify the trimmed body of a `{{ ... }}` interpolation.
+///
+/// Mirrors the logic of `crate::hover::classify_expression` but is private
+/// to the scanner so future changes to either side stay isolated. We also
+/// reject empty bodies up front — `{{ }}` is a typo, not a token.
+fn classify_interpolation_body(raw: &str) -> Option<InterpolationToken> {
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some(rest) = raw.strip_prefix("env.") {
+        return Some(InterpolationToken::Env(rest.trim().to_owned()));
+    }
+    if raw == "env" {
+        return Some(InterpolationToken::Env(String::new()));
+    }
+    if let Some(rest) = raw.strip_prefix("capture.") {
+        return Some(InterpolationToken::Capture(rest.trim().to_owned()));
+    }
+    if raw == "capture" {
+        return Some(InterpolationToken::Capture(String::new()));
+    }
+    if let Some(rest) = raw.strip_prefix('$') {
+        let name = rest.split('(').next().unwrap_or("").trim();
+        return Some(InterpolationToken::Builtin(name.to_owned()));
+    }
+    None
+}
+
+/// True when the `#` byte at `idx` is a YAML line-comment start. The
+/// scanner only walks back to the previous newline (or the buffer start)
+/// — the rule we enforce is "preceding character is whitespace, or `#`
+/// is at column 0".
+fn is_yaml_comment_start(bytes: &[u8], idx: usize) -> bool {
+    if idx == 0 {
+        return true;
+    }
+    let prev = bytes[idx - 1];
+    prev == b' ' || prev == b'\t' || prev == b'\n'
+}
 
 /// Convert a 0-based LSP [`Position`] into a byte offset into `source`.
 ///
@@ -277,5 +386,93 @@ mod tests {
     #[test]
     fn column_to_line_byte_offset_mid_line_is_char_byte_sum() {
         assert_eq!(column_to_line_byte_offset("abcdef", 3), 3);
+    }
+
+    // ---- scan_all_interpolations ----
+
+    #[test]
+    fn scan_all_interpolations_finds_single_env_token() {
+        let src = "url: \"{{ env.base_url }}\"\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0].token, InterpolationToken::Env(ref k) if k == "base_url"));
+        assert_eq!(tokens[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn scan_all_interpolations_finds_multiple_tokens_on_one_line() {
+        let src = "url: \"{{ env.base_url }}/items/{{ capture.id }}\"\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 2);
+        match &tokens[0].token {
+            InterpolationToken::Env(k) => assert_eq!(k, "base_url"),
+            other => panic!("expected env token, got {other:?}"),
+        }
+        match &tokens[1].token {
+            InterpolationToken::Capture(k) => assert_eq!(k, "id"),
+            other => panic!("expected capture token, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scan_all_interpolations_finds_tokens_across_multiple_lines() {
+        let src = "a: \"{{ env.x }}\"\nb: \"{{ capture.y }}\"\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].range.start.line, 0);
+        assert_eq!(tokens[1].range.start.line, 1);
+    }
+
+    #[test]
+    fn scan_all_interpolations_handles_unclosed_open_gracefully() {
+        // Unclosed `{{` should not eat the rest of the file or panic.
+        let src = "first: \"{{ env.a }}\"\nsecond: \"{{ env.b\nthird: ok\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 1);
+        match &tokens[0].token {
+            InterpolationToken::Env(k) => assert_eq!(k, "a"),
+            other => panic!("expected first token to be env.a, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scan_all_interpolations_skips_tokens_inside_yaml_line_comments() {
+        let src = "# {{ env.commented }}\nurl: \"{{ env.real }}\"\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 1);
+        match &tokens[0].token {
+            InterpolationToken::Env(k) => assert_eq!(k, "real"),
+            other => panic!("expected env.real, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scan_all_interpolations_skips_tokens_in_trailing_comment() {
+        let src = "url: \"{{ env.real }}\" # {{ env.commented }}\n";
+        let tokens = scan_all_interpolations(src);
+        assert_eq!(tokens.len(), 1);
+        match &tokens[0].token {
+            InterpolationToken::Env(k) => assert_eq!(k, "real"),
+            other => panic!("expected env.real, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scan_all_interpolations_returns_empty_for_plain_text() {
+        let tokens = scan_all_interpolations("just some plain yaml text\nwith no tokens\n");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn scan_all_interpolations_skips_empty_token_body() {
+        let tokens = scan_all_interpolations("url: \"{{ }}\"\n");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn scan_all_interpolations_classifies_builtin_token() {
+        let tokens = scan_all_interpolations("id: \"{{ $uuid }}\"\n");
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0].token, InterpolationToken::Builtin(ref n) if n == "uuid"));
     }
 }

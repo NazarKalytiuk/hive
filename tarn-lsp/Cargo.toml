@@ -1,6 +1,6 @@
 [package]
 name = "tarn-lsp"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 description = "Language Server Protocol implementation for Tarn .tarn.yaml test files"
 license = "MIT"
@@ -34,3 +34,10 @@ serde_json = "1"
 # missing required field). Keeps env / capture completions working
 # even when the buffer would not round-trip through `tarn validate`.
 serde_yaml = "0.9"
+
+[dev-dependencies]
+# Used by the workspace-index unit tests and the references integration
+# tests to build throwaway tarn-yaml workspaces on disk. Already a
+# transitive dev dep through `tarn`, declared explicitly here so the
+# `tarn-lsp` test surface does not depend on `tarn`'s dev tree.
+tempfile = "3"

@@ -262,7 +262,7 @@ Each item also adds its own golden or integration test so the new surface is cov
 
 Epic **NAZ-289** — `tarn-lsp` Language Server for Claude Code and non-VS-Code editors. Phase L1 (MVP) delivered as five tickets (L1.1 through L1.5) and Phase L2 (navigation) continues under Epic **NAZ-296**. Each ticket flips on exactly one LSP capability. Canonical spec lives in [`docs/TARN_LSP.md`](./TARN_LSP.md).
 
-**Phase L1 COMPLETE** — every L1 ticket below is shipped. Phase L2 is in progress: go-to-definition (L2.1) is shipped; references (L2.2), rename (L2.3), and code lens (L2.4) are still queued.
+**Phase L1 COMPLETE** — every L1 ticket below is shipped. Phase L2 is in progress: go-to-definition (L2.1) and references (L2.2) are shipped; rename (L2.3) and code lens (L2.4) are still queued.
 
 | ID | Task | Impact | Effort | Depends | Files |
 |---|---|---:|---:|---|---|
@@ -272,6 +272,7 @@ Epic **NAZ-289** — `tarn-lsp` Language Server for Claude Code and non-VS-Code 
 | L1.4 | Completion provider for interpolation tokens (env, capture, builtin) and top-level schema keys **[shipped — NAZ-293]** | 8 | M | L1.2 | `tarn-lsp/src/completion.rs`, `tarn-lsp/src/token.rs`, `tarn-lsp/src/schema.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/src/server.rs` |
 | L1.5 | Document symbol provider for test/step tree plus finalised MVP docs (Claude Code config, smoke test, roadmap) **[shipped — NAZ-294]** | 7 | S | L1.1-L1.4 | `tarn/src/outline.rs`, `tarn-lsp/src/symbols.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `docs/TARN_LSP.md`, `README.md` |
 | L2.1 | Go-to-definition (`textDocument/definition`) for `{{ capture.* }}` and `{{ env.* }}` interpolation tokens **[shipped — NAZ-297]** | 8 | M | L1.3-L1.5 | `tarn-lsp/src/definition.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/src/token.rs`, `tarn/src/env.rs`, `tarn/src/outline.rs`, `docs/TARN_LSP.md` |
+| L2.2 | References (`textDocument/references`) for capture (per-test, current file) and env (workspace-wide, bounded at 5000 files) interpolation tokens **[shipped — NAZ-298]** | 7 | M | L2.1 | `tarn-lsp/src/references.rs`, `tarn-lsp/src/workspace.rs`, `tarn-lsp/src/server.rs`, `tarn-lsp/src/capabilities.rs`, `tarn-lsp/src/token.rs`, `docs/TARN_LSP.md` |
 
 ### L1.1 scope (shipped)
 

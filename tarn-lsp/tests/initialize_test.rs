@@ -72,8 +72,14 @@ fn server_capabilities_advertises_every_phase_l1_feature() {
         "L2.1 must advertise definition_provider as OneOf::Left(true)"
     );
 
+    // L2.2 (NAZ-298): references is on.
+    assert_eq!(
+        caps.references_provider,
+        Some(lsp_types::OneOf::Left(true)),
+        "L2.2 must advertise references_provider as OneOf::Left(true)"
+    );
+
     // Phase L2/L3 capabilities that have not shipped yet remain unset.
-    assert!(caps.references_provider.is_none(), "L2: find references");
     assert!(caps.rename_provider.is_none(), "L2: rename symbol");
     assert!(caps.code_action_provider.is_none(), "L3: code actions");
     assert!(

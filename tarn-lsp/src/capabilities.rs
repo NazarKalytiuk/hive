@@ -19,6 +19,9 @@
 //!   the final Phase L1 feature. Shipped.
 //! - L2.1 (NAZ-297): `definition_provider: Some(OneOf::Left(true))` —
 //!   go-to-definition for `{{ capture.* }}` and `{{ env.* }}`. Shipped.
+//! - L2.2 (NAZ-298): `references_provider: Some(OneOf::Left(true))` —
+//!   `textDocument/references` for capture and env interpolation tokens,
+//!   with a workspace-wide walk for env keys. Shipped.
 //!
 //! Nothing in this file should ever grow conditional logic — if a capability
 //! is on, it is on for every client and every workspace.
@@ -73,6 +76,13 @@ pub fn server_capabilities() -> ServerCapabilities {
         // `DefinitionOptions` because we neither stream partial results
         // nor advertise any extra selectors.
         definition_provider: Some(OneOf::Left(true)),
+
+        // L2.2: the server answers `textDocument/references` requests
+        // for the same interpolation tokens. Capture references are
+        // scoped per-test inside the current file; env references walk
+        // every `.tarn.yaml` under the workspace root, bounded by the
+        // 5000-file safety net inside `crate::workspace::WorkspaceIndex`.
+        references_provider: Some(OneOf::Left(true)),
 
         // All other capabilities are intentionally left unset. See the module
         // docs for the ticket that turns each one on.

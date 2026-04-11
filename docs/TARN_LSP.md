@@ -37,6 +37,7 @@ Phase L1 is delivered as five tickets under Epic NAZ-289. Each ticket flips on e
 Phase L2 layers navigation features onto the L1 MVP. Each ticket is a thin wrapper around the existing `tarn` crate primitives (`tarn::outline`, `tarn::env`) so jumps stay consistent with what the runner, hover, and diagnostics already see.
 
 - [x] **L2.1 — go-to-definition (NAZ-297)**: `textDocument/definition` jumps from `{{ capture.* }}` / `{{ env.* }}` interpolation tokens to their declaration sites.
+- [x] **L2.2 — references (NAZ-298)**: `textDocument/references` lists every use site of a capture (per test, current file) or env key (every `.tarn.yaml` under the workspace root, bounded at 5000 files).
 
 ## Installation
 
@@ -170,6 +171,14 @@ Invoking "Go to definition" on a `{{ env.KEY }}` token walks the env resolution 
 
 Ranges come from the same `yaml-rust2` second-pass scanner that powers `documentSymbol`, so jump targets stay in lockstep with the outline pane and the diagnostics gutter.
 
+### 6. References (`textDocument/references`) — new in L2.2
+
+Invoking "Find references" on a `{{ capture.NAME }}` token lists every interpolation in the current file that references the same capture, scoped to the cursor's enclosing test (setup captures are always visible from inside any test). Capture references intentionally never walk the workspace — Tarn captures are scoped per-test in the data model, and surfacing cross-test matches would be misleading. When the request asks for `include_declaration: true`, the response also includes the `capture:` key location for each declaration in scope.
+
+Invoking "Find references" on a `{{ env.KEY }}` token walks every `.tarn.yaml` file under the workspace root and lists every interpolation that references the same env key. The walk is populated lazily on the first reference query and cached in a `WorkspaceIndex` keyed by file URL; the server's `didChange` / `didSave` / `didClose` notification handlers invalidate the affected URL so subsequent queries see fresh content. The walk is bounded at **5000 files** as a safety net for pathological monorepos — when the cap is reached the server logs a warning to stderr and serves the partial result rather than erroring out. When the request asks for `include_declaration: true`, the response also includes the env key's source location in whichever file (inline `env:` block, default env file, named env file, local env file) supplied the winning value per the L1.3 resolution chain. Layers that do not live in a YAML file we can point at — `--var` overrides and named profile vars — emit only the in-source use sites.
+
+Built-in functions and top-level schema keys are non-navigable, the same way they are for go-to-definition.
+
 ## Client configuration
 
 The binary speaks stdio LSP 3.17 — any client that can spawn an LSP server and speak JSON-RPC over stdio will work. Below are the three most common configurations.
@@ -295,6 +304,8 @@ Save the file — some clients only publish diagnostics on save regardless of th
 
 If the banner is present but diagnostics are empty, run `tarn validate path/to/file.tarn.yaml` from a terminal in the same directory. If the CLI reports errors but the LSP does not, file an issue with the file path and expected diagnostics — that is a real bug, not a configuration problem.
 
+The banner string updates with every release — at the time of writing it is `tarn-lsp 0.5.6 initialized`.
+
 ### Document symbols pane is empty
 
 Some clients only populate the outline view after the first successful parse. Trigger a change (even an inconsequential whitespace edit) and save. The outline should repopulate within 300ms.
@@ -308,7 +319,7 @@ Phase L1 is the MVP. Phase L2 and L3 pick up the long tail of LSP features and a
 ### Phase L2 — navigation and refactor (in progress)
 
 - [x] **`textDocument/definition`** (NAZ-297) — jump from `{{ env.x }}` / `{{ capture.y }}` to where the variable is declared.
-- **`textDocument/references`** — find every use of a capture or env key from its declaration site.
+- [x] **`textDocument/references`** (NAZ-298) — find every use of a capture (per-test, current file) or env key (every `.tarn.yaml` under the workspace root, bounded at 5000 files).
 - **`textDocument/rename`** — rename a capture or env key across the file safely.
 - **`textDocument/codeLens`** — inline "Run this test" / "Run this step" affordances that invoke the CLI.
 - **Claude Code config integration** — finalise the Claude Code LSP config snippet once the harness schema is public.
