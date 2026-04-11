@@ -22,9 +22,26 @@ use tarn::model::RedactionConfig;
 use tempfile::TempDir;
 
 /// Find a free port on localhost.
+///
+/// Racy: the returned port is not held open, so a parallel test (or the
+/// kernel's ephemeral pool) may grab it before the caller rebinds. Only use
+/// this when the caller hands the port to a subprocess or external server that
+/// cannot accept a pre-bound `TcpListener`. In-process listeners should use
+/// `bind_ephemeral_listener` instead.
 fn free_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
+}
+
+/// Bind a localhost listener on an OS-chosen port without a drop gap.
+///
+/// Returns the bound listener and its port. Use this whenever the caller will
+/// drive the listener in-process — it closes the TOCTOU race `free_port` has
+/// against parallel tests and ephemeral outbound sockets.
+fn bind_ephemeral_listener() -> (TcpListener, u16) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    (listener, port)
 }
 
 /// Start the demo server on a given port and return the child process.
@@ -194,8 +211,7 @@ struct ProxyServer {
 
 impl ProxyServer {
     fn start() -> Self {
-        let port = free_port();
-        let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        let (listener, port) = bind_ephemeral_listener();
         listener.set_nonblocking(true).unwrap();
 
         let requests = Arc::new(Mutex::new(Vec::new()));
