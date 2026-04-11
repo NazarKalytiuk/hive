@@ -40,6 +40,8 @@ The `skills/tarn-api-testing/` directory provides a Claude Code skill that gives
 6. Edit the test or the application code.
 7. Rerun until `summary.status` is `PASSED`.
 
+> **Editor consumers:** `tarn_fix_plan` is backed by the same `tarn::fix_plan` library surface that powers `tarn-lsp`'s `CodeActionKind::QUICKFIX` **Apply fix** code action (NAZ-305, L3.4). The MCP tool uses the report-driven path for prioritised advice; the LSP uses the diagnostic-driven path for structured edits that clients apply with one click. See [`docs/TARN_LSP.md`](./TARN_LSP.md#apply-fix-quickfix--new-in-l34) for the LSP-side contract.
+
 ## Fields That Matter Most
 
 Focus on these first:

@@ -18,9 +18,9 @@ use lsp_types::notification::{
 use lsp_types::request::{CodeActionRequest, Initialize, Request as _, Shutdown};
 use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionKind, CodeActionOrCommand, CodeActionParams,
-    DidOpenTextDocumentParams, InitializeParams, InitializedParams, PartialResultParams, Position,
-    PublishDiagnosticsParams, Range, TextDocumentIdentifier, TextDocumentItem, Url,
-    WorkDoneProgressParams,
+    Diagnostic, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
+    PartialResultParams, Position, PublishDiagnosticsParams, Range, TextDocumentIdentifier,
+    TextDocumentItem, Url, WorkDoneProgressParams,
 };
 
 const FIXTURE_NO_ENV: &str = "name: fixture\nsteps:\n  - name: s1\n    request:\n      method: GET\n      url: http://example.com/items\n";
@@ -336,6 +336,145 @@ fn code_action_dispatcher_returns_both_extract_and_scaffold_for_request_url() {
     shutdown_and_join(client_conn, server_thread);
 }
 
+// -- L3.4 (NAZ-305): Quick Fix via shared fix-plan library ------------
+
+const FIXTURE_TYPO_STEP: &str = "name: fixture\nstep: []\n";
+const FIXTURE_NESTED_TYPO: &str = "name: fixture\nsteps:\n  - name: s1\n    request:\n      method: GET\n      url: http://example.com\n      header:\n        x: y\n    assert:\n      status: 200\n";
+const FIXTURE_NO_FIX: &str = "name: fixture\nsteps:\n  - name: \"\"\n    request:\n      method: GET\n      url: http://example.com\n    assert:\n      status: 200\n";
+
+#[test]
+fn code_action_quick_fix_happy_path_returns_quickfix_for_unknown_field() {
+    // didOpen a file with `step:` instead of `steps:`, wait for the
+    // server to publish the corresponding diagnostic, and then fire
+    // `textDocument/codeAction` with the real diagnostic in context.
+    // The dispatcher must return a `QUICKFIX` code action whose edit
+    // replaces `step` with `steps` on line 2.
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/ca-quickfix-happy.tarn.yaml").unwrap();
+    send_did_open(&client_conn, &uri, FIXTURE_TYPO_STEP);
+    let diagnostics = collect_publish_diagnostics_for(&client_conn, &uri);
+    assert!(
+        !diagnostics.is_empty(),
+        "expected the validator to publish at least one diagnostic"
+    );
+
+    // The LSP client forwards the list back as CodeActionContext.
+    let range = Range::new(Position::new(1, 0), Position::new(1, 0));
+    let actions = request_code_action_with_diagnostics(&client_conn, &uri, range, diagnostics);
+
+    let quick_fix = actions
+        .iter()
+        .find_map(|ac| match ac {
+            CodeActionOrCommand::CodeAction(a) if a.kind == Some(CodeActionKind::QUICKFIX) => {
+                Some(a.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected a QUICKFIX code action, got {actions:#?}"));
+    assert!(quick_fix.title.starts_with("Apply fix:"));
+    assert_eq!(quick_fix.is_preferred, Some(true));
+    assert_eq!(
+        quick_fix.diagnostics.as_ref().map(|v| v.len()),
+        Some(1),
+        "quick-fix must pin to exactly one diagnostic"
+    );
+    let edit = quick_fix.edit.expect("workspace edit");
+    let changes = edit.changes.expect("changes");
+    let edits = changes.get(&uri).expect("edits on current uri");
+    assert_eq!(edits.len(), 1);
+    let e = &edits[0];
+    assert_eq!(e.new_text, "steps");
+    // `step` begins at 0-based (1, 0) and spans 4 characters.
+    assert_eq!(e.range.start, Position::new(1, 0));
+    assert_eq!(e.range.end, Position::new(1, 4));
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn code_action_quick_fix_returns_no_action_when_diagnostic_has_no_fix_plan() {
+    // A diagnostic with no "Did you mean …" clause (here the empty
+    // step name check) must not produce any Quick Fix, even though
+    // the diagnostic itself is a tarn-sourced validation message.
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/ca-quickfix-nofix.tarn.yaml").unwrap();
+    send_did_open(&client_conn, &uri, FIXTURE_NO_FIX);
+    let diagnostics = collect_publish_diagnostics_for(&client_conn, &uri);
+    assert!(
+        !diagnostics.is_empty(),
+        "expected at least one diagnostic for the malformed fixture"
+    );
+
+    let range = Range::new(Position::new(0, 0), Position::new(0, 0));
+    let actions = request_code_action_with_diagnostics(&client_conn, &uri, range, diagnostics);
+
+    let any_quick_fix = actions.iter().any(|ac| match ac {
+        CodeActionOrCommand::CodeAction(a) => a.kind == Some(CodeActionKind::QUICKFIX),
+        _ => false,
+    });
+    assert!(
+        !any_quick_fix,
+        "non-fixable diagnostic must not yield a QUICKFIX, got {actions:#?}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn code_action_quick_fix_nested_context_path_points_at_correct_line() {
+    // The typo'd key (`header`) lives inside `steps[0].request`, so
+    // the context-path-aware walker must resolve the nested location
+    // and emit an edit at line 7 (1-based) rather than line 2.
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/ca-quickfix-nested.tarn.yaml").unwrap();
+    send_did_open(&client_conn, &uri, FIXTURE_NESTED_TYPO);
+    let diagnostics = collect_publish_diagnostics_for(&client_conn, &uri);
+    assert!(
+        !diagnostics.is_empty(),
+        "expected a diagnostic for the nested typo fixture"
+    );
+
+    let range = Range::new(Position::new(6, 0), Position::new(6, 0));
+    let actions = request_code_action_with_diagnostics(&client_conn, &uri, range, diagnostics);
+
+    let quick_fix = actions
+        .iter()
+        .find_map(|ac| match ac {
+            CodeActionOrCommand::CodeAction(a) if a.kind == Some(CodeActionKind::QUICKFIX) => {
+                Some(a.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected a QUICKFIX for the nested typo, got {actions:#?}"));
+    assert!(quick_fix.title.contains("'header' to 'headers'"));
+    let edit = quick_fix.edit.expect("workspace edit");
+    let edits = edit.changes.expect("changes").remove(&uri).unwrap();
+    assert_eq!(edits.len(), 1);
+    let e = &edits[0];
+    // `header` sits on 0-based line 6, column 6 (six spaces of
+    // indent + zero-based conversion from 1-based column 7).
+    assert_eq!(e.range.start, Position::new(6, 6));
+    assert_eq!(e.range.end, Position::new(6, 12));
+    assert_eq!(e.new_text, "headers");
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
 // ---------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------
@@ -390,6 +529,10 @@ fn request_code_action(
 }
 
 fn drain_publish_diagnostics_for(client_conn: &Connection, expected: &Url) {
+    let _ = collect_publish_diagnostics_for(client_conn, expected);
+}
+
+fn collect_publish_diagnostics_for(client_conn: &Connection, expected: &Url) -> Vec<Diagnostic> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -401,11 +544,60 @@ fn drain_publish_diagnostics_for(client_conn: &Connection, expected: &Url) {
                 let params: PublishDiagnosticsParams =
                     serde_json::from_value(note.params).expect("publishDiagnostics shape");
                 if &params.uri == expected {
-                    return;
+                    return params.diagnostics;
                 }
             }
             Ok(_) => {}
             Err(e) => panic!("recv failed while draining diagnostics: {e}"),
+        }
+    }
+}
+
+fn request_code_action_with_diagnostics(
+    client_conn: &Connection,
+    uri: &Url,
+    range: Range,
+    diagnostics: Vec<Diagnostic>,
+) -> Vec<CodeActionOrCommand> {
+    let req_id: RequestId = 9304.into();
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        range,
+        context: CodeActionContext {
+            diagnostics,
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    client_conn
+        .sender
+        .send(Message::Request(Request {
+            id: req_id.clone(),
+            method: CodeActionRequest::METHOD.to_owned(),
+            params: serde_json::to_value(params).unwrap(),
+        }))
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            panic!("timed out waiting for codeAction response");
+        }
+        match client_conn.receiver.recv_timeout(remaining) {
+            Ok(Message::Response(Response { id, result, error })) if id == req_id => {
+                assert!(error.is_none(), "codeAction returned error: {error:?}");
+                let value = result.expect("codeAction had neither result nor error");
+                if value.is_null() {
+                    return Vec::new();
+                }
+                return serde_json::from_value::<Vec<CodeActionOrCommand>>(value)
+                    .expect("codeAction response shape");
+            }
+            Ok(_) => {}
+            Err(e) => panic!("recv failed while waiting for codeAction response: {e}"),
         }
     }
 }

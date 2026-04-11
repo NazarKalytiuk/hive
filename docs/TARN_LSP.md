@@ -260,7 +260,7 @@ The capability advertises three stable action kinds from this ticket forward:
 | -------------------- | ------------------------------------- | ------------------------- |
 | `refactor.extract`   | **Extract env var**                   | shipped in L3.2 (NAZ-303) |
 | `refactor`           | **Capture this field**, **Scaffold assert.body from last response** | shipped in L3.3 (NAZ-304) |
-| `quickfix`           | Fix-plan quick fix                    | reserved for L3.4         |
+| `quickfix`           | **Apply fix** from shared fix-plan library | shipped in L3.4 (NAZ-305) |
 
 Both `refactor` providers plug into the same `code_actions_for_range` dispatcher that `extract_env` uses — new providers are just a function call and a provider name away. `resolve_provider: false` is pinned for the whole dispatcher — every provider must return a fully resolved action.
 
@@ -371,7 +371,23 @@ The VS Code extension keeps its own last-run cache **in memory only** (see `edit
 - the cursor is not inside a `request:` block,
 - the enclosing step has no `name:` (synthetic `<step N>` placeholder names have no deterministic sidecar slug).
 
-After shipping L3.3, Phase L3 is past halfway — L3.4 (fix-plan quick fix), L3.5 (nested completion), and L3.6 (inline JSONPath evaluator) are still pending under Epic NAZ-301.
+#### Apply fix (`quickfix`) — new in L3.4
+
+**Trigger.** Invoke `textDocument/codeAction` at a range where the client has one or more `source: "tarn"` diagnostics. The provider asks the shared [`tarn::fix_plan::generate_fix_plan`](../tarn/src/fix_plan.rs) library whether any of those diagnostics carry a mechanically-applicable fix. Today the library recognises the `Unknown field 'X' at <context>. Did you mean 'Y'?` pattern — the typo messages the parser already emits for unknown mapping keys — and returns a `FixPlan` with a single-key replacement edit. Other validation messages flow through the LSP as ordinary diagnostics with no Quick Fix offered (declining to offer a fix is an explicit allowed state, not an error).
+
+**Backend sharing.** `tarn-mcp`'s `tarn_fix_plan` tool and `tarn-lsp`'s Quick Fix provider both call into `tarn::fix_plan`, so the two surfaces share one source of truth. The MCP tool uses the report-driven path (`generate_fix_plan_from_report`) — advice plus prioritised remediation hints — and the LSP uses the diagnostic-driven path (`generate_fix_plan`) — structured `WorkspaceEdit`s. Both paths emit the same `FixPlan` struct; only the `edits` vector populates differently.
+
+**Action shape.** Every Quick Fix carries:
+
+- `kind: CodeActionKind::QUICKFIX`
+- `title: "Apply fix: <plan title>"` (e.g. `"Apply fix: Change 'step' to 'steps'"`)
+- `diagnostics: Some(vec![diagnostic])` — pins the action to the squiggle it resolves so clients render it under the matching error
+- `edit: WorkspaceEdit` — the full set of pre-computed text edits on the current buffer
+- `is_preferred: Some(true)` — library-produced plans are unambiguous by construction, so clients that auto-apply the preferred action can do so without prompting
+
+**Safety gates.** The provider skips any diagnostic whose `source` is not `"tarn"`, any diagnostic with a numeric `code`, and any diagnostic whose message does not match a fix-plan pattern. Foreign diagnostics produced by other LSPs or extensions never flow into the library.
+
+After shipping L3.4, Phase L3 is mostly done — L3.5 (nested completion) and L3.6 (inline JSONPath evaluator) are the remaining tickets under Epic NAZ-301.
 
 ## Client configuration
 

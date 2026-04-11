@@ -56,6 +56,7 @@ use crate::server::ServerState;
 pub mod capture_field;
 pub mod extract_env;
 pub mod jsonpath_name;
+pub mod quick_fix;
 pub mod response_source;
 pub mod scaffold_assert;
 
@@ -122,7 +123,11 @@ pub fn code_actions_for_range(
         out.push(action);
     }
 
-    // Future providers (NAZ-305) plug in here.
+    // Provider 4: quick fix from shared `tarn::fix_plan` library
+    // (NAZ-305, L3.4). Unlike the first three providers, this one
+    // emits `CodeActionKind::QUICKFIX` and filters on the client-
+    // supplied diagnostics list instead of the cursor position.
+    out.extend(quick_fix::quick_fix_code_actions(uri, source, range, ctx));
 
     out
 }
