@@ -1,0 +1,20 @@
+{
+  "name": "tarn-lsp",
+  "version": "0.5.6",
+  "description": "Language Server Protocol plugin for Tarn test files (.tarn.yaml).",
+  "author": {
+    "name": "Nazar Kalytiuk",
+    "url": "https://github.com/NazarKalytiuk/hive"
+  },
+  "homepage": "https://github.com/NazarKalytiuk/hive/blob/main/docs/TARN_LSP.md",
+  "repository": "https://github.com/NazarKalytiuk/hive",
+  "license": "MIT",
+  "keywords": [
+    "tarn",
+    "lsp",
+    "language-server",
+    "api-testing",
+    "yaml"
+  ],
+  "lspServers": "./.lsp.json"
+}

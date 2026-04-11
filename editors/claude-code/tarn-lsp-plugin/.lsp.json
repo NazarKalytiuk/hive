@@ -1,0 +1,15 @@
+{
+  "tarn": {
+    "command": "tarn-lsp",
+    "args": [],
+    "transport": "stdio",
+    "extensionToLanguage": {
+      ".yaml": "tarn",
+      ".yml": "tarn"
+    },
+    "restartOnCrash": true,
+    "maxRestarts": 3,
+    "startupTimeout": 5000,
+    "shutdownTimeout": 2000
+  }
+}
