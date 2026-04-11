@@ -30,11 +30,13 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _,
 };
-use lsp_types::{InitializeParams, Url};
+use lsp_types::request::{HoverRequest, Request as _};
+use lsp_types::{HoverParams, InitializeParams, Url};
 
 use crate::capabilities::server_capabilities;
 use crate::debounce::DebounceTracker;
 use crate::diagnostics;
+use crate::hover;
 
 /// Short tag used in the `eprintln!` server-info log. Tests grep for this.
 pub const SERVER_NAME: &str = "tarn-lsp";
@@ -178,10 +180,11 @@ fn main_loop(connection: &Connection) -> Result<(), Box<dyn Error + Sync + Send>
                     // the connection is closed and the receiver loop ends.
                     return Ok(());
                 }
-                // Any non-shutdown request is routed through
-                // `method_not_found` until later L1 tickets add real
-                // handlers for hover / completion / symbols.
-                let resp = method_not_found(req);
+                // Dispatch typed LSP requests. L1.3 adds `textDocument/hover`.
+                // Anything else falls through to a JSON-RPC "method not
+                // found" response until later L1 tickets add real handlers
+                // for completion / document symbols.
+                let resp = dispatch_request(req, &store);
                 connection.sender.send(Message::Response(resp))?;
             }
             Message::Response(_) => {
@@ -217,6 +220,57 @@ fn flush_due_debounces(
 /// its channel types but the variant names are not part of its public API.
 fn is_timeout(err: &crossbeam_channel::RecvTimeoutError) -> bool {
     matches!(err, crossbeam_channel::RecvTimeoutError::Timeout)
+}
+
+/// Route a typed LSP request to the right handler and produce the
+/// matching [`Response`]. Unknown methods fall through to
+/// [`method_not_found`] so clients get a predictable error rather than
+/// a silent hang.
+///
+/// L1.3 dispatches `textDocument/hover` through [`hover::text_document_hover`];
+/// the remaining request methods are added in L1.4 and L1.5.
+fn dispatch_request(req: Request, store: &DocumentStore) -> Response {
+    // Capture the id up-front: `Request::extract` takes `self` by value
+    // so we can't read `req.id` after a failed extract.
+    let id = req.id.clone();
+    match req.method.as_str() {
+        HoverRequest::METHOD => match req.extract::<HoverParams>(HoverRequest::METHOD) {
+            Ok((req_id, params)) => {
+                let uri = params.text_document_position_params.text_document.uri;
+                let position = params.text_document_position_params.position;
+                let result = hover::text_document_hover(store, &uri, position);
+                // LSP spec: hover may return `null` when there is nothing
+                // to show. We serialize `None` as JSON null via serde_json.
+                match serde_json::to_value(result) {
+                    Ok(value) => Response {
+                        id: req_id,
+                        result: Some(value),
+                        error: None,
+                    },
+                    Err(err) => Response {
+                        id: req_id,
+                        result: None,
+                        error: Some(lsp_server::ResponseError {
+                            code: lsp_server::ErrorCode::InternalError as i32,
+                            message: format!("failed to serialize hover: {err}"),
+                            data: None,
+                        }),
+                    },
+                }
+            }
+            Err(ExtractError::MethodMismatch(r)) => method_not_found(r),
+            Err(ExtractError::JsonError { method, error }) => Response {
+                id,
+                result: None,
+                error: Some(lsp_server::ResponseError {
+                    code: lsp_server::ErrorCode::InvalidParams as i32,
+                    message: format!("failed to parse {method} params: {error}"),
+                    data: None,
+                }),
+            },
+        },
+        _ => method_not_found(req),
+    }
 }
 
 /// Build a JSON-RPC "method not found" response for an unhandled request.

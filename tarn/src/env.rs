@@ -1,7 +1,78 @@
 use crate::config::NamedEnvironmentConfig;
 use crate::error::TarnError;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+
+/// Origin of a resolved environment variable. Mirrors the layers applied in
+/// [`resolve_env_with_profiles`] so editors and LSP clients can surface
+/// *where* a value came from in hover tooltips.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvSource {
+    /// From the inline `env:` block in the test file itself.
+    InlineEnvBlock,
+    /// From the default `tarn.env.yaml` (or a caller-configured equivalent).
+    DefaultEnvFile {
+        /// Display path of the env file that supplied the value.
+        path: String,
+    },
+    /// From the `tarn.env.{name}.yaml` file for a named environment.
+    NamedEnvFile {
+        /// Display path of the env file that supplied the value.
+        path: String,
+        /// Name of the active environment (e.g. "staging").
+        env_name: String,
+    },
+    /// From a `NamedEnvironmentConfig.vars` entry declared in `tarn.config.yaml`.
+    NamedProfileVars {
+        /// Name of the active environment profile.
+        env_name: String,
+    },
+    /// From the `tarn.env.local.yaml` file (gitignored, secrets).
+    LocalEnvFile {
+        /// Display path of the local env file that supplied the value.
+        path: String,
+    },
+    /// From a `--var KEY=VALUE` CLI override.
+    CliVar,
+}
+
+impl EnvSource {
+    /// Short human-readable label for this source. Stable — do not rename
+    /// without bumping the LSP hover tests.
+    pub fn label(&self) -> &str {
+        match self {
+            EnvSource::InlineEnvBlock => "inline env: block",
+            EnvSource::DefaultEnvFile { .. } => "default env file",
+            EnvSource::NamedEnvFile { .. } => "named env file",
+            EnvSource::NamedProfileVars { .. } => "named profile vars",
+            EnvSource::LocalEnvFile { .. } => "local env file",
+            EnvSource::CliVar => "CLI --var",
+        }
+    }
+
+    /// Display path of the file that supplied the value, if any. Returns
+    /// `None` for sources that are not backed by a file on disk (inline,
+    /// CLI overrides).
+    pub fn source_file(&self) -> Option<&str> {
+        match self {
+            EnvSource::DefaultEnvFile { path }
+            | EnvSource::NamedEnvFile { path, .. }
+            | EnvSource::LocalEnvFile { path } => Some(path.as_str()),
+            _ => None,
+        }
+    }
+}
+
+/// One resolved environment variable plus the layer that supplied it.
+/// Returned by [`resolve_env_with_sources`] so LSP hovers can show the
+/// effective value *and* where it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvEntry {
+    /// Final effective value after shell-variable expansion.
+    pub value: String,
+    /// The winning layer for this key.
+    pub source: EnvSource,
+}
 
 /// Resolve environment variables with the priority chain:
 /// CLI --var > shell env ${VAR} > tarn.env.local.yaml > tarn.env.{name}.yaml > tarn.env.yaml > inline env: block
@@ -105,6 +176,143 @@ pub fn resolve_env_with_profiles(
     // Layer 6 (highest): CLI --var overrides
     for (k, v) in cli_vars {
         env.insert(k.clone(), v.clone());
+    }
+
+    Ok(env)
+}
+
+/// Resolve environment variables while preserving per-key provenance.
+///
+/// This is the LSP-facing counterpart to [`resolve_env_with_profiles`]: it
+/// applies the exact same priority chain and shell-variable expansion, but
+/// returns a map from key to [`EnvEntry`] so callers can report *which*
+/// layer supplied each final value. The natural consumer is `tarn-lsp`'s
+/// hover provider, which shows the effective value together with the file
+/// path it came from.
+///
+/// The priority chain (lowest to highest — later layers overwrite earlier
+/// ones) is identical to [`resolve_env_with_profiles`]:
+///
+///   1. inline `env:` block from the test file
+///   2. `tarn.env.yaml` (or the caller-configured equivalent)
+///   3. `tarn.env.{name}.yaml` for a named environment (if configured)
+///   4. `NamedEnvironmentConfig.vars` from `tarn.config.yaml`
+///   5. `tarn.env.local.yaml` (gitignored, secrets)
+///   6. CLI `--var KEY=VALUE`
+///
+/// Between layers 5 and 6 every value is passed through
+/// [`resolve_shell_vars`] so `${VAR}` placeholders in env-file values
+/// expand to their shell values.
+pub fn resolve_env_with_sources(
+    inline_env: &HashMap<String, String>,
+    env_name: Option<&str>,
+    cli_vars: &[(String, String)],
+    base_dir: &Path,
+    env_file_name: &str,
+    profiles: &HashMap<String, NamedEnvironmentConfig>,
+) -> Result<BTreeMap<String, EnvEntry>, TarnError> {
+    let mut env: BTreeMap<String, EnvEntry> = BTreeMap::new();
+
+    // Layer 1: inline env block from the test file.
+    for (k, v) in inline_env {
+        env.insert(
+            k.clone(),
+            EnvEntry {
+                value: v.clone(),
+                source: EnvSource::InlineEnvBlock,
+            },
+        );
+    }
+
+    // Layer 2: default env file (tarn.env.yaml).
+    let default_env_file = base_dir.join(env_file_name);
+    if default_env_file.exists() {
+        let file_env = load_env_file(&default_env_file)?;
+        let display = default_env_file.display().to_string();
+        for (k, v) in file_env {
+            env.insert(
+                k,
+                EnvEntry {
+                    value: v,
+                    source: EnvSource::DefaultEnvFile {
+                        path: display.clone(),
+                    },
+                },
+            );
+        }
+    }
+
+    // Layer 3: named env file (tarn.env.{name}.yaml or profile override).
+    if let Some(name) = env_name {
+        let named_env_file = profiles
+            .get(name)
+            .and_then(|profile| profile.env_file.as_ref().map(|path| base_dir.join(path)))
+            .unwrap_or_else(|| base_dir.join(env_variant_filename(env_file_name, name)));
+        if named_env_file.exists() {
+            let file_env = load_env_file(&named_env_file)?;
+            let display = named_env_file.display().to_string();
+            for (k, v) in file_env {
+                env.insert(
+                    k,
+                    EnvEntry {
+                        value: v,
+                        source: EnvSource::NamedEnvFile {
+                            path: display.clone(),
+                            env_name: name.to_owned(),
+                        },
+                    },
+                );
+            }
+        }
+        if let Some(profile) = profiles.get(name) {
+            for (k, v) in &profile.vars {
+                env.insert(
+                    k.clone(),
+                    EnvEntry {
+                        value: v.clone(),
+                        source: EnvSource::NamedProfileVars {
+                            env_name: name.to_owned(),
+                        },
+                    },
+                );
+            }
+        }
+    }
+
+    // Layer 4: tarn.env.local.yaml (gitignored, secrets).
+    let local_env_file = base_dir.join(env_variant_filename(env_file_name, "local"));
+    if local_env_file.exists() {
+        let file_env = load_env_file(&local_env_file)?;
+        let display = local_env_file.display().to_string();
+        for (k, v) in file_env {
+            env.insert(
+                k,
+                EnvEntry {
+                    value: v,
+                    source: EnvSource::LocalEnvFile {
+                        path: display.clone(),
+                    },
+                },
+            );
+        }
+    }
+
+    // Layer 5: shell variable expansion of ${VAR} placeholders in each
+    // already-resolved value. The *source* of the entry does not change —
+    // shell expansion is a post-processing step, not a new layer.
+    for entry in env.values_mut() {
+        entry.value = resolve_shell_vars(&entry.value);
+    }
+
+    // Layer 6 (highest): CLI --var overrides.
+    for (k, v) in cli_vars {
+        env.insert(
+            k.clone(),
+            EnvEntry {
+                value: v.clone(),
+                source: EnvSource::CliVar,
+            },
+        );
     }
 
     Ok(env)
@@ -464,6 +672,150 @@ mod tests {
         assert_eq!(
             env_variant_filename("custom.env.yaml", "staging"),
             PathBuf::from("custom.env.staging.yaml")
+        );
+    }
+
+    // --- resolve_env_with_sources ---
+
+    #[test]
+    fn resolve_env_with_sources_tags_inline_entries() {
+        let dir = TempDir::new().unwrap();
+        let mut inline = HashMap::new();
+        inline.insert("base_url".into(), "http://localhost:3000".into());
+
+        let env = resolve_env_with_sources(
+            &inline,
+            None,
+            &[],
+            dir.path(),
+            "tarn.env.yaml",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let entry = env.get("base_url").unwrap();
+        assert_eq!(entry.value, "http://localhost:3000");
+        assert!(matches!(entry.source, EnvSource::InlineEnvBlock));
+    }
+
+    #[test]
+    fn resolve_env_with_sources_reports_default_env_file_path() {
+        let dir = TempDir::new().unwrap();
+        setup_env_files(&dir, &[("tarn.env.yaml", "base_url: http://from-file")]);
+
+        let env = resolve_env_with_sources(
+            &HashMap::new(),
+            None,
+            &[],
+            dir.path(),
+            "tarn.env.yaml",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let entry = env.get("base_url").unwrap();
+        assert_eq!(entry.value, "http://from-file");
+        match &entry.source {
+            EnvSource::DefaultEnvFile { path } => {
+                assert!(path.ends_with("tarn.env.yaml"), "got path: {}", path);
+            }
+            other => panic!("expected DefaultEnvFile source, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_env_with_sources_named_env_file_wins_over_default() {
+        let dir = TempDir::new().unwrap();
+        setup_env_files(
+            &dir,
+            &[
+                ("tarn.env.yaml", "base_url: http://default"),
+                ("tarn.env.staging.yaml", "base_url: http://staging"),
+            ],
+        );
+
+        let env = resolve_env_with_sources(
+            &HashMap::new(),
+            Some("staging"),
+            &[],
+            dir.path(),
+            "tarn.env.yaml",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let entry = env.get("base_url").unwrap();
+        assert_eq!(entry.value, "http://staging");
+        match &entry.source {
+            EnvSource::NamedEnvFile { env_name, path } => {
+                assert_eq!(env_name, "staging");
+                assert!(path.ends_with("tarn.env.staging.yaml"));
+            }
+            other => panic!("expected NamedEnvFile source, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_env_with_sources_cli_var_has_highest_priority() {
+        let dir = TempDir::new().unwrap();
+        setup_env_files(
+            &dir,
+            &[
+                ("tarn.env.yaml", "base_url: http://default"),
+                ("tarn.env.local.yaml", "base_url: http://local"),
+            ],
+        );
+
+        let cli_vars = vec![("base_url".into(), "http://cli".into())];
+        let env = resolve_env_with_sources(
+            &HashMap::new(),
+            None,
+            &cli_vars,
+            dir.path(),
+            "tarn.env.yaml",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let entry = env.get("base_url").unwrap();
+        assert_eq!(entry.value, "http://cli");
+        assert!(matches!(entry.source, EnvSource::CliVar));
+    }
+
+    #[test]
+    fn resolve_env_with_sources_local_env_file_overrides_named() {
+        let dir = TempDir::new().unwrap();
+        setup_env_files(
+            &dir,
+            &[
+                ("tarn.env.yaml", "base_url: http://default"),
+                ("tarn.env.staging.yaml", "base_url: http://staging"),
+                ("tarn.env.local.yaml", "base_url: http://local"),
+            ],
+        );
+
+        let env = resolve_env_with_sources(
+            &HashMap::new(),
+            Some("staging"),
+            &[],
+            dir.path(),
+            "tarn.env.yaml",
+            &HashMap::new(),
+        )
+        .unwrap();
+        let entry = env.get("base_url").unwrap();
+        assert_eq!(entry.value, "http://local");
+        assert!(matches!(entry.source, EnvSource::LocalEnvFile { .. }));
+    }
+
+    #[test]
+    fn env_source_label_and_source_file_accessors_are_stable() {
+        assert_eq!(EnvSource::InlineEnvBlock.label(), "inline env: block");
+        assert_eq!(EnvSource::CliVar.label(), "CLI --var");
+        assert_eq!(EnvSource::InlineEnvBlock.source_file(), None);
+        assert_eq!(EnvSource::CliVar.source_file(), None);
+        assert_eq!(
+            EnvSource::DefaultEnvFile {
+                path: "/tmp/tarn.env.yaml".into()
+            }
+            .source_file(),
+            Some("/tmp/tarn.env.yaml")
         );
     }
 }

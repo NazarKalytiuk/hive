@@ -20,10 +20,10 @@ use lsp_types::{
 };
 
 /// Sanity check: `server_capabilities()` is the single source of truth for
-/// what L1.1 advertises, and it must advertise exactly `Full` text sync and
-/// nothing else.
+/// what the current phase advertises. L1.3 adds hover; completion and
+/// symbols remain unset until L1.4 / L1.5.
 #[test]
-fn server_capabilities_advertises_only_full_text_sync() {
+fn server_capabilities_advertises_full_text_sync_and_hover() {
     let caps = tarn_lsp::server_capabilities();
 
     assert_eq!(
@@ -32,10 +32,17 @@ fn server_capabilities_advertises_only_full_text_sync() {
         "phase L1.1 must advertise Full text document sync"
     );
 
-    // Every feature capability must be unset. These flip on in later L1
-    // tickets — if one of them is already set, capabilities.rs has drifted
-    // from the roadmap and needs a compensating update to the doc + tests.
-    assert!(caps.hover_provider.is_none(), "hover is NAZ-292, not L1.1");
+    // L1.3 (NAZ-292): hover is on.
+    assert_eq!(
+        caps.hover_provider,
+        Some(lsp_types::HoverProviderCapability::Simple(true)),
+        "L1.3 must advertise hover provider as Simple(true)"
+    );
+
+    // Every other feature capability must still be unset. These flip on
+    // in later L1 tickets — if one of them is already set, capabilities.rs
+    // has drifted from the roadmap and needs a compensating update to the
+    // doc + tests.
     assert!(caps.completion_provider.is_none(), "completion is NAZ-293");
     assert!(
         caps.document_symbol_provider.is_none(),
@@ -97,7 +104,8 @@ fn full_lifecycle_over_memory_transport() {
     assert_eq!(server_info["name"], "tarn-lsp");
     assert_eq!(server_info["version"], env!("CARGO_PKG_VERSION"));
 
-    // Capabilities must round-trip cleanly and declare Full text sync.
+    // Capabilities must round-trip cleanly and declare Full text sync
+    // plus the L1.3 hover provider.
     let caps_json = result
         .get("capabilities")
         .expect("initialize result must include capabilities");
@@ -107,7 +115,10 @@ fn full_lifecycle_over_memory_transport() {
         caps.text_document_sync,
         Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
     );
-    assert!(caps.hover_provider.is_none());
+    assert_eq!(
+        caps.hover_provider,
+        Some(lsp_types::HoverProviderCapability::Simple(true))
+    );
     assert!(caps.completion_provider.is_none());
 
     // ---- initialized ----
@@ -252,21 +263,23 @@ fn unknown_request_returns_method_not_found() {
         }))
         .unwrap();
 
-    // Send a bogus request. `textDocument/hover` is chosen deliberately: it
-    // is unhandled today, but will become handled in NAZ-292 (L1.3). When
-    // that ticket lands the test can be updated alongside it.
-    let hover_id: RequestId = 42.into();
+    // Send a bogus request that no L1 ticket will ever implement. We can
+    // no longer use `textDocument/hover` here because NAZ-292 (L1.3)
+    // handles it; pick an obviously-unsupported method instead.
+    let bogus_id: RequestId = 42.into();
     client_conn
         .sender
         .send(Message::Request(Request {
-            id: hover_id.clone(),
-            method: "textDocument/hover".to_owned(),
+            id: bogus_id.clone(),
+            method: "workspace/definitelyNotARealMethod".to_owned(),
             params: serde_json::Value::Null,
         }))
         .unwrap();
 
-    let resp = recv_response(&client_conn, &hover_id);
-    let err = resp.error.expect("hover must return an error in L1.1");
+    let resp = recv_response(&client_conn, &bogus_id);
+    let err = resp
+        .error
+        .expect("unsupported request must return an error");
     assert_eq!(err.code, lsp_server::ErrorCode::MethodNotFound as i32);
 
     // Shutdown + exit so the server thread exits cleanly.

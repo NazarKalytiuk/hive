@@ -26,7 +26,7 @@ Phase L1 is delivered as five tickets under Epic NAZ-289. Each ticket flips on e
 
 - [x] **L1.1 — bootstrap (NAZ-290)**: workspace crate, stdio lifecycle (`initialize` / `initialized` / `shutdown` / `exit`), in-memory `DocumentStore`, full text document sync, integration tests over `Connection::memory()`. This ticket ships the skeleton only — no language intelligence yet.
 - [x] **L1.2 — diagnostics (NAZ-291)**: parse every open document through `tarn::parser` on `didOpen`/`didChange`/`didSave` and publish YAML + schema diagnostics via `textDocument/publishDiagnostics`. Debounced at 300ms on `didChange`; flushes immediately on open and save; clears on close.
-- [ ] **L1.3 — hover (NAZ-292)**: `textDocument/hover` resolves `{{ env.x }}` and `{{ capture.x }}` references, assertion keywords, and step fields to their documentation.
+- [x] **L1.3 — hover (NAZ-292)**: `textDocument/hover` resolves `{{ env.x }}`, `{{ capture.x }}`, `{{ $builtin }}`, and top-level schema keys to Markdown tooltips using the same env resolution chain and parser the runner uses.
 - [ ] **L1.4 — completion (NAZ-293)**: `textDocument/completion` offers snippet expansions, assertion keywords, env/capture identifiers, and HTTP method names with trigger characters `{`, `.`, `"`.
 - [ ] **L1.5 — symbols + docs (NAZ-294)**: `textDocument/documentSymbol` returns the test/step tree; README and Claude Code docs are finalised and `tarn-lsp` is added to the release pipeline.
 
@@ -69,6 +69,23 @@ Each diagnostic is produced by [`tarn::validation::validate_document`](../tarn/s
 | `message`    | Human-readable text stripped of the `thiserror` prefix and the redundant file path prefix. |
 
 See `tarn-lsp/src/diagnostics.rs` for the conversion and `tarn-lsp/src/debounce.rs` for the pure debounce helper. End-to-end coverage lives in `tarn-lsp/tests/diagnostics_test.rs`.
+
+## Hover
+
+`tarn-lsp` answers `textDocument/hover` requests for four token classes. Every hover body is Markdown (`MarkupKind::Markdown`) so any LSP 3.17 client renders it without extra configuration.
+
+| Token class                | Example                    | Hover body                                                                                                                |
+| -------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Environment reference**  | `{{ env.base_url }}`       | Effective value (via `tarn::env::resolve_env_with_sources`), the source layer (inline, default file, named, local, CLI), the source file path when applicable, the active environment name, and a `Redacted: yes/no` flag driven by the test file's `redaction.env:` block. |
+| **Capture reference**      | `{{ capture.token }}`      | The declaring step (name + index + section — setup / flat steps / named test / teardown), the capture source (JSONPath, header, cookie, status, URL, whole body, or regex), and a distinct "out of scope" branch when the identifier is declared elsewhere in the file but not visible from the cursor. |
+| **Built-in function**      | `{{ $uuid }}`              | The canonical call signature and a one-sentence docstring for each of `$uuid`, `$timestamp`, `$now_iso`, `$random_hex(n)`, and `$random_int(min, max)`. Unknown names get a friendly "not a recognized Tarn built-in" hint listing every supported function. |
+| **Top-level schema key**   | `status`, `body`, `env`, … | The `description` field from `schemas/v1/testfile.json` (local `$ref` chains resolved), cached in a `OnceLock` so the schema is parsed exactly once per server process. |
+
+The source text is classified through a single pure helper, `tarn_lsp::hover::resolve_hover_token(source, position) -> Option<HoverTokenSpan>`. The helper has no filesystem, no parser, and no LSP dependencies beyond `lsp_types::Position`, which is why it carries the bulk of the unit tests — it's where all the cursor edge cases live.
+
+Capture-value-from-report (the optional sub-bullet on NAZ-292) is deferred to a follow-up. Locating a report on disk is non-trivial today (no stable path convention) and the "declaring step + source" hover already lands the primary value of this ticket.
+
+See `tarn-lsp/src/hover.rs` for the pure helpers (`resolve_hover_token`, `hover_for_token`, `collect_visible_captures`) and `tarn-lsp/tests/hover_test.rs` for the end-to-end LSP round-trip.
 
 ## Design choices
 

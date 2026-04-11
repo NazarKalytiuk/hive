@@ -11,6 +11,7 @@
 pub mod capabilities;
 pub mod debounce;
 pub mod diagnostics;
+pub mod hover;
 pub mod server;
 
 pub use capabilities::server_capabilities;
