@@ -25,6 +25,7 @@ import type {
   TarnBackend,
 } from "./TarnBackend";
 import { readConfig } from "../config";
+import { buildRunArgs } from "./runArgs";
 
 interface CollectedOutput {
   exitCode: number | null;
@@ -40,7 +41,7 @@ export class TarnProcessRunner implements TarnBackend {
     if (options.streamNdjson) {
       return this.runNdjson(options);
     }
-    const args = this.buildRunArgs(options, undefined);
+    const args = buildRunArgs(options, undefined, readConfig().cookieJarMode);
     const collected = await this.spawnAndCollect(args, options.cwd, options.token);
     return this.toRunOutcome(collected, options.token, true);
   }
@@ -111,7 +112,14 @@ export class TarnProcessRunner implements TarnBackend {
     token: vscode.CancellationToken,
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     const format = mode === "all" ? "curl-all" : "curl";
-    const args = ["run", "--format", format, "--no-progress", ...files];
+    const args = ["run", "--format", format, "--no-progress"];
+    if (readConfig().cookieJarMode === "per-test") {
+      // Curl export also spawns `tarn run`; keep the same isolation
+      // semantics so exported commands line up with whatever the user
+      // sees in the Test Explorer.
+      args.push("--cookie-jar-per-test");
+    }
+    args.push(...files);
     const collected = await this.spawnAndCollect(args, cwd, token);
     return {
       exitCode: collected.exitCode,
@@ -211,6 +219,12 @@ export class TarnProcessRunner implements TarnBackend {
       `html=${htmlPath}`,
       "--no-progress",
     ];
+    if (readConfig().cookieJarMode === "per-test") {
+      // HTML report generation also spawns `tarn run`; honor the same
+      // isolation mode so the generated report matches the state the
+      // user would see from the Test Explorer.
+      args.push("--cookie-jar-per-test");
+    }
     if (options.environment) {
       args.push("--env", options.environment);
     }
@@ -284,53 +298,13 @@ export class TarnProcessRunner implements TarnBackend {
     }
   }
 
-  private buildRunArgs(options: RunOptions, ndjsonReportPath: string | undefined): string[] {
-    const args: string[] = ["run"];
-    if (ndjsonReportPath) {
-      args.push("--ndjson");
-      args.push("--format", `json=${ndjsonReportPath}`);
-      args.push("--json-mode", options.jsonMode ?? "verbose");
-    } else {
-      args.push("--format", "json");
-      args.push("--json-mode", options.jsonMode ?? "verbose");
-      args.push("--no-progress");
-    }
-    if (options.dryRun) {
-      args.push("--dry-run");
-    }
-    if (options.parallel) {
-      args.push("--parallel");
-    }
-    if (options.environment) {
-      args.push("--env", options.environment);
-    }
-    if (options.tags && options.tags.length > 0) {
-      args.push("--tag", options.tags.join(","));
-    }
-    if (options.selectors) {
-      for (const selector of options.selectors) {
-        args.push("--select", selector);
-      }
-    }
-    if (options.vars) {
-      for (const [key, value] of Object.entries(options.vars)) {
-        args.push("--var", `${key}=${value}`);
-      }
-    }
-    for (const file of options.files) {
-      args.push(file);
-    }
-    return args;
-  }
-
   private async runNdjson(options: RunOptions): Promise<RunOutcome> {
     const reportPath = path.join(
       os.tmpdir(),
       `tarn-vscode-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
     );
-    const args = this.buildRunArgs(options, reportPath);
-
     const config = readConfig();
+    const args = buildRunArgs(options, reportPath, config.cookieJarMode);
     const output = getOutputChannel();
     output.appendLine(`[tarn] $ ${formatCommandForLog(this.binaryPath, args)}`);
 

@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -566,6 +566,20 @@
           ],
           "default": "focused",
           "description": "When to show a warning notification after a failing Tarn run. Dry runs never trigger this notification.",
+          "scope": "resource"
+        },
+        "tarn.cookieJarMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "per-test"
+          ],
+          "enumDescriptions": [
+            "Honor the file's declared `cookies:` mode (shared jar by default)",
+            "Pass --cookie-jar-per-test to every tarn run so the default jar is reset between named tests"
+          ],
+          "default": "default",
+          "description": "Cookie jar isolation mode. `per-test` forces the CLI `--cookie-jar-per-test` flag on every run so subset runs (run-at-cursor, run-step) never inherit stale session state from tests that happen not to be in scope.",
           "scope": "resource"
         }
       }

@@ -27,13 +27,20 @@ export const errorCode = z.enum([
 
 export const statusEnum = z.enum(["PASSED", "FAILED"]);
 
+// Tarn's JSON reporter emits one shape for `assertions.details[]`
+// (both passes and failures, each with `passed: bool`) and another
+// shape for `assertions.failures[]` (failed entries only — `passed`
+// is omitted because it is always false). Both shapes also emit
+// `diff: null` when there is no structural diff. Accept both so the
+// extension can parse a report that contains at least one failing
+// step without the whole payload bouncing at the schema gate.
 const assertionDetailSchema = z.object({
   assertion: z.string(),
-  passed: z.boolean(),
+  passed: z.boolean().optional(),
   expected: z.string().optional(),
   actual: z.string().optional(),
   message: z.string().optional(),
-  diff: z.string().optional(),
+  diff: z.string().nullish(),
 });
 
 const assertionsSchema = z.object({

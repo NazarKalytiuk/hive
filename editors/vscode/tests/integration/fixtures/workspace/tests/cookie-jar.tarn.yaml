@@ -1,0 +1,44 @@
+version: "1"
+name: "Cookie isolation fixture (NAZ-280)"
+description: |
+  Per-test cookie jar integration test. `login_sets_session` establishes
+  a session cookie via the demo server; the two follow-up tests expect
+  no prior session. In the default mode they inherit the session and
+  fail; with `--cookie-jar-per-test` the default jar is reset between
+  named tests and they all pass. Integration test runs this file twice
+  with `tarn.cookieJarMode` flipped and asserts the split.
+
+tests:
+  login_sets_session:
+    description: "Establish a session cookie via /cookies/set"
+    steps:
+      - name: set session
+        request:
+          method: GET
+          url: "{{ env.base_url }}/cookies/set"
+        assert:
+          status: 200
+
+  first_expects_clean_jar:
+    description: "Brand-new named test — must not see any prior session"
+    steps:
+      - name: confirm no session
+        request:
+          method: GET
+          url: "{{ env.base_url }}/cookies/check"
+        assert:
+          status: 200
+          body:
+            "$.session": null
+
+  second_expects_clean_jar:
+    description: "Another brand-new named test — also must not see any prior session"
+    steps:
+      - name: confirm no session
+        request:
+          method: GET
+          url: "{{ env.base_url }}/cookies/check"
+        assert:
+          status: 200
+          body:
+            "$.session": null

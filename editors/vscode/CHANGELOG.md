@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.20.0 — Phase 5: Honor per-test cookie jar (NAZ-280)
+
+First Phase 5 feature: the extension can now force Tarn's per-test
+cookie jar isolation (T54 on the CLI side) so subset runs
+(run-at-cursor, run-step, run-test) never inherit stale session state
+from tests that happen not to be in scope. This was the long-standing
+gap that made "rerun just this step" unsafe whenever a sibling test
+had set a session cookie.
+
+### Added
+
+- **`tarn.cookieJarMode`** setting (NAZ-280) with an enum of
+  `"default" | "per-test"`, default `"default"`. When set to
+  `"per-test"`, the extension appends `--cookie-jar-per-test` to
+  every `tarn run` it spawns so Tarn clears the default cookie jar
+  between named tests. Respects the CLI precedence: a file with
+  `cookies: "off"` still short-circuits on the runner side, and
+  named (multi-user) jars are left untouched.
+- **`src/backend/runArgs.ts`** — a pure `buildRunArgs` helper
+  extracted from `TarnProcessRunner` so the argv construction is
+  exercised directly from vitest. Every branch is covered.
+- **`normalizeCookieJarMode`** helper in `src/config.ts`. Narrows a
+  raw setting value to `"per-test" | "default"`, falling back to
+  `"default"` on typos or unknown values so a bad setting never
+  crashes the runner.
+- **Extension host API**: the existing
+  `testing.backend.run` path already surfaces the argv via stdout
+  logging; integration tests exercise the behavior end-to-end
+  through the fixture + demo-server rather than by asserting the
+  argv directly.
+
+### Changed
+
+- **`TarnProcessRunner`** now threads `readConfig().cookieJarMode`
+  into three `tarn run` spawn sites: the main `run()` path
+  (Test Explorer, run-file, run-test, run-step, run-at-cursor), the
+  NDJSON streaming path used for live updates, and the
+  `exportCurl` / `runHtmlReport` secondary flows. Applying the flag
+  to the curl export and HTML report generation keeps their output
+  consistent with whatever the user just saw in the Test Explorer.
+- **`src/util/schemaGuards.ts`** — the assertion detail schema now
+  accepts the real tarn JSON shape instead of the idealized one:
+  `diff` is `z.string().nullish()` (tarn emits `null` when there is
+  no structural diff) and `passed` is optional on entries inside
+  `assertions.failures[]` (tarn omits it because those entries are
+  by definition failed). Before this fix, any report with at least
+  one failing step bounced at the zod gate and collapsed to
+  `report: undefined`, which masked every downstream
+  expected/actual/diff surface on real failures.
+
+### Tests
+
+- **Unit** (`tests/unit/runArgs.test.ts`, 21 tests). Covers every
+  branch of the argv builder: stdout-JSON form vs NDJSON form,
+  every optional flag (`--dry-run`, `--parallel`, `--env`, `--tag`,
+  `--select`, `--var`, `--json-mode`), default mode omitting the
+  flag, `per-test` mode appending it in both forms, flag ordering
+  relative to file paths, and the `per-test` flag surviving every
+  combination of dry-run + selectors + env + tags + vars.
+  `normalizeCookieJarMode` has four tests covering the exact match,
+  undefined fallback, typo fallback, and empty-string fallback.
+- **Unit** (`tests/unit/schemaGuards.test.ts`, +1 test). Regression
+  for the `diff: null` / omitted `passed` shape emitted by real
+  tarn on failing reports.
+- **Integration**
+  (`tests/integration/suite/cookieJarMode.test.ts`, 4 tests).
+  Spins up a `demo-server` subprocess on an OS-allocated port,
+  writes `tests/cookie-jar.tarn.yaml` with a `login_sets_session`
+  test plus two tests that assert `body.session == null`, and
+  drives the full pipeline twice:
+  - `tarn.cookieJarMode = "default"` → login passes, both
+    clean-jar tests fail (they inherit the session).
+  - `tarn.cookieJarMode = "per-test"` → all three tests pass
+    (jar is wiped between named tests).
+  A third test flips the setting back to `"default"` mid-session
+  to prove the setting is read on every run, not cached at
+  activation. A fourth test asserts that the setting is
+  contributed in `package.json` with the correct default, mirroring
+  the guard used by `notifications.test.ts`.
+
+Total: 255 unit tests, 85 integration tests passing. Bundle 280.5 KB.
+
 ## 0.19.0 — Phase 4: Init Project wizard polish
 
 Ninth and final Phase 4 feature: the minimal "pick folder, run

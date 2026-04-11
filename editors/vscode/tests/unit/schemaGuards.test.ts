@@ -120,6 +120,76 @@ describe("parseReport", () => {
     expect(step.response?.status).toBe(500);
   });
 
+  it("accepts the real tarn JSON shape: diff=null, no passed on failures[]", () => {
+    // Regression: the schema used to require `diff: string | undefined`
+    // and `passed: bool` on every assertion entry, but the real tarn
+    // binary emits `diff: null` and omits `passed` inside `failures[]`
+    // because those entries are by definition failed. parseReport must
+    // accept that shape so a run with even one failing step does not
+    // collapse to `report: undefined` in the runner.
+    const realShape = {
+      duration_ms: 5,
+      files: [
+        {
+          file: "tests/cookie.tarn.yaml",
+          name: "Cookie",
+          status: "FAILED",
+          duration_ms: 5,
+          summary: { total: 1, passed: 0, failed: 1 },
+          tests: [
+            {
+              name: "needs_clean_jar",
+              status: "FAILED",
+              duration_ms: 5,
+              steps: [
+                {
+                  name: "confirm no session",
+                  status: "FAILED",
+                  duration_ms: 5,
+                  assertions: {
+                    total: 2,
+                    passed: 1,
+                    failed: 1,
+                    details: [
+                      {
+                        assertion: "body $.session",
+                        passed: false,
+                        expected: "null",
+                        actual: "\"abc123\"",
+                        message: "JSONPath $.session: expected null",
+                        diff: null,
+                      },
+                    ],
+                    failures: [
+                      {
+                        // note: no `passed` field — the real tarn
+                        // binary omits it inside failures[]
+                        assertion: "body $.session",
+                        expected: "null",
+                        actual: "\"abc123\"",
+                        message: "JSONPath $.session: expected null",
+                        diff: null,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      summary: {
+        files: 1,
+        tests: 1,
+        steps: { total: 1, passed: 0, failed: 1 },
+        status: "FAILED" as const,
+      },
+    };
+    const report = parseReport(JSON.stringify(realShape));
+    expect(report.summary.status).toBe("FAILED");
+    expect(report.files[0].tests[0].steps[0].assertions?.failures?.[0].diff).toBeNull();
+  });
+
   it("rejects reports with wrong enum values", () => {
     const bad = { ...passingReport, summary: { ...passingReport.summary, status: "SKIPPED" } };
     expect(() => parseReport(JSON.stringify(bad))).toThrow();

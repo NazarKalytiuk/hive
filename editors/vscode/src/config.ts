@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 
+export type CookieJarMode = "default" | "per-test";
+
 export interface TarnConfig {
   binaryPath: string;
   testFileGlob: string;
@@ -13,6 +15,7 @@ export interface TarnConfig {
   statusBarEnabled: boolean;
   validateOnSave: boolean;
   notificationsFailure: "always" | "focused" | "off";
+  cookieJarMode: CookieJarMode;
 }
 
 export function readConfig(scope?: vscode.Uri): TarnConfig {
@@ -37,7 +40,20 @@ export function readConfig(scope?: vscode.Uri): TarnConfig {
       "notifications.failure",
       "focused",
     ),
+    cookieJarMode: normalizeCookieJarMode(
+      cfg.get<string>("cookieJarMode", "default"),
+    ),
   };
+}
+
+/**
+ * Narrow a raw `tarn.cookieJarMode` value to a known mode. Unknown or
+ * malformed values fall back to `"default"` so a typo in user settings
+ * never breaks the runner — the worst case is honoring the file's
+ * declared `cookies:` mode, which is the safe default.
+ */
+export function normalizeCookieJarMode(raw: string | undefined): CookieJarMode {
+  return raw === "per-test" ? "per-test" : "default";
 }
 
 export function buildExcludeGlob(globs: string[]): string | undefined {
