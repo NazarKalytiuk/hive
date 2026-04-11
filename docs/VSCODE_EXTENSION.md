@@ -491,6 +491,73 @@ Every phase is shippable on its own.
 - Tarn `README.md` references the extension as the canonical editor experience.
 - Version bumps in Tarn `Cargo.toml` and extension `package.json` are cut from one tag.
 
+## Public API
+
+The extension exposes a structured object to other extensions via `vscode.extensions.getExtension('nazarkalytiuk.tarn-vscode').exports`. That object conforms to `TarnExtensionApi`, defined in [`editors/vscode/src/api.ts`](../editors/vscode/src/api.ts). `api.ts` is the single source of truth — `extension.ts` re-exports the type but does not redeclare its shape.
+
+### Obtaining the API
+
+```ts
+import type { TarnExtensionApi } from "nazarkalytiuk.tarn-vscode";
+import * as vscode from "vscode";
+
+const ext = vscode.extensions.getExtension<TarnExtensionApi>(
+  "nazarkalytiuk.tarn-vscode",
+);
+if (!ext) {
+  // extension not installed
+  return;
+}
+const api = await ext.activate();
+if (!api) {
+  // activation was blocked (e.g. untrusted workspace)
+  return;
+}
+```
+
+`activate()` returns `undefined` in untrusted workspaces. Downstream integrators must handle that branch — the extension deliberately does not spawn Tarn, index files, or expose any surface until the user grants trust.
+
+### Shape
+
+| Field | Type | Stability | Description |
+|---|---|---|---|
+| `testControllerId` | `string` | **stable** | The `vscode.TestController` id used by the extension's Test Explorer integration. Other extensions can reference runs via the Testing API by looking up this id. |
+| `indexedFileCount` | `number` | **stable** | Number of `.tarn.yaml` files tracked by the workspace index at the moment `activate()` resolved. Use the Testing API for live updates — this field is a one-shot snapshot. |
+| `commands` | `readonly string[]` | **stable** | Full list of command ids the extension contributes. Useful for extensions that want to build their own palette or wire UI to Tarn actions without hard-coding command ids. The order of the array is not guaranteed. |
+| `testing` | `TarnExtensionTestingApi` | **internal** | Opaque, test-only sub-object. No compatibility guarantees — its shape may change between any two releases (including patch releases) without a changelog entry. Exists solely for the extension's own `@vscode/test-electron` integration tests. Must not be used from production code. |
+
+There are currently no `@stability preview` fields. When one is added, it will be listed in this table with a **preview** tier.
+
+### Stability tiers
+
+- **stable** — breaking changes require a major version bump (`1.x.y` → `2.0.0`). Removing a field, renaming a field, narrowing a return type, or widening a parameter type all count as breaking. Adding a new optional field to a stable object is NOT breaking.
+- **preview** — may change in any minor release (`1.1.0` → `1.2.0`). Preview fields are shipped so integrators can experiment and give feedback before a field is promoted to stable. Always listed explicitly in the table above before you depend on one.
+- **internal** — no compatibility guarantees whatsoever. Shape, presence, and behavior can change between any two releases, including patch releases. Downstream code that reads internal fields will break silently on upgrade. Do not use internal fields from production code.
+
+### Semver policy in prose
+
+The extension follows semantic versioning for its public API, not for its user-facing VS Code behavior. The user-facing side is free to iterate — adding a new command, changing a setting default, or renaming a view only needs a changelog entry, not a major bump. The public API side is frozen as described above.
+
+Internal fields, and only internal fields, are allowed to change in patch releases. Every other level of change is bound by the stability tier of the affected field: preview bumps minor, stable bumps major. A change that touches both a stable field and an internal field is bound by the strictest tier, i.e. the stable field's major bump.
+
+### 1.0.0 gate
+
+Until the extension ships `1.0.0`, the stable surface is still subject to one last round of pruning. When `1.0.0` ships, every field currently marked `@stability stable` in `src/api.ts` is frozen under the semver policy above, and the set of stable fields is locked to whatever `api.ts` declares at tag time. The `0.x` → `1.0.0` cut is tracked as NAZ-288. Between now and then, the extension keeps shipping normal minor releases on the `0.x` track; the `1.0.0` cut is a deliberate, coordinated event.
+
+### Enforcement
+
+A CI-enforced golden-snapshot test at [`editors/vscode/tests/unit/apiSurface.test.ts`](../editors/vscode/tests/unit/apiSurface.test.ts) compares a normalized version of `src/api.ts` against [`editors/vscode/tests/golden/api.snapshot.txt`](../editors/vscode/tests/golden/api.snapshot.txt). Any edit to the interface declaration — adding a field, removing a field, renaming a field, changing a stability annotation, changing the semver policy prose, changing an imported type — fails the test unless the golden is updated in the same commit. The test is picked up by `npm run test:unit` and therefore runs on every PR.
+
+The test also asserts three invariants:
+
+1. Every `readonly` field of `TarnExtensionApi` carries a `@stability` annotation in its JSDoc.
+2. The file-level semver-policy block comment mentions every stability tier (`stable`, `preview`, `internal`).
+3. The `testing` sub-object is annotated `@stability internal`.
+
+If a future PR tries to promote `testing.backend` (or any other internal field) into the public surface without annotating it, the test catches it locally before it ever reaches review. This is the "CI lint step that fails on unannounced breaking API changes" referenced by NAZ-285's acceptance criteria — the existing test pipeline is the lint step, and no separate GitHub Actions config is required.
+
+See [`editors/vscode/docs/API.md`](../editors/vscode/docs/API.md) for a user-facing quick reference aimed at integrators rather than contributors.
+
 ## Testing Strategy
 
 Follows the repo's testing guidance: every branch covered, tests must fail if the code path is broken.

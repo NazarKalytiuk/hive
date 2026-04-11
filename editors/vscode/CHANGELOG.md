@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — 1.0.0 release notes draft
+
+`1.0.0` is the first release under the **stable public API promise**. Extensions and scripts that consume `TarnExtensionApi` via `vscode.extensions.getExtension('nazarkalytiuk.tarn-vscode').exports` can rely on every field currently marked `@stability stable` in [`src/api.ts`](src/api.ts) not to break without a major version bump.
+
+What this means for integrators, in one paragraph: if you pin your dependency on the Tarn extension to `^1.0.0`, any future update in the `1.x` range will never remove a stable field, rename a stable field, narrow a stable return type, or widen a stable parameter type. Additive changes (a new optional field, a new stable method) are allowed inside `1.x`. Preview fields can change in any minor release and are always listed explicitly in [`docs/API.md`](docs/API.md). Internal fields (anything under `testing.*`) have no compatibility guarantees at all — they exist for the extension's own integration tests and will break silently. If you are reading `api.testing.*` today, stop.
+
+What this means for the extension itself: the stable surface is now CI-enforced. A golden snapshot at `tests/golden/api.snapshot.txt` pins the declaration of `src/api.ts`, and `tests/unit/apiSurface.test.ts` fails any drift that is not accompanied by an explicit snapshot update. Every new field must carry a `@stability` annotation; the `testing` sub-object is locked to `@stability internal`.
+
+The `1.0.0` release itself is cut by NAZ-288's version alignment step — the extension version, the Tarn `Cargo.toml` version, and the matching git tag all bump together. Between now and then, the extension keeps shipping normal minor releases on the `0.x` track (see `0.24.0` below for the staging release that introduces the API promise mechanics).
+
+## 0.24.0 — Phase 6: Stable API promise (NAZ-285)
+
+The extension's return value from `activate()` has been an `interface TarnExtensionApi` since Phase 1, but nothing bound downstream integrators to any particular subset of that interface, and nothing stopped a future PR from deleting a field that an external extension had started to depend on. This release pins the public surface as a hard contract so the roadmap can safely cut `1.0.0` (gated on NAZ-288).
+
+### Added
+
+- **`editors/vscode/src/api.ts`** — new, single source of truth for `TarnExtensionApi` and the internal `TarnExtensionTestingApi` sub-type. `src/extension.ts` now re-exports the public type instead of redeclaring its shape. Every field carries a JSDoc `@stability` annotation (`stable`, `preview`, or `internal`) and a file-level block comment documents the semver policy in prose: stable bumps major, preview bumps minor, internal can change in patch releases.
+- **`testing` sub-object explicitly marked `@stability internal`** — the sub-object that holds `backend`, `buildFailureMessagesForStep`, `workspaceIndexSnapshot`, etc. is still exposed for the extension's own `@vscode/test-electron` integration tests, but its opaque-and-test-only status is now a typed annotation on the interface, not just a prose comment in `extension.ts`. Downstream code that reads `api.testing.*` is unsupported and will break silently on upgrade.
+- **Public API section in `docs/VSCODE_EXTENSION.md`** — prose documentation of the interface shape, the stability tiers, the semver policy, the `1.0.0` gating plan, and the enforcement mechanism. Cross-linked to `api.ts`, the golden snapshot, and the enforcement test.
+- **`editors/vscode/docs/API.md`** — user-facing quick reference aimed at integrators. Shows how to call `vscode.extensions.getExtension('nazarkalytiuk.tarn-vscode')`, documents each stable field, and explains what the `1.0.0` gate means for anyone building on the API today. Linked from `editors/vscode/README.md`.
+- **`editors/vscode/tests/golden/api.snapshot.txt`** — normalized golden snapshot of the `api.ts` declaration. Whitespace-normalized, line-comments and non-`@stability` block comments stripped, so formatting edits don't trip the test but any real shape change does.
+- **`editors/vscode/tests/unit/apiSurface.test.ts`** — new unit test, 4 assertions:
+  1. The normalized `src/api.ts` matches the golden snapshot. Failure includes a one-command regeneration hint.
+  2. The file-level semver-policy block comment mentions every stability tier (`stable`, `preview`, `internal`) so future contributors can't accidentally drop one.
+  3. Every `readonly` field of `TarnExtensionApi` carries a `@stability` annotation in its JSDoc.
+  4. The `testing` sub-object is annotated `@stability internal`.
+  This test is picked up by `npm run test:unit` and runs on every PR, so an API drift that is not accompanied by a documented change gets caught locally before review. That's the "CI lint step that fails on unannounced breaking API changes" from the NAZ-285 acceptance criteria — no separate GitHub Actions config required.
+- **`## Unreleased — 1.0.0 release notes draft`** block above this entry. Will be promoted to the actual `1.0.0` release notes when NAZ-288 cuts the version bump.
+
+### Changed
+
+- `src/extension.ts` no longer contains the inline `TarnExtensionApi` interface declaration (~116 lines of nested `import(...)` type references). It imports and re-exports the type from `./api` instead. The `activate()` return value is unchanged — the structural type check still applies, and the object literal that builds the API is the only thing left in `extension.ts`.
+
+### Not changed
+
+- **No runtime behavior change.** The shape of the object returned from `activate()` is identical to `0.23.0`. An extension that was already consuming `api.testControllerId`, `api.indexedFileCount`, `api.commands`, or (unwisely) `api.testing.*` will observe zero change. The ticket is a documentation-and-enforcement ticket, not a breaking change.
+- **No version bump to 1.0.0.** The version alignment step that bumps `editors/vscode/package.json` to `1.0.0` is owned by NAZ-288, which runs after all other Phase 6 tickets. The release notes draft above is staged in the `Unreleased` block for that tickets to lift into place.
+
 ## 0.23.0 — Phase 5: Remote compatibility audit (NAZ-283)
 
 End-to-end audit of the extension against the four remote-development

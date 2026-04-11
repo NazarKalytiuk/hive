@@ -133,6 +133,10 @@ npm run build
 npx vsce package --no-dependencies --out tarn-vscode.vsix
 ```
 
+## Public API
+
+Other extensions can consume `TarnExtensionApi` via `vscode.extensions.getExtension('nazarkalytiuk.tarn-vscode').exports`. See [`docs/API.md`](docs/API.md) for the stable surface, stability tiers, and semver policy.
+
 ## Roadmap
 
 See `docs/VSCODE_EXTENSION.md` for the full phased plan and Tarn-side dependencies (`T51`–`T57`).
