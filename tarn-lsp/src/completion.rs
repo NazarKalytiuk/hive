@@ -32,12 +32,27 @@
 //!     once, resolves the context, and dispatches to the right list
 //!     builder.
 //!
-//! ## Nested-object completion
+//! ## Nested-object completion (new in L3.5)
 //!
-//! Nested field completion inside `request.*` / `assert.body.*` is
-//! explicitly out of scope for L1.4 — see `docs/TARN_LSP.md` L1.4 for
-//! the followup pointer. The `YamlKey` classifier only fires on
-//! root / test-group / step blank lines today.
+//! L3.5 adds schema-aware completion for cursors nested beyond the
+//! top-level / test-group / step scopes. [`resolve_schema_path`]
+//! walks the YAML source backward from the cursor and builds a
+//! [`SchemaPath`] — a dot-path into the JSON Schema rooted at
+//! `schemas/v1/testfile.json`. [`nested_schema_completions`] then
+//! calls [`children_at_schema_path`] and emits one completion item
+//! per valid child, using the schema's `description` field as the
+//! item's documentation where available.
+//!
+//! The integration point is [`text_document_completion`]: when the
+//! cursor is on a blank line (so the existing top-level / step
+//! classifier would have fired), we also try the schema-path
+//! resolver, and if the schema walker yields children for a path
+//! deeper than the hard-coded top-level scopes we prefer those.
+//! This keeps the original Root / Test / Step scopes (which are
+//! themselves thin wrappers around hard-coded key lists) untouched
+//! while adding nested support for `request.*`, `assert.*`,
+//! `assert.body.*`, `capture.*`, `poll.*`, and every other nested
+//! shape the schema describes.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -50,7 +65,10 @@ use tarn::env::{self, EnvEntry, EnvSource};
 use tarn::parser;
 
 use crate::hover::{collect_visible_captures, CapturePhase, VisibleCapture, BUILTIN_DOCS};
-use crate::schema::{schema_key_cache, SchemaKeyCache};
+use crate::schema::{
+    children_at_schema_path, schema_key_cache, PathSegment, SchemaField, SchemaFieldKind,
+    SchemaKeyCache, SchemaPath,
+};
 use crate::server::DocumentStore;
 use crate::token::{column_to_line_byte_offset, line_at_position};
 
@@ -526,6 +544,206 @@ fn empty_interpolation_completions() -> Vec<CompletionItem> {
 }
 
 // ---------------------------------------------------------------------
+// Nested schema-path completion (L3.5)
+// ---------------------------------------------------------------------
+
+/// Resolve a YAML cursor position to a [`SchemaPath`] — the sequence
+/// of `properties` / `items` / `additionalProperties` steps the
+/// completion walker needs to navigate to find valid children at
+/// that point in the document.
+///
+/// Pure: no parser, no filesystem, no LSP types beyond [`Position`].
+/// The walker is intentionally permissive — it works off raw lines
+/// rather than a YAML parse tree, so half-finished documents (the
+/// common case during live editing) still produce a usable path.
+///
+/// Returns `None` when the cursor line is not on a blank mapping-key
+/// line (the only place nested completion makes sense). Returns
+/// `Some(SchemaPath::default())` when the cursor is at the document
+/// root — callers can still use the empty path, since
+/// [`children_at_schema_path`] interprets an empty path as "root
+/// top-level properties".
+pub fn resolve_schema_path(source: &str, position: Position) -> Option<SchemaPath> {
+    let (_line_start, cursor_line_text) = line_at_position(source, position)?;
+    let col = column_to_line_byte_offset(cursor_line_text, position.character);
+    let prefix = &cursor_line_text[..col];
+    if !is_blank_prefix(prefix) {
+        return None;
+    }
+    let cursor_indent = leading_spaces(cursor_line_text);
+    // The cursor must sit at or past the current line's indent —
+    // YAML keys begin at their indentation level, not before it.
+    if col < cursor_indent {
+        return None;
+    }
+
+    let mut target_indent = cursor_indent;
+    let mut segments_rev: Vec<PathSegment> = Vec::new();
+
+    let mut current_line = position.line as i64 - 1;
+    while current_line >= 0 {
+        let (_, text) = match line_at_position(source, Position::new(current_line as u32, 0)) {
+            Some(pair) => pair,
+            None => break,
+        };
+        current_line -= 1;
+
+        let trimmed = text.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let indent = leading_spaces(text);
+        if indent >= target_indent {
+            // Siblings or deeper children — cannot contribute a
+            // parent segment.
+            continue;
+        }
+
+        // List-item marker. The `-` anchors an array element; the
+        // element's interior begins at `indent + 2`, which is where
+        // the first key (e.g. `name:`) lives on the same physical
+        // line. The array segment's indent for the walker is the
+        // `-` column, not the child column.
+        let after_indent = &text[indent..];
+        if after_indent.starts_with('-') {
+            segments_rev.push(PathSegment::Index(0));
+            target_indent = indent;
+            if indent == 0 {
+                // `-` at column 0 means we just crossed a top-level
+                // sequence; the parent is the document root and we
+                // still need to resolve the mapping key that wraps
+                // this sequence. Keep walking.
+                continue;
+            }
+            continue;
+        }
+
+        // Plain mapping key. Only lines of the form `<indent>key:`
+        // (with optional trailing comment or empty value) contribute
+        // a parent segment — a sibling line like `method: GET` on a
+        // strictly shallower indent would be a sibling key, which is
+        // impossible in a well-indented block so we defensively
+        // skip it rather than push the wrong segment.
+        if let Some(key) = mapping_key_for_nested(text) {
+            segments_rev.push(PathSegment::Key(key));
+            target_indent = indent;
+            if indent == 0 {
+                // Top-level key reached. Walk no further.
+                break;
+            }
+            continue;
+        }
+        // Non-key, non-list line at a shallower indent — the YAML
+        // is malformed in a way that doesn't help us. Skip and keep
+        // looking for a structural anchor.
+    }
+
+    segments_rev.reverse();
+    let mut path = SchemaPath::new();
+    for seg in segments_rev {
+        path.push(seg);
+    }
+    Some(path)
+}
+
+/// Build nested completion items from a resolved [`SchemaPath`].
+///
+/// Empty `Vec` when the path does not resolve to any schema node
+/// (so callers can fall back to other completion sources). Items
+/// are sorted alphabetically via `BTreeMap` inside
+/// [`children_at_schema_path`]; we further sort matchers after
+/// properties so the schema-proper fields appear first.
+pub fn nested_schema_completions(path: &SchemaPath, cache: &SchemaKeyCache) -> Vec<CompletionItem> {
+    let fields = children_at_schema_path(cache, path);
+    fields.into_iter().map(schema_field_to_item).collect()
+}
+
+/// Convert a single [`SchemaField`] into a completion item, preserving
+/// the schema description as documentation and tagging matchers with
+/// a distinct detail string so the client can render them differently
+/// from ordinary structural properties.
+fn schema_field_to_item(field: SchemaField) -> CompletionItem {
+    let detail = match field.kind {
+        SchemaFieldKind::Property => "Tarn schema field",
+        SchemaFieldKind::Matcher => "Tarn assertion matcher",
+    };
+    let documentation = field.description.map(|desc| {
+        Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: desc,
+        })
+    });
+    CompletionItem {
+        label: field.name.clone(),
+        kind: Some(CompletionItemKind::PROPERTY),
+        detail: Some(detail.to_owned()),
+        documentation,
+        insert_text: Some(format!("{}: ", field.name)),
+        ..Default::default()
+    }
+}
+
+/// Mapping-key detector for the nested walker.
+///
+/// Accepts any `<indent>key:` or `<indent>"quoted key":` line. Stricter
+/// than [`mapping_key`] because it must also accept quoted keys (e.g.
+/// `"$.id":`) which the legacy top-level classifier never encountered.
+fn mapping_key_for_nested(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('-') {
+        return None;
+    }
+
+    // Quoted key: `"key":...` or `'key':...`.
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let end = rest.find('"')?;
+        let key = &rest[..end];
+        // After the closing quote we must find a `:` before any
+        // other non-whitespace so we don't accidentally treat a
+        // quoted scalar value as a key.
+        let tail = &rest[end + 1..];
+        let tail_trimmed = tail.trim_start();
+        if !tail_trimmed.starts_with(':') {
+            return None;
+        }
+        if key.is_empty() {
+            return None;
+        }
+        return Some(key.to_owned());
+    }
+    if let Some(rest) = trimmed.strip_prefix('\'') {
+        let end = rest.find('\'')?;
+        let key = &rest[..end];
+        let tail = &rest[end + 1..];
+        let tail_trimmed = tail.trim_start();
+        if !tail_trimmed.starts_with(':') {
+            return None;
+        }
+        if key.is_empty() {
+            return None;
+        }
+        return Some(key.to_owned());
+    }
+
+    // Unquoted key.
+    let colon_pos = trimmed.find(':')?;
+    let key = trimmed[..colon_pos].trim_end();
+    if key.is_empty() {
+        return None;
+    }
+    let first = key.chars().next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    // An unquoted mapping key can't contain whitespace in the middle.
+    if key.chars().any(char::is_whitespace) {
+        return None;
+    }
+    Some(key.to_owned())
+}
+
+// ---------------------------------------------------------------------
 // Request handler
 // ---------------------------------------------------------------------
 
@@ -542,30 +760,83 @@ pub fn text_document_completion(
     position: Position,
 ) -> Option<CompletionResponse> {
     let source = store.get(uri)?;
-    let ctx = resolve_completion_context(source, position)?;
 
-    let items = match ctx {
-        CompletionContext::InsideInterpolation(InterpolationScope::Empty) => {
-            empty_interpolation_completions()
+    // Interpolation contexts take precedence — they're the most
+    // specific classifier and the top-level / nested YAML walkers
+    // must not fire inside an open `{{ … }}`.
+    if let Some(ctx) = resolve_completion_context(source, position) {
+        let items = match ctx {
+            CompletionContext::InsideInterpolation(InterpolationScope::Empty) => {
+                empty_interpolation_completions()
+            }
+            CompletionContext::InsideInterpolation(InterpolationScope::Env) => {
+                let env = build_env_context(source, uri);
+                env_completions(&env)
+            }
+            CompletionContext::InsideInterpolation(InterpolationScope::Capture) => {
+                let caps = build_captures_context(source, uri, position);
+                capture_completions(&caps)
+            }
+            CompletionContext::InsideInterpolation(InterpolationScope::Builtin) => {
+                builtin_completions()
+            }
+            CompletionContext::YamlKey(scope) => {
+                // Top-level / test / step blank-line scopes keep their
+                // hard-coded key lists (with full descriptions via
+                // the schema cache). Only try the nested walker as a
+                // fallback when the top-level classifier returned
+                // `Step` but the cursor is actually deeper than the
+                // step mapping itself.
+                let top_items = schema_key_completions(scope, schema_key_cache());
+                let nested_items = nested_schema_completions_at(source, position);
+                let should_prefer_nested = matches!(scope, YamlScope::Step)
+                    && !nested_items.is_empty()
+                    && nested_path_depth(source, position) > 2;
+                if should_prefer_nested {
+                    nested_items
+                } else {
+                    top_items
+                }
+            }
+        };
+        if !items.is_empty() {
+            return Some(CompletionResponse::Array(items));
         }
-        CompletionContext::InsideInterpolation(InterpolationScope::Env) => {
-            let env = build_env_context(source, uri);
-            env_completions(&env)
-        }
-        CompletionContext::InsideInterpolation(InterpolationScope::Capture) => {
-            let caps = build_captures_context(source, uri, position);
-            capture_completions(&caps)
-        }
-        CompletionContext::InsideInterpolation(InterpolationScope::Builtin) => {
-            builtin_completions()
-        }
-        CompletionContext::YamlKey(scope) => schema_key_completions(scope, schema_key_cache()),
-    };
-
-    if items.is_empty() {
-        return None;
     }
-    Some(CompletionResponse::Array(items))
+
+    // Fallback: cursor is on a blank line the top-level classifier
+    // did not recognise (e.g. inside `request:` three levels below
+    // `steps:`). The nested walker is permissive — it'll happily
+    // produce a schema path for these positions.
+    let nested = nested_schema_completions_at(source, position);
+    if !nested.is_empty() {
+        return Some(CompletionResponse::Array(nested));
+    }
+    None
+}
+
+/// Run the nested walker for a cursor position and return the
+/// completion items for its schema path. Thin helper to keep the
+/// dispatcher body readable.
+fn nested_schema_completions_at(source: &str, position: Position) -> Vec<CompletionItem> {
+    let Some(path) = resolve_schema_path(source, position) else {
+        return Vec::new();
+    };
+    if path.is_empty() {
+        // Empty path = root. The existing Root scope already
+        // renders root keys, so avoid double-emitting.
+        return Vec::new();
+    }
+    nested_schema_completions(&path, schema_key_cache())
+}
+
+/// Depth of the resolved nested path. Used by the dispatcher to pick
+/// between the legacy step-scope key list and the schema walker
+/// output — a cursor inside `request.*` has a path of length 3
+/// (`steps` → Index → `request`), strictly deeper than the step
+/// mapping itself (length 2), so the walker owns it.
+fn nested_path_depth(source: &str, position: Position) -> usize {
+    resolve_schema_path(source, position).map_or(0, |p| p.len())
 }
 
 /// Resolve the env chain for the document at `uri`. Matches how the
@@ -1036,5 +1307,200 @@ mod tests {
             labels.contains(&"base_url"),
             "expected base_url, got {labels:?}"
         );
+    }
+
+    // -------- resolve_schema_path ----------
+
+    fn segs(path: &SchemaPath) -> Vec<String> {
+        path.segments()
+            .iter()
+            .map(|seg| match seg {
+                PathSegment::Key(k) => k.clone(),
+                PathSegment::Index(i) => format!("[{i}]"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn resolve_schema_path_inside_request_yields_steps_index_request() {
+        // Cursor is on the blank line directly under `request:` — we
+        // should get a path of `steps[0].request`.
+        let src = "name: x\nsteps:\n  - name: s\n    request:\n      method: GET\n      \n";
+        // Line 5 is `      ` (6 spaces). Cursor col 6.
+        let path = resolve_schema_path(src, Position::new(5, 6)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "request"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_inside_assert_body_jsonpath_yields_matcher_path() {
+        // Fixture: cursor inside `assert.body."$.id":` one level deeper
+        // than the JSONPath key itself, so the matcher grammar applies.
+        // The blank line carries explicit 10-space padding so the
+        // classifier sees the expected indent — real YAML buffers
+        // midway through an edit always have at least the
+        // auto-indentation whitespace in place.
+        let src = concat!(
+            "name: x\n",
+            "steps:\n",
+            "  - name: s\n",
+            "    assert:\n",
+            "      body:\n",
+            "        \"$.id\":\n",
+            "          \n",
+        );
+        let line_idx = 6u32;
+        let col = 10u32;
+        // Sanity: that line really is the 10-space blank line.
+        assert_eq!(src.lines().nth(line_idx as usize).unwrap(), "          ");
+        let path = resolve_schema_path(src, Position::new(line_idx, col)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "assert", "body", "$.id"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_inside_capture_yields_steps_index_capture() {
+        let src = "name: x\nsteps:\n  - name: s\n    capture:\n      \n";
+        // Line 4 = `      `, col 6.
+        let path = resolve_schema_path(src, Position::new(4, 6)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "capture"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_inside_poll_yields_steps_index_poll() {
+        let src = "name: x\nsteps:\n  - name: s\n    poll:\n      \n";
+        // Line 4, col 6.
+        let path = resolve_schema_path(src, Position::new(4, 6)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "poll"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_on_broken_yaml_still_returns_permissive_path() {
+        // Middle of the document is mangled (stray `???` line) but
+        // the walker should still produce a usable path for the
+        // blank line at the bottom.
+        let src = concat!(
+            "name: x\n",
+            "steps:\n",
+            "  - name: s\n",
+            "    request:\n",
+            "      method: GET\n",
+            "      ??? broken line\n",
+            "      \n",
+        );
+        // Line 6 is `      ` (6 spaces). Cursor col 6.
+        assert_eq!(src.lines().nth(6).unwrap(), "      ");
+        let path = resolve_schema_path(src, Position::new(6, 6)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "request"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_on_blank_line_inside_nested_request_works() {
+        // Regression test: the classifier previously returned
+        // `YamlScope::Step` for a cursor deep inside `request:`.
+        // Confirm the nested walker produces a proper path even
+        // when the enclosing top-level scope is Step.
+        let src = "name: x\nsteps:\n  - name: s\n    request:\n      headers:\n        \n";
+        // Line 5 = `        ` (8 spaces). Cursor col 8.
+        let path = resolve_schema_path(src, Position::new(5, 8)).expect("path");
+        assert_eq!(segs(&path), vec!["steps", "[0]", "request", "headers"]);
+    }
+
+    #[test]
+    fn resolve_schema_path_on_non_blank_line_returns_none() {
+        let src = "steps:\n  - name: xxxxx\n";
+        // Cursor is in the middle of `xxxxx` — not a blank line.
+        assert!(resolve_schema_path(src, Position::new(1, 12)).is_none());
+    }
+
+    #[test]
+    fn resolve_schema_path_at_document_root_returns_empty_path() {
+        let src = "name: x\n\nsteps: []\n";
+        let path = resolve_schema_path(src, Position::new(1, 0)).expect("path");
+        assert!(path.is_empty());
+    }
+
+    // -------- nested_schema_completions ----------
+
+    #[test]
+    fn nested_schema_completions_inside_request_offer_request_fields() {
+        let mut path = SchemaPath::new();
+        path.push(PathSegment::Key("steps".into()));
+        path.push(PathSegment::Index(0));
+        path.push(PathSegment::Key("request".into()));
+        let items = nested_schema_completions(&path, schema_key_cache());
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"method"));
+        assert!(labels.contains(&"url"));
+        assert!(labels.contains(&"headers"));
+        assert!(labels.contains(&"body"));
+        assert!(labels.contains(&"form"));
+        assert!(labels.contains(&"multipart"));
+        for item in &items {
+            assert_eq!(item.kind, Some(CompletionItemKind::PROPERTY));
+            assert!(item.insert_text.as_ref().unwrap().ends_with(": "));
+        }
+        // Descriptions must come through.
+        let url = items.iter().find(|i| i.label == "url").unwrap();
+        assert!(url.documentation.is_some());
+    }
+
+    #[test]
+    fn nested_schema_completions_inside_assert_body_jsonpath_offer_matchers() {
+        let mut path = SchemaPath::new();
+        path.push(PathSegment::Key("steps".into()));
+        path.push(PathSegment::Index(0));
+        path.push(PathSegment::Key("assert".into()));
+        path.push(PathSegment::Key("body".into()));
+        path.push(PathSegment::Key("$.id".into()));
+        let items = nested_schema_completions(&path, schema_key_cache());
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        for want in [
+            "eq", "gt", "matches", "length", "type", "is_uuid", "contains",
+        ] {
+            assert!(
+                labels.contains(&want),
+                "missing `{want}` in assert.body matcher completions: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_schema_completions_inside_poll_offer_pollconfig_fields() {
+        let mut path = SchemaPath::new();
+        path.push(PathSegment::Key("steps".into()));
+        path.push(PathSegment::Index(0));
+        path.push(PathSegment::Key("poll".into()));
+        let items = nested_schema_completions(&path, schema_key_cache());
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"until"));
+        assert!(labels.contains(&"interval"));
+        assert!(labels.contains(&"max_attempts"));
+    }
+
+    #[test]
+    fn nested_schema_completions_empty_for_unknown_path() {
+        let mut path = SchemaPath::new();
+        path.push(PathSegment::Key("this_is_not_a_real_key".into()));
+        let items = nested_schema_completions(&path, schema_key_cache());
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn text_document_completion_inside_request_returns_request_fields() {
+        let mut store = DocumentStore::new();
+        let uri = Url::parse("file:///tmp/cmp-nested-request.tarn.yaml").unwrap();
+        let src = "name: x\nsteps:\n  - name: s\n    request:\n      \n";
+        store.open(uri.clone(), src.to_owned());
+        let response = text_document_completion(&store, &uri, Position::new(4, 6))
+            .expect("nested completion should fire");
+        let items = match response {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"method"));
+        assert!(labels.contains(&"url"));
+        // Specifically must NOT offer the step-level keys here.
+        assert!(!labels.contains(&"request"));
+        assert!(!labels.contains(&"capture"));
     }
 }

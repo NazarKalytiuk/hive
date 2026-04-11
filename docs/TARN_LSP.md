@@ -50,8 +50,9 @@ Phase L3 layers editing features onto the L1/L2 surface. Each ticket is a thin w
 - [x] **L3.1 — formatting (NAZ-302)**: `textDocument/formatting` reformats the whole document in-process via `tarn::format::format_document` — the same library function the `tarn fmt` CLI calls. Range formatting (`textDocument/rangeFormatting`) is deliberately **not** advertised; the Tarn formatter re-renders the whole buffer so a range-only edit cannot be produced without touching surrounding YAML.
 - [x] **L3.2 — code actions + extract env var (NAZ-303)**: `textDocument/codeAction` wires up a pure dispatcher over a flat list of provider functions. The first provider is **extract env var** (`refactor.extract`), which lifts a selected string literal inside a request field into a new env key and rewrites the original site as a `{{ env.<name> }}` interpolation. Collision detection against the full env chain (inline block + `tarn.env.yaml` + `tarn.env.local.yaml` + `tarn.env.{name}.yaml`) suffixes the coined name with a counter (`new_env_key`, `new_env_key_2`, …). Capability advertises `refactor.extract`, `refactor`, and `quickfix` now so later L3 tickets (capture-field refactor, fix-plan quick fix) can plug into the same dispatcher without shipping a capability regression.
 - [x] **L3.3 — capture-field + scaffold-assert code actions (NAZ-304)**: two new providers plug into the L3.2 dispatcher. **Capture this field** (`refactor`) lifts a JSONPath literal inside an `assert.body:` entry into a new `capture:` block on the same step, deriving the capture name from the last non-wildcard path segment. **Scaffold assert.body from last response** (`refactor`) walks the top-level fields of a recorded response (pluggable `RecordedResponseSource` trait) and emits an `assert.body` block pre-populated with one `type: …` entry per field. Both actions merge into existing `capture:` / `assert.body:` blocks instead of overwriting them, and collision-suffix any coined capture name (`id`, `id_2`, …) on the way out.
+- [x] **L3.5 — nested completion (NAZ-306)**: the completion provider now offers schema-aware child keys for cursors nested below the top-level / step mapping. A YAML walker maps the cursor to a `SchemaPath`, and a schema walker descends through `properties`, `items`, `additionalProperties`, local `$ref`, and `oneOf`/`anyOf`/`allOf` to find valid children at the destination. `request.*` offers `method`/`url`/`headers`/`body`/`form`/`multipart`, `assert.body."$.id".*` offers the `BodyAssertionOperators` grammar (`eq`, `gt`, `matches`, `length`, `type`, `is_uuid`, …), `poll.*` offers `until`/`interval`/`max_attempts`, and `capture.<name>.*` offers the `ExtendedCapture` keys. Descriptions from the schema flow through as `documentation`.
 
-Remaining L3 tickets (L3.4 fix-plan quick fix, L3.5 nested completion, L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
+Remaining L3 tickets (L3.6 JSONPath evaluator) are tracked under Epic NAZ-301.
 
 ## Installation
 
@@ -132,6 +133,13 @@ steps:
 | **Inside `{{ capture.<prefix> }}`**    | `.` after `capture`      | Every capture declared by a strictly earlier step visible from the cursor.                                             | `Variable`  |
 | **Inside `{{ $<prefix> }}`**           | `$` after `{{`           | The five Tarn built-ins (`$uuid`, `$timestamp`, `$now_iso`, `$random_hex`, `$random_int`), the last two as snippets.   | `Function`  |
 | **Blank YAML mapping-key line**        | newline / manual trigger | Schema-valid keys for the cursor's scope — root, test group, or step.                                                  | `Property`  |
+| **Nested blank line inside a schema-valid parent** (new in L3.5) | newline / manual trigger | Schema-valid child keys for the cursor's YAML path — e.g. `method`/`url`/`headers`/`body` under `request:`, `eq`/`gt`/`matches`/`length` under `assert.body."$.id":`, `until`/`interval`/`max_attempts` under `poll:`, `header`/`cookie`/`jsonpath`/`regex` under `capture.<name>:`. | `Property` |
+
+#### Nested completion (new in L3.5)
+
+L3.5 layers a schema-tree walker on top of the L1.4 top-level completion. [`completion::resolve_schema_path`] maps a blank-line cursor to a `SchemaPath` — a dot-path into the JSON Schema — and [`schema::children_at_schema_path`] walks that path through `properties`, `items`, `additionalProperties`, `$ref`, and the `oneOf` / `anyOf` / `allOf` combinators to find every valid child at the destination. Completion items carry the schema's `description` field as their `documentation` where available, so hovering a suggestion shows the same text Tarn's schema docs render.
+
+The YAML walker is deliberately line-based and permissive — it works off raw lines rather than a parsed tree, so half-finished buffers mid-edit still produce a usable path. The schema walker supports the JSON Schema constructs the bundled `schemas/v1/testfile.json` actually uses (`properties`, `items`, `additionalProperties`, local `$ref`, `oneOf`/`anyOf`/`allOf`); `patternProperties`, `if`/`then`/`else`, and external refs are out of scope because the Tarn schema does not use them.
 
 Example — typing `{{ env.` in a request URL shows every env key resolved from the active environment chain:
 
@@ -387,7 +395,7 @@ The VS Code extension keeps its own last-run cache **in memory only** (see `edit
 
 **Safety gates.** The provider skips any diagnostic whose `source` is not `"tarn"`, any diagnostic with a numeric `code`, and any diagnostic whose message does not match a fix-plan pattern. Foreign diagnostics produced by other LSPs or extensions never flow into the library.
 
-After shipping L3.4, Phase L3 is mostly done — L3.5 (nested completion) and L3.6 (inline JSONPath evaluator) are the remaining tickets under Epic NAZ-301.
+After shipping L3.5, Phase L3 is almost done — L3.6 (inline JSONPath evaluator) is the last remaining ticket under Epic NAZ-301.
 
 ## Client configuration
 

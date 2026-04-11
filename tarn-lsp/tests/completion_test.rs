@@ -190,6 +190,123 @@ fn completion_at_blank_top_level_line_returns_schema_keys() {
 }
 
 #[test]
+fn completion_nested_inside_request_offers_request_fields() {
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/cmp-nested-request.tarn.yaml").unwrap();
+    // Blank line directly under `request:` — the nested walker
+    // should surface the Request schema's children (method, url,
+    // headers, body, form, multipart, …).
+    let src = "name: nested-request\nsteps:\n  - name: ping\n    request:\n      \n";
+    send_did_open(&client_conn, &uri, src);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    let items = request_completion(&client_conn, &uri, Position::new(4, 6))
+        .expect("nested request completion returned null");
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    for want in ["method", "url", "headers", "body", "form", "multipart"] {
+        assert!(
+            labels.contains(&want),
+            "missing `{want}` in nested-request completion: {labels:?}"
+        );
+    }
+    // Must NOT bleed back to the step-level hard-coded key list.
+    assert!(
+        !labels.contains(&"request"),
+        "leaked step-level key into nested completion: {labels:?}"
+    );
+    assert!(
+        !labels.contains(&"capture"),
+        "leaked step-level key into nested completion: {labels:?}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn completion_nested_inside_assert_body_jsonpath_offers_matchers() {
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/cmp-nested-assert-body.tarn.yaml").unwrap();
+    // Cursor is one level deeper than `"$.id":` — completion should
+    // offer BodyAssertionOperators (eq, matches, length, …).
+    let src = concat!(
+        "name: nested-assert\n",
+        "steps:\n",
+        "  - name: check\n",
+        "    request:\n",
+        "      method: GET\n",
+        "      url: http://localhost/x\n",
+        "    assert:\n",
+        "      body:\n",
+        "        \"$.id\":\n",
+        "          \n",
+    );
+    send_did_open(&client_conn, &uri, src);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Line 9 is `          ` (10 spaces). Cursor col 10.
+    let items = request_completion(&client_conn, &uri, Position::new(9, 10))
+        .expect("nested assert.body completion returned null");
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    for want in ["eq", "matches", "length", "type", "is_uuid", "contains"] {
+        assert!(
+            labels.contains(&want),
+            "missing matcher `{want}` in nested assert.body completion: {labels:?}"
+        );
+    }
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
+fn completion_nested_inside_poll_offers_pollconfig_fields() {
+    let (server_conn, client_conn) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        tarn_lsp::run_with_connection(server_conn).expect("server loop failed");
+    });
+    handshake(&client_conn);
+
+    let uri = Url::parse("file:///tmp/cmp-nested-poll.tarn.yaml").unwrap();
+    let src = concat!(
+        "name: nested-poll\n",
+        "steps:\n",
+        "  - name: await\n",
+        "    request:\n",
+        "      method: GET\n",
+        "      url: http://localhost/x\n",
+        "    poll:\n",
+        "      \n",
+    );
+    send_did_open(&client_conn, &uri, src);
+    drain_publish_diagnostics_for(&client_conn, &uri);
+
+    // Line 7 is `      ` (6 spaces). Cursor col 6.
+    let items = request_completion(&client_conn, &uri, Position::new(7, 6))
+        .expect("nested poll completion returned null");
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"until"), "missing until in {labels:?}");
+    assert!(
+        labels.contains(&"interval"),
+        "missing interval in {labels:?}"
+    );
+    assert!(
+        labels.contains(&"max_attempts"),
+        "missing max_attempts in {labels:?}"
+    );
+
+    shutdown_and_join(client_conn, server_thread);
+}
+
+#[test]
 fn completion_in_plain_text_returns_null() {
     let (server_conn, client_conn) = Connection::memory();
     let server_thread = thread::spawn(move || {
