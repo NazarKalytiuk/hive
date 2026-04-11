@@ -68,6 +68,28 @@ See the full list in the VS Code Settings UI under `Extensions → Tarn`.
 
 In untrusted workspaces the extension provides read-only features only (grammar, snippets, schema validation). Running tests, validating files, and spawning the Tarn binary are disabled until the workspace is trusted.
 
+## Remote Setups
+
+The extension is a UI-less backend that shells out to the `tarn` binary and reads file paths via VS Code's workspace API, so it follows VS Code's standard Remote Development model: **the extension always runs on the same side as the files and the binary** (remote host for Remote SSH, inside the container for Dev Containers/Codespaces, inside the Linux distro for WSL). There are no "local bridge" paths to worry about.
+
+All four supported remote setups have been audited. The full audit — what was checked, what was fixed, and the per-environment checklist — lives in [`docs/VSCODE_REMOTE.md`](../../docs/VSCODE_REMOTE.md). The short version:
+
+### Dev Container
+
+Copy [`media/remote/devcontainer.json`](media/remote/devcontainer.json) to `.devcontainer/devcontainer.json`. It uses the official Rust dev container image (`mcr.microsoft.com/devcontainers/rust:1-bookworm`), installs `tarn` into `/usr/local/cargo/bin/tarn` via `cargo install tarn-cli --locked` in `postCreateCommand`, and auto-installs both `nazarkalytiuk.tarn-vscode` and `redhat.vscode-yaml` inside the container. Because the base image already puts `/usr/local/cargo/bin` on PATH for the `vscode` user, the extension's default `tarn.binaryPath = "tarn"` resolves without any per-container override.
+
+### GitHub Codespaces
+
+Codespaces consumes the exact same `.devcontainer/devcontainer.json` — no second config file is required. The extension is a good candidate for a **Codespaces prebuild**: add the file, then enable prebuilds on the repository so `cargo install tarn-cli` runs ahead of time and new Codespaces start with `tarn` already compiled. The Tarn extension installs automatically via the `customizations.vscode.extensions` list.
+
+### WSL
+
+With the extension installed into the WSL distro (VS Code's "Install in WSL" button, or the `Remote-WSL` kind under Extensions), `tarn.binaryPath` defaults to the Linux-side `tarn` on `$PATH` — **not** the Windows-side `tarn.exe`. The extension never branches on `process.platform`, never uses `\\` separators, and builds argv paths via Node's `path` module which runs inside the Linux server and therefore always produces POSIX paths. If you keep the Tarn CLI on PATH inside WSL (`cargo install tarn-cli` or a prebuilt release in `~/.local/bin`), no extra configuration is needed.
+
+### Remote SSH
+
+Install the extension on the remote host (VS Code's "Install in SSH: host" action). Binary resolution uses the remote host's `$PATH`, **not** the local machine's. If `tarn` is not on the remote PATH, set `tarn.binaryPath` to an **absolute remote path** (e.g. `/home/you/.cargo/bin/tarn` or `/usr/local/bin/tarn`). The setting is declared `machine-overridable` so you can pin it per remote without polluting your local workspace settings. The same policy applies to `tarn.requestTimeoutMs`: slow-network remotes can override the watchdog without affecting your local runs.
+
 ## What Gets Wired
 
 - `*.tarn.yaml`, `*.tarn.yml` → language id `tarn`.

@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.23.0 — Phase 5: Remote compatibility audit (NAZ-283)
+
+End-to-end audit of the extension against the four remote-development
+targets VS Code ships first-class support for — Dev Container, GitHub
+Codespaces, WSL, and Remote SSH — and the targeted fix the audit
+surfaced.
+
+### Changed
+
+- **`tarn.requestTimeoutMs` scope changed from `resource` to
+  `machine-overridable`** in `package.json`. The watchdog is a
+  function of the remote host's network latency, not the workspace's
+  test suite, so a user who bumps the timeout to `300000` for a slow
+  Remote SSH host should not have that value silently leak back into
+  their local workspace runs. This matches the scope `tarn.binaryPath`
+  already uses for the same reason.
+
+### Added
+
+- **`editors/vscode/media/remote/devcontainer.json`** — a drop-in
+  Dev Container config that users can copy to
+  `.devcontainer/devcontainer.json`. Uses the official
+  `mcr.microsoft.com/devcontainers/rust:1-bookworm` image, installs
+  `tarn-cli` into `/usr/local/cargo/bin/tarn` via `cargo install` in
+  `postCreateCommand`, and pins `nazarkalytiuk.tarn-vscode` plus
+  `redhat.vscode-yaml` under `customizations.vscode.extensions`.
+  GitHub Codespaces consumes the same file unchanged.
+- **"Remote Setups" section in `README.md`** — four short
+  subsections (Dev Container, Codespaces, WSL, Remote SSH) that
+  state the verified behavior, show the minimum config needed, and
+  point at `docs/VSCODE_REMOTE.md` for the full audit.
+- **`docs/VSCODE_REMOTE.md`** — the full audit writeup, including
+  the per-environment checklist (activation, binary resolution, test
+  discovery, run, cancellation), a mental-model table of where the
+  extension host lives on each target, and a summary of hazards
+  checked (none found in code; one misclassified setting scope
+  fixed, see above).
+
+### Audit findings (no code change needed)
+
+- `binaryResolver.ts` uses `execFile` with the remote-scoped
+  `binaryPath` setting, no `process.platform` branching, no `.exe`
+  suffix handling, no PATH walking. Safe on every target.
+- `TarnProcessRunner.spawn` never uses `shell: true`, so argv is
+  passed directly to the OS and SIGINT/SIGKILL reach Tarn without
+  a shell wrapper.
+- All path construction flows through Node's `path` module, which
+  resolves to `path.posix` on Linux/macOS remotes and `path.win32`
+  on Windows remotes — always matching whatever side the extension
+  host is on.
+- `os.tmpdir()` is used for NDJSON report paths, HTML report paths,
+  and `tarn fmt` temp files, so none of the temp-file plumbing
+  hardcodes `/tmp` or `C:\Temp`.
+- Settings scopes for `testFileGlob`, `excludeGlobs`,
+  `defaultEnvironment`, `defaultTags`, `parallel`, `jsonMode`,
+  `showCodeLens`, `statusBar.enabled`, `validateOnSave`,
+  `notifications.failure`, and `cookieJarMode` are all correctly
+  `resource`-scoped (workspace preferences, not machine config).
+
+### Known limitations
+
+- The audit was performed on paper against the extension source and
+  VS Code's Remote Development documentation. Live smoke-tests of
+  each of the four environments (actually spinning up a container,
+  a Codespace, a WSL distro, a Remote SSH host, and running the
+  full Run / Cancel cycle end-to-end) are tracked as a follow-up.
+
 ## 0.22.0 — Phase 5: Scoped discovery via tarn list --file (NAZ-282)
 
 Tarn T57 (shipped in NAZ-261) added a scoped

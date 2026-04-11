@@ -2,7 +2,7 @@
   "name": "tarn-vscode",
   "displayName": "Tarn",
   "description": "Test Explorer, CodeLens, and schema-aware authoring for Tarn API test files.",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
   "repository": {
@@ -531,8 +531,8 @@
         "tarn.requestTimeoutMs": {
           "type": "number",
           "default": 120000,
-          "description": "Process-level watchdog (ms) for tarn invocations.",
-          "scope": "resource"
+          "description": "Process-level watchdog (ms) for tarn invocations. Marked machine-overridable so a slow Remote SSH / WSL / Dev Container host can set a longer timeout without leaking that value back into the local workspace.",
+          "scope": "machine-overridable"
         },
         "tarn.showCodeLens": {
           "type": "boolean",

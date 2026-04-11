@@ -1,0 +1,54 @@
+// Drop-in Dev Container for projects that use Tarn.
+//
+// Copy this file to `.devcontainer/devcontainer.json` at the root of your
+// workspace. The same file is consumed unchanged by GitHub Codespaces — no
+// separate Codespaces config is required.
+//
+// What this gives you out of the box:
+//   - The official Microsoft Rust dev container image (Debian-based, includes
+//     rustup, cargo, and /usr/local/cargo/bin on PATH for the `vscode` user).
+//   - `tarn` installed via `cargo install` in `postCreateCommand`, so it
+//     lives at `/usr/local/cargo/bin/tarn` and is picked up by the extension's
+//     default `tarn.binaryPath = "tarn"` setting (no override needed).
+//   - The Tarn VS Code extension auto-installed into the container, pinned
+//     alongside `redhat.vscode-yaml` (its only extension dependency).
+//
+// Caveats:
+//   - `cargo install tarn-cli` is slow the first time (compiles from source).
+//     If you publish prebuilt binaries, replace the `postCreateCommand` with a
+//     `curl … | sh` one-liner that downloads the release asset for
+//     `linux-x86_64` or `linux-aarch64` into `/usr/local/bin/tarn`.
+//   - If your project pins a specific Tarn version, pass `--version X.Y.Z` to
+//     `cargo install` so rebuilds of the container stay deterministic.
+{
+  "name": "Tarn (Rust + tarn CLI)",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+
+  // Make sure the cargo bin directory is on PATH for every shell inside the
+  // container. The base image already does this for the `vscode` user, but
+  // setting it here is defensive: if you swap the base image for a slimmer
+  // one later, `tarn` keeps resolving without an extra `tarn.binaryPath`.
+  "containerEnv": {
+    "PATH": "/usr/local/cargo/bin:${containerEnv:PATH}"
+  },
+
+  // Install Tarn once, after the container is built. Runs as the `vscode`
+  // user so `cargo install` writes into `/usr/local/cargo/bin` which is
+  // already on PATH.
+  "postCreateCommand": "cargo install tarn-cli --locked",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "nazarkalytiuk.tarn-vscode",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        // Explicit, even though `tarn` is on PATH — pinning this inside the
+        // container settings block means a user who opens the same project
+        // locally keeps their own `tarn.binaryPath` setting untouched.
+        "tarn.binaryPath": "tarn"
+      }
+    }
+  }
+}

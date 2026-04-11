@@ -480,7 +480,7 @@ Every phase is shippable on its own.
 - Per-test cookie jar isolation honored.
 - Tarn-side location metadata replaces AST matching for runtime results.
 - Scoped `tarn list --file`.
-- Remote compatibility audits (Dev Container, Codespaces, WSL, Remote SSH).
+- Remote compatibility audits (Dev Container, Codespaces, WSL, Remote SSH). Full writeup in [`VSCODE_REMOTE.md`](VSCODE_REMOTE.md).
 - Published to VS Code Marketplace and Open VSX.
 
 ### Phase 6 — Ecosystem (extension `1.0.0`)
