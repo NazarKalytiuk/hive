@@ -437,7 +437,7 @@ const STEP_KEYS: &[&str] = &[
 pub fn schema_key_cache() -> &'static SchemaKeyCache {
     static CACHE: OnceLock<SchemaKeyCache> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let raw = include_str!("../../schemas/v1/testfile.json");
+        let raw = include_str!("../schemas/v1/testfile.json");
         let schema = serde_json::from_str(raw).unwrap_or(serde_json::Value::Null);
         let descriptions = if schema.is_null() {
             HashMap::new()
@@ -955,5 +955,20 @@ mod tests {
         assert!(names.contains(&"steps"));
         assert!(names.contains(&"description"));
         assert!(names.contains(&"tags"));
+    }
+
+    #[test]
+    fn bundled_schema_matches_authoritative_source() {
+        // The bundled copy at tarn-lsp/schemas/v1/testfile.json must stay
+        // in sync with the authoritative copy at schemas/v1/testfile.json
+        // (repo root). This test catches drift — if it fails, copy the
+        // updated schema into tarn-lsp/schemas/v1/.
+        let bundled = include_str!("../schemas/v1/testfile.json");
+        let authoritative = std::fs::read_to_string("schemas/v1/testfile.json")
+            .expect("Cannot read schemas/v1/testfile.json — run tests from the workspace root");
+        assert_eq!(
+            bundled, authoritative,
+            "tarn-lsp/schemas/v1/testfile.json is out of sync with schemas/v1/testfile.json"
+        );
     }
 }

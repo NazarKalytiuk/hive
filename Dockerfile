@@ -6,9 +6,6 @@ COPY tarn ./tarn
 COPY tarn-mcp ./tarn-mcp
 COPY tarn-lsp ./tarn-lsp
 COPY demo-server ./demo-server
-# tarn-lsp/src/schema.rs uses `include_str!("../../schemas/v1/testfile.json")`
-# at compile time, so the build context needs the schemas directory.
-COPY schemas ./schemas
 
 RUN cargo build --release -p tarn -p tarn-mcp -p tarn-lsp
 
