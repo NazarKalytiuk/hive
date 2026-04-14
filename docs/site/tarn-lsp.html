@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; tarn-lsp Language Server</title>
+    <meta name="description" content="Standalone LSP 3.17 language server for .tarn.yaml files: diagnostics, hover, completion, code actions, and JSONPath evaluation for any editor.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./test-files.html">Test Files</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html" class="active">LSP</a>
+          <a href="./examples.html">Examples</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Editor intelligence</span>
+          <h1>Tarn Language Server (<code class="ic">tarn-lsp</code>).</h1>
+          <p class="lead"><code class="ic">tarn-lsp</code> is a standalone LSP 3.17 stdio binary that ships <code class="ic">.tarn.yaml</code> language intelligence to every editor. It shares the <code class="ic">tarn</code> crate core with the CLI, so there is exactly one parser, one schema, one interpolation engine, and zero feature drift between the terminal and the editor.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="install">Install</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> cargo install tarn-lsp</pre>
+            </div>
+            <p><code class="ic">tarn-lsp</code> is published on crates.io, so a single <code class="ic">cargo install</code> is enough. After it finishes, <code class="ic">which tarn-lsp</code> should print a path inside <code class="ic">~/.cargo/bin/</code>. That binary is what every LSP client below spawns over stdio.</p>
+            <p>From a checkout of the hive repo, use <code class="ic">cargo install --path tarn-lsp</code> to install the workspace copy, or <code class="ic">cargo build -p tarn-lsp --release</code> for pure local development with no install step at all. The binary lives at <code class="ic">./target/release/tarn-lsp</code> in that case &mdash; point your LSP client directly at the absolute path.</p>
+
+            <h2 id="language-features">Language features</h2>
+            <p>Every feature below is a full LSP request handler that reuses the in-process <code class="ic">tarn</code> library, so the server never forks or re-implements parser, schema, or interpolation logic.</p>
+
+            <h3 id="diagnostics">Diagnostics</h3>
+            <p>Parse and schema errors are published through <code class="ic">textDocument/publishDiagnostics</code> on <code class="ic">didOpen</code>, <code class="ic">didSave</code>, and debounced <code class="ic">didChange</code> (300&#8239;ms) notifications. Ranges are range-accurate thanks to the NAZ-260 location metadata the parser emits, so squiggles land on the exact offending token. <code class="ic">source</code> is always <code class="ic">"tarn"</code> and <code class="ic">code</code> is one of <code class="ic">yaml_syntax</code>, <code class="ic">tarn_parse</code>, <code class="ic">tarn_validation</code>, so clients can filter and route on a stable string.</p>
+
+            <h3 id="hover">Hover</h3>
+            <p>Context-aware Markdown hovers answer <code class="ic">textDocument/hover</code> for every interpolation token class: <code class="ic">{{ env.x }}</code> shows the effective value with the winning source layer, file path, active environment, and redaction flag. <code class="ic">{{ capture.x }}</code> shows the declaring step, section (setup / flat steps / named test / teardown), and capture source (JSONPath, header, cookie, status, URL, whole body, regex). <code class="ic">{{ $builtin }}</code> shows the call signature and docstring. Top-level schema keys pull their description directly from <code class="ic">schemas/v1/testfile.json</code>.</p>
+            <p>A fifth token class &mdash; <strong>JSONPath literal</strong> &mdash; fires when the cursor sits on a scalar inside an <code class="ic">assert.body</code> key, a <code class="ic">capture.*.jsonpath</code> value, or a <code class="ic">poll.until.jsonpath</code> value. The hover evaluates the expression in place against the step's last recorded response and appends the result as pretty-printed JSON, capped at 2000 characters with an explicit truncation marker.</p>
+
+            <h3 id="completion">Completion</h3>
+            <p>Schema-aware completion answers <code class="ic">textDocument/completion</code> with <code class="ic">.</code> and <code class="ic">$</code> as trigger characters. Inside <code class="ic">{{ env. }}</code> it offers every key from <code class="ic">tarn::env::resolve_env_with_sources</code>, sorted by resolution priority and annotated with each key's effective value. Inside <code class="ic">{{ capture. }}</code> it offers every capture declared by a strictly earlier step visible from the cursor. Inside <code class="ic">{{ $ }}</code> it offers the five built-ins (<code class="ic">$uuid</code>, <code class="ic">$timestamp</code>, <code class="ic">$now_iso</code>, <code class="ic">$random_hex</code>, <code class="ic">$random_int</code>) with parameter placeholders.</p>
+            <p>For blank mapping-key lines, completion descends through the schema tree &mdash; <code class="ic">properties</code>, <code class="ic">items</code>, <code class="ic">additionalProperties</code>, local <code class="ic">$ref</code>, and <code class="ic">oneOf</code>&nbsp;/&nbsp;<code class="ic">anyOf</code>&nbsp;/&nbsp;<code class="ic">allOf</code> &mdash; to find valid children at the cursor's YAML path. <code class="ic">request.*</code> offers <code class="ic">method</code>&nbsp;/&nbsp;<code class="ic">url</code>&nbsp;/&nbsp;<code class="ic">headers</code>&nbsp;/&nbsp;<code class="ic">body</code>&nbsp;/&nbsp;<code class="ic">form</code>&nbsp;/&nbsp;<code class="ic">multipart</code>; <code class="ic">assert.body."$.id".*</code> offers the body-assertion operator grammar; <code class="ic">poll.*</code> offers <code class="ic">until</code>&nbsp;/&nbsp;<code class="ic">interval</code>&nbsp;/&nbsp;<code class="ic">max_attempts</code>; <code class="ic">capture.&lt;name&gt;.*</code> offers the extended capture keys. Schema <code class="ic">description</code> fields flow through as completion <code class="ic">documentation</code>.</p>
+
+            <h3 id="document-symbols">Document symbols</h3>
+            <p><code class="ic">textDocument/documentSymbol</code> returns a hierarchical outline: file root (<code class="ic">Namespace</code>) &rarr; named tests (<code class="ic">Module</code>) &rarr; steps (<code class="ic">Function</code>), with setup, teardown, and top-level flat-step siblings alongside the test groups. Each symbol's <code class="ic">range</code> covers the full YAML node, and <code class="ic">selection_range</code> covers just the <code class="ic">name:</code> value &mdash; the same <code class="ic">yaml-rust2</code> second-pass scanner powers both diagnostics and the outline, so the breadcrumb trail always matches the squiggles.</p>
+
+            <h3 id="navigation">Go-to-definition, references, rename</h3>
+            <p>Jump from any <code class="ic">{{ capture.x }}</code> or <code class="ic">{{ env.x }}</code> token to its declaration site, and list every use site at the click of <strong>Find References</strong>. Capture references are scoped to the enclosing test (setup captures are visible from every test). Env references walk every <code class="ic">.tarn.yaml</code> under the workspace root, cached in a workspace index and bounded at 5000 files as a safety net for pathological monorepos.</p>
+            <p>Rename rewrites every declaration and every use site in a single atomic <code class="ic">WorkspaceEdit</code>. <code class="ic">textDocument/prepareRename</code> returns the sub-range of the identifier under the cursor so the client can highlight exactly the text the user is about to replace. Capture rename is single-file, single-test. Env rename is workspace-wide: it updates every env source file that declares the old name (inline <code class="ic">env:</code> block, <code class="ic">tarn.env.yaml</code>, <code class="ic">tarn.env.{name}.yaml</code>, <code class="ic">tarn.env.local.yaml</code>) and every use site across every <code class="ic">.tarn.yaml</code> in the workspace. Collisions in the target scope are rejected with a helpful <code class="ic">InvalidParams</code> message; the identifier grammar is the ASCII <code class="ic">^[A-Za-z_][A-Za-z0-9_]*$</code> the YAML parser and shell expansion agree on.</p>
+
+            <h3 id="code-lens">Code lens</h3>
+            <p>Every named test in a <code class="ic">.tarn.yaml</code> file gets a <strong>Run test</strong> lens on its <code class="ic">name:</code> line, and every step inside a named test gets a <strong>Run step</strong> lens. The commands use two stable, well-known IDs &mdash; <code class="ic">tarn.runTest</code> and <code class="ic">tarn.runStep</code> &mdash; whose arguments carry a selector the client passes straight to <code class="ic">tarn run --select FILE::TEST::STEP_INDEX</code>. The server does not execute these commands itself; the client dispatches them. See the <a href="./examples.html">examples</a> page for selector syntax.</p>
+
+            <h3 id="formatting">Formatting</h3>
+            <p><code class="ic">textDocument/formatting</code> reformats the whole document by routing through <code class="ic">tarn::format::format_document</code> &mdash; the same library function the <code class="ic">tarn fmt</code> CLI calls. There is exactly one implementation, so a buffer formatted via LSP is byte-identical to <code class="ic">tarn fmt</code> output. Range formatting is deliberately not advertised: the formatter re-renders the whole buffer, so a range-only edit cannot be produced without touching surrounding YAML. Format requests against unparseable or schema-invalid buffers are a documented no-op, never an error &mdash; the client never sees a toast while the user is still typing.</p>
+
+            <h3 id="code-actions">Code actions</h3>
+            <p><code class="ic">textDocument/codeAction</code> dispatches over a flat list of providers, each returning a fully-resolved <code class="ic">CodeAction</code> with the <code class="ic">edit: WorkspaceEdit</code> already populated &mdash; there is no <code class="ic">codeAction/resolve</code> round trip. Four providers ship today:</p>
+            <ul>
+              <li><strong>Extract env var</strong> (<code class="ic">refactor.extract</code>) &mdash; lifts a selected string literal inside a request field into a new env key and rewrites the site as <code class="ic">"{{ env.&lt;name&gt; }}"</code>. Collision detection walks the full env chain and suffixes coined names with a counter.</li>
+              <li><strong>Capture this field</strong> (<code class="ic">refactor</code>) &mdash; lifts a JSONPath literal inside an <code class="ic">assert.body:</code> entry into a new <code class="ic">capture:</code> block on the same step, deriving the capture name from the last non-wildcard path segment.</li>
+              <li><strong>Scaffold assert.body from last response</strong> (<code class="ic">refactor</code>) &mdash; walks the top-level fields of a recorded response and emits an <code class="ic">assert.body</code> block pre-populated with one <code class="ic">type: &hellip;</code> entry per field.</li>
+              <li><strong>Apply fix</strong> (<code class="ic">quickfix</code>) &mdash; backed by the shared <code class="ic">tarn::fix_plan</code> engine that also powers the <a href="./mcp.html"><code class="ic">tarn_fix_plan</code></a> MCP tool. Both surfaces share one source of truth: CLI agents and editor agents get the same remediation graph.</li>
+            </ul>
+
+            <h3 id="jsonpath">JSONPath evaluator</h3>
+            <p><code class="ic">workspace/executeCommand</code> handles <code class="ic">tarn.evaluateJsonpath</code>. The command accepts two argument shapes through a <code class="ic">serde</code> untagged enum &mdash; an inline response or a step reference that resolves through the sidecar convention &mdash; and returns <code class="ic">{ matches: [...] }</code> in document order. Single-match paths return a one-element array (never an unwrapped value); not-found paths return <code class="ic">[]</code>.</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment">// Shape 1: inline response</span>
+{
+  <span class="key">"path"</span>: <span class="str">"$.data[0].id"</span>,
+  <span class="key">"response"</span>: { <span class="key">"data"</span>: [{ <span class="key">"id"</span>: 42 }] }
+}
+
+<span class="comment">// Shape 2: step reference &mdash; server reads the sidecar</span>
+{
+  <span class="key">"path"</span>: <span class="str">"$.data[0].id"</span>,
+  <span class="key">"step"</span>: {
+    <span class="key">"file"</span>: <span class="str">"/abs/fixture.tarn.yaml"</span>,
+    <span class="key">"test"</span>: <span class="str">"main"</span>,
+    <span class="key">"step"</span>: <span class="str">"list items"</span>
+  }
+}</pre>
+            </div>
+            <p>Both the JSONPath hover and the <code class="ic">tarn.evaluateJsonpath</code> command share one library primitive &mdash; <code class="ic">tarn::jsonpath::evaluate_path</code> &mdash; a thin canonical wrapper over <code class="ic">serde_json_path</code> that the <code class="ic">assert.body</code> and <code class="ic">capture</code> engines use too. Soft failures return <code class="ic">InvalidParams</code>; unknown command IDs return <code class="ic">MethodNotFound</code>.</p>
+
+            <h3 id="sidecar">Recorded response sidecar</h3>
+            <p>The JSONPath hover, the "scaffold assert.body from last response" code action, and the step-reference shape of <code class="ic">tarn.evaluateJsonpath</code> all read from a sidecar layout next to the test file:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>&lt;file&gt;.tarn.yaml
+&lt;file&gt;.tarn.yaml.last-run/
+  &lt;test-slug&gt;/
+    &lt;step-slug&gt;.response.json</pre>
+            </div>
+            <p><code class="ic">&lt;test-slug&gt;</code> and <code class="ic">&lt;step-slug&gt;</code> are URL-safe lowercase versions of the respective names. Setup and teardown use the sentinel slugs <code class="ic">setup</code>&nbsp;/&nbsp;<code class="ic">teardown</code>; top-level flat <code class="ic">steps:</code> use <code class="ic">flat</code>. The LSP is read-only against this layout &mdash; clients (Claude Code, VS Code, any LSP host) write responses there after runs so the hover-JSONPath and scaffold-assert affordances light up.</p>
+
+            <h2 id="editor-setup">Editor setup</h2>
+            <p>Any LSP 3.17 client that can spawn a stdio server and speak JSON-RPC works out of the box. The recipes below are the officially supported ones.</p>
+
+            <h3 id="claude-code">Claude Code plugin</h3>
+            <p>This repo ships a ready-to-use plugin at <a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/claude-code/tarn-lsp-plugin/README.md" target="_blank" rel="noopener"><code class="ic">editors/claude-code/tarn-lsp-plugin</code></a> and a local marketplace directory one level up, so installation is a three-command sequence inside a Claude Code session:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> /plugin marketplace add /absolute/path/to/hive-api-test/editors/claude-code
+<span class="prompt">$</span> /plugin install tarn-lsp@tarn-lsp <span class="flag">--scope</span> <span class="value">project</span>
+<span class="prompt">$</span> /reload-plugins</pre>
+            </div>
+            <p>Claude Code's LSP plugin format registers servers by simple file extension (<code class="ic">.yaml</code>), and <code class="ic">.tarn.yaml</code> is a compound extension, so the plugin necessarily claims every <code class="ic">.yaml</code> and <code class="ic">.yml</code> file in any project where it is installed. Install with <code class="ic">--scope project</code> in Tarn-focused repositories so it does not shadow <code class="ic">yaml-language-server</code> for Kubernetes manifests, Compose files, or CI configs elsewhere. The plugin README covers prerequisites (Claude Code 2.0.74 or newer, <code class="ic">tarn-lsp</code> on <code class="ic">$PATH</code>) and verification steps.</p>
+
+            <h3 id="vscode">VS Code extension</h3>
+            <p>The <a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/vscode/README.md" target="_blank" rel="noopener">Tarn VS Code extension</a> (publisher <code class="ic">nazarkalytiuk</code>) is on the VS Marketplace and Open VSX. It gives agents a test-explorer surface: discovery, CodeLens, live streaming via <code class="ic">--ndjson</code>, unified-diff failure peek, environment picker, status bar, trusted/untrusted workspace handling, and Remote Development across Dev Container, Codespaces, WSL, and Remote SSH. A window-scoped <code class="ic">tarn.experimentalLspClient</code> setting (off by default) spawns <code class="ic">tarn-lsp</code> alongside the existing direct providers &mdash; Phase V scaffolding for migrating onto the LSP with no feature drift in flight. See <a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/vscode/docs/LSP_MIGRATION.md" target="_blank" rel="noopener">docs/LSP_MIGRATION.md</a> for the migration plan.</p>
+
+            <h3 id="neovim">Neovim</h3>
+            <p>Register <code class="ic">tarn-lsp</code> through the built-in <code class="ic">vim.lsp</code> client (0.10+) and add a filetype rule so <code class="ic">.tarn.yaml</code> buffers get the <code class="ic">tarn</code> filetype:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>vim.filetype.add({
+  pattern = { [<span class="str">".*%.tarn%.yaml"</span>] = <span class="str">"tarn"</span> },
+})
+
+vim.lsp.start({
+  name      = <span class="str">"tarn"</span>,
+  cmd       = { <span class="str">"tarn-lsp"</span> },
+  filetypes = { <span class="str">"tarn"</span> },
+  root_dir  = vim.fs.dirname(
+    vim.fs.find({ <span class="str">"tarn.config.yaml"</span>, <span class="str">".git"</span> }, { upward = <span class="str">true</span> })[1]
+  ),
+})</pre>
+            </div>
+
+            <h3 id="helix">Helix</h3>
+            <p>Add a <code class="ic">[[language]]</code> entry to <code class="ic">~/.config/helix/languages.toml</code> pointing at <code class="ic">tarn-lsp</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>[[<span class="key">language</span>]]
+<span class="key">name</span> = <span class="str">"tarn"</span>
+<span class="key">scope</span> = <span class="str">"source.tarn"</span>
+<span class="key">file-types</span> = [{ <span class="key">glob</span> = <span class="str">"*.tarn.yaml"</span> }]
+<span class="key">language-servers</span> = [<span class="str">"tarn-lsp"</span>]
+
+[<span class="key">language-server.tarn-lsp</span>]
+<span class="key">command</span> = <span class="str">"tarn-lsp"</span></pre>
+            </div>
+
+            <h3 id="zed">Zed</h3>
+            <p>Zed registers language servers through its <code class="ic">lsp</code> block in <code class="ic">settings.json</code> or through a language extension. Point the server command at <code class="ic">tarn-lsp</code> and the file pattern at <code class="ic">*.tarn.yaml</code>; Zed's LSP config convention handles the rest.</p>
+
+            <h3 id="emacs">Emacs</h3>
+            <p><code class="ic">eglot</code> and <code class="ic">lsp-mode</code> both accept <code class="ic">tarn-lsp</code> as a plain stdio server command. Register it against a <code class="ic">tarn-mode</code> (or a <code class="ic">yaml-mode</code> hook filtered to <code class="ic">.tarn.yaml</code> buffers) and the standard LSP affordances light up.</p>
+
+            <h2 id="schema">Schema validation</h2>
+            <p>Schema enforcement inside <code class="ic">tarn-lsp</code> uses exactly the same JSON Schema at <a href="https://github.com/NazarKalytiuk/hive/blob/main/schemas/v1/testfile.json" target="_blank" rel="noopener"><code class="ic">schemas/v1/testfile.json</code></a> that the <code class="ic">tarn validate</code> CLI and the <code class="ic">redhat.vscode-yaml</code> extension consume &mdash; one schema, three consumers, zero drift. See <a href="./test-files.html">Writing Test Files</a> for the DSL surface the schema describes and the inline <code class="ic">yaml-language-server: $schema=&hellip;</code> comment that wires it up for YAML-aware editors without a Tarn-specific extension.</p>
+
+            <h2 id="reference">Reference</h2>
+            <ul>
+              <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/docs/TARN_LSP.md" target="_blank" rel="noopener"><code class="ic">docs/TARN_LSP.md</code></a> &mdash; canonical language server specification.</li>
+              <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/claude-code/tarn-lsp-plugin/README.md" target="_blank" rel="noopener">Claude Code plugin README</a> &mdash; prerequisites, install flow, compound-extension caveat, troubleshooting.</li>
+              <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/vscode/README.md" target="_blank" rel="noopener">VS Code extension README</a> &mdash; test explorer, CodeLens, live streaming, environments, remote setups.</li>
+              <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/vscode/docs/LSP_MIGRATION.md" target="_blank" rel="noopener"><code class="ic">editors/vscode/docs/LSP_MIGRATION.md</code></a> &mdash; Phase V migration plan onto <code class="ic">tarn-lsp</code>.</li>
+              <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/vscode/docs/API.md" target="_blank" rel="noopener"><code class="ic">TarnExtensionApi</code></a> &mdash; stable extension-to-extension surface and semver policy.</li>
+            </ul>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#install">
+                <strong>Install</strong>
+                <span>cargo install tarn-lsp</span>
+              </a>
+              <a class="sidebar-link" href="#language-features">
+                <strong>Language features</strong>
+                <span>Diagnostics, hover, completion, symbols</span>
+              </a>
+              <a class="sidebar-link" href="#code-actions">
+                <strong>Code actions</strong>
+                <span>Extract, capture, scaffold, quick fix</span>
+              </a>
+              <a class="sidebar-link" href="#jsonpath">
+                <strong>JSONPath evaluator</strong>
+                <span>tarn.evaluateJsonpath command</span>
+              </a>
+              <a class="sidebar-link" href="#editor-setup">
+                <strong>Editor setup</strong>
+                <span>Claude Code, VS Code, Neovim, Helix</span>
+              </a>
+              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/TARN_LSP.md" target="_blank" rel="noopener">
+                <strong>LSP spec on GitHub</strong>
+                <span>Canonical reference</span>
+              </a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./examples.html">Next: Examples</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
