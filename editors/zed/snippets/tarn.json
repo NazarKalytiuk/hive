@@ -1,0 +1,132 @@
+{
+  "Tarn Test File": {
+    "prefix": "tarn-test",
+    "description": "Top-level Tarn test file with env and a first step",
+    "body": [
+      "name: ${1:API smoke test}",
+      "description: ${2:Verify the main happy path}",
+      "env:",
+      "  base_url: ${3:http://localhost:3000}",
+      "steps:",
+      "  - name: ${4:GET /health}",
+      "    request:",
+      "      method: GET",
+      "      url: \"{{ env.base_url }}/health\"",
+      "    assert:",
+      "      status: 200"
+    ]
+  },
+  "Tarn Step": {
+    "prefix": "tarn-step",
+    "description": "HTTP step with request and assertions",
+    "body": [
+      "- name: ${1:Request name}",
+      "  request:",
+      "    method: ${2:GET}",
+      "    url: \"${3:{{ env.base_url }}/resource}\"",
+      "  assert:",
+      "    status: ${4:200}"
+    ]
+  },
+  "Tarn Capture": {
+    "prefix": "tarn-capture",
+    "description": "Capture response data for later steps",
+    "body": [
+      "capture:",
+      "  ${1:resource_id}: \"$.id\"",
+      "  ${2:token}:",
+      "    header: \"authorization\"",
+      "    regex: \"Bearer (.+)\""
+    ]
+  },
+  "Tarn Poll": {
+    "prefix": "tarn-poll",
+    "description": "Poll until an assertion passes",
+    "body": [
+      "poll:",
+      "  interval: \"${1:2s}\"",
+      "  max_attempts: ${2:10}",
+      "  until:",
+      "    status: ${3:200}",
+      "    body:",
+      "      \"${4:$.state}\": \"${5:ready}\""
+    ]
+  },
+  "Tarn Form Request": {
+    "prefix": "tarn-form",
+    "description": "application/x-www-form-urlencoded request body",
+    "body": [
+      "request:",
+      "  method: POST",
+      "  url: \"{{ env.base_url }}/${1:login}\"",
+      "  form:",
+      "    ${2:email}: \"${3:user@example.com}\"",
+      "    ${4:password}: \"${5:secret}\""
+    ]
+  },
+  "Tarn GraphQL Request": {
+    "prefix": "tarn-graphql",
+    "description": "GraphQL request block",
+    "body": [
+      "request:",
+      "  method: POST",
+      "  url: \"{{ env.base_url }}/${1:graphql}\"",
+      "  graphql:",
+      "    query: |",
+      "      query ${2:GetUser}($id: ID!) {",
+      "        user(id: $id) {",
+      "          id",
+      "          name",
+      "        }",
+      "      }",
+      "    variables:",
+      "      id: \"${3:{{ capture.user_id }}}\""
+    ]
+  },
+  "Tarn Multipart Request": {
+    "prefix": "tarn-multipart",
+    "description": "Multipart form upload block",
+    "body": [
+      "request:",
+      "  method: POST",
+      "  url: \"{{ env.base_url }}/${1:upload}\"",
+      "  multipart:",
+      "    fields:",
+      "      - name: \"${2:title}\"",
+      "        value: \"${3:My file}\"",
+      "    files:",
+      "      - name: \"${4:file}\"",
+      "        path: \"${5:./fixtures/example.txt}\"",
+      "        content_type: \"${6:text/plain}\""
+    ]
+  },
+  "Tarn Setup/Teardown": {
+    "prefix": "tarn-lifecycle",
+    "description": "Setup and teardown skeleton",
+    "body": [
+      "setup:",
+      "  - name: ${1:Authenticate}",
+      "    request:",
+      "      method: POST",
+      "      url: \"{{ env.base_url }}/auth/login\"",
+      "      body:",
+      "        email: \"{{ env.admin_email }}\"",
+      "        password: \"{{ env.admin_password }}\"",
+      "    capture:",
+      "      auth_token: \"$.token\"",
+      "",
+      "teardown:",
+      "  - name: ${2:Cleanup}",
+      "    request:",
+      "      method: POST",
+      "      url: \"{{ env.base_url }}/test/cleanup\""
+    ]
+  },
+  "Tarn Include": {
+    "prefix": "tarn-include",
+    "description": "Include another Tarn file",
+    "body": [
+      "- include: \"${1:./shared/auth-setup.tarn.yaml}\""
+    ]
+  }
+}

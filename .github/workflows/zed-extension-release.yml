@@ -1,0 +1,146 @@
+name: Zed Extension Release
+
+# Ships editors/zed/ to the standalone NazarKalytiuk/zed-tarn repo, which is
+# the submodule target referenced from zed-industries/extensions. The Zed
+# registry requires a standalone repo with independent tags, so the monorepo
+# copy here is the source of truth and we mirror it out on tag.
+#
+# Triggering: push a tag matching `zed-v*` (e.g. `zed-v0.1.0`). The tag
+# version must match editors/zed/extension.toml and editors/zed/Cargo.toml.
+# Manual runs via workflow_dispatch accept a `tag` input for re-publishing
+# without re-tagging.
+
+on:
+  push:
+    tags: ["zed-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g., zed-v0.1.0). Defaults to the current ref."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Mirror to zed-tarn + build verification
+    runs-on: ubuntu-latest
+    env:
+      # PAT with `contents: write` on NazarKalytiuk/zed-tarn. Store under
+      # repo Settings → Secrets → Actions. A deploy key on the mirror
+      # repo is an equivalent alternative; this workflow assumes PAT.
+      ZED_TARN_DEPLOY_TOKEN: ${{ secrets.ZED_TARN_DEPLOY_TOKEN }}
+
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve tag and version
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$TAG" =~ ^zed-v ]]; then
+            echo "::error::Tag '$TAG' does not start with 'zed-v'"
+            exit 1
+          fi
+          VERSION="${TAG#zed-v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      - name: Verify extension.toml version matches tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT_VERSION="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' editors/zed/extension.toml | head -n 1)"
+          EXPECTED="${{ steps.tag.outputs.version }}"
+          if [ "$EXT_VERSION" != "$EXPECTED" ]; then
+            echo "::error::Tag ${{ steps.tag.outputs.tag }} expects extension.toml version $EXPECTED, found $EXT_VERSION."
+            exit 1
+          fi
+
+      - name: Verify Cargo.toml version matches tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/p' editors/zed/Cargo.toml \
+            | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
+            | head -n 1)"
+          EXPECTED="${{ steps.tag.outputs.version }}"
+          if [ "$CARGO_VERSION" != "$EXPECTED" ]; then
+            echo "::error::Tag ${{ steps.tag.outputs.tag }} expects editors/zed/Cargo.toml version $EXPECTED, found $CARGO_VERSION."
+            exit 1
+          fi
+
+      - name: Install Rust + wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build WASM (verification only)
+        working-directory: editors/zed
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Check mirror token
+        shell: bash
+        run: |
+          if [ -z "$ZED_TARN_DEPLOY_TOKEN" ]; then
+            echo "::error::ZED_TARN_DEPLOY_TOKEN secret is not set. Configure it under repo Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      - name: Mirror editors/zed → NazarKalytiuk/zed-tarn
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          WORK="$(mktemp -d)"
+          # Fresh checkout of the mirror repo with PAT credentials.
+          git clone "https://x-access-token:${ZED_TARN_DEPLOY_TOKEN}@github.com/NazarKalytiuk/zed-tarn.git" "$WORK/zed-tarn"
+
+          cd "$WORK/zed-tarn"
+          # Wipe every tracked file so a removal in editors/zed propagates.
+          # Keeps .git intact.
+          git rm -rf . >/dev/null 2>&1 || true
+
+          # Rsync current editors/zed tree (excluding build artifacts).
+          rsync -a --delete \
+            --exclude=target/ \
+            --exclude=.git/ \
+            "${GITHUB_WORKSPACE}/editors/zed/" .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to mirror; ensuring tag v${VERSION} exists anyway."
+          else
+            git commit -m "Release v${VERSION}
+
+Mirrored from NazarKalytiuk/hive@${GITHUB_SHA} (${TAG})."
+          fi
+
+          # Tag with plain `vX.Y.Z` on the mirror side — zed-industries/extensions
+          # pins the submodule by commit SHA, but a clean semver tag on the
+          # mirror is the user-visible version.
+          MIRROR_TAG="v${VERSION}"
+          if git rev-parse "$MIRROR_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $MIRROR_TAG already exists on the mirror. Bump the version before re-tagging."
+            exit 1
+          fi
+          git tag -a "$MIRROR_TAG" -m "Tarn for Zed $MIRROR_TAG"
+
+          git push origin HEAD:main
+          git push origin "$MIRROR_TAG"
+          echo "Mirrored to https://github.com/NazarKalytiuk/zed-tarn at tag $MIRROR_TAG"

@@ -123,6 +123,7 @@ There are more local scenarios in `examples/demo-server/` for redirects, cookies
 - [Step Options](#step-options)
 - [JSON Schema](#json-schema)
 - [VS Code Extension](#vs-code-extension)
+- [Zed Extension](#zed-extension)
 - [Shell Completions](#shell-completions)
 - [Development](#development)
 
@@ -145,6 +146,7 @@ For AI-assisted workflows, see also:
 For editor integrations:
 - [`docs/TARN_LSP.md`](./docs/TARN_LSP.md) &mdash; `tarn-lsp` Language Server (LSP 3.17) for Claude Code, Neovim, Helix, Zed, and other compatible clients. Ships diagnostics, hover, nested schema-aware completion, document symbols, go-to-definition, references, rename, code lens (run test / run step), formatting, code actions (extract env var, capture this field, scaffold assert from last response), quick fix via `tarn::fix_plan`, and a JSONPath evaluator (`tarn.evaluateJsonpath` executeCommand).
 - [`docs/VSCODE_EXTENSION.md`](./docs/VSCODE_EXTENSION.md) &mdash; the VS Code extension in [`editors/vscode`](./editors/vscode).
+- [`editors/zed/README.md`](./editors/zed/README.md) &mdash; the Zed extension in [`editors/zed`](./editors/zed), published via the [zed-industries/extensions](https://github.com/zed-industries/extensions) registry.
 
 A lightweight static docs site now lives in [`docs/site/index.html`](./docs/site/index.html) and is deployable via GitHub Pages from `.github/workflows/docs-site.yml`.
 
@@ -1479,6 +1481,22 @@ See [`editors/vscode/docs/API.md`](./editors/vscode/docs/API.md) for the surface
 - Canonical user docs: [`editors/vscode/README.md`](./editors/vscode/README.md)
 - Design / internals: [`docs/VSCODE_EXTENSION.md`](./docs/VSCODE_EXTENSION.md)
 - Changelog: [`editors/vscode/CHANGELOG.md`](./editors/vscode/CHANGELOG.md)
+
+## Zed Extension
+
+A Zed extension lives in [`editors/zed`](./editors/zed) and is published to the [zed-industries/extensions](https://github.com/zed-industries/extensions) registry under the id `tarn`. The extension wraps the same `tarn-lsp` binary used by the VS Code extension — installing from Zed's Extensions panel auto-downloads the matching `tarn-lsp` release on first activation.
+
+Coverage:
+
+- Syntax highlighting for `.tarn.yaml` / `.tarn.yml`, backed by `tree-sitter-yaml`.
+- Full `tarn-lsp` language intelligence: diagnostics, completion, hover, code actions, code lens, formatting, symbols, rename, references.
+- Snippet library ported from the VS Code extension (`tarn-test`, `tarn-step`, `tarn-capture`, `tarn-poll`, `tarn-form`, `tarn-graphql`, `tarn-multipart`, `tarn-lifecycle`, `tarn-include`).
+- Runnable tasks: `tarn: run file`, `tarn: dry-run file`, `tarn: validate file`, plus whole-workspace variants. Accessible from the task picker or the gutter runnable at the top of each file.
+- Settings passthrough via `lsp.tarn-lsp.settings` in Zed's `settings.json`, forwarded to `tarn-lsp` as `workspace/configuration`.
+
+Zed has no custom UI surface for extensions, so the VS Code-only features (Test Explorer tree, environment picker, run-history panel, HTML report viewer, walkthrough) are not ported. Users who need them stay on VS Code; Zed users rely on LSP-driven feedback and the task runner.
+
+See [`editors/zed/README.md`](./editors/zed/README.md) for install and configuration.
 
 ## Shell Completions
 

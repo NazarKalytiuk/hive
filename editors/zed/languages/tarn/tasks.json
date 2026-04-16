@@ -1,0 +1,39 @@
+[
+  {
+    "label": "tarn: run file",
+    "command": "tarn",
+    "args": ["run", "$ZED_FILE"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["tarn-file"]
+  },
+  {
+    "label": "tarn: dry-run file",
+    "command": "tarn",
+    "args": ["run", "--dry-run", "$ZED_FILE"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "tarn: validate file",
+    "command": "tarn",
+    "args": ["validate", "$ZED_FILE"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "tarn: run all",
+    "command": "tarn",
+    "args": ["run"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "tarn: list all",
+    "command": "tarn",
+    "args": ["list"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "tarn: validate all",
+    "command": "tarn",
+    "args": ["validate"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]

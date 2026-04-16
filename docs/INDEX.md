@@ -65,6 +65,10 @@ This index lists the canonical repository markdown after the roadmap cleanup.
 - `editors/opencode/README.md`
   - opencode integration: repo-root `opencode.jsonc` + `.opencode/skills/tarn-api-testing/`
   - config-driven (no marketplace / installer); skill reuses `plugin/skills/tarn-api-testing/` via symlink
+- `editors/zed/README.md`
+  - Zed extension: grammar, snippets, runnable tasks, and `tarn-lsp` adapter
+  - auto-downloads `tarn-lsp` from GitHub releases on first activation
+  - published via the [zed-industries/extensions](https://github.com/zed-industries/extensions) registry (source mirrored to `NazarKalytiuk/zed-tarn`)
 
 ### Workflow and Operations
 

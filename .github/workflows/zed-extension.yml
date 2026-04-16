@@ -1,0 +1,46 @@
+name: Zed Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editors/zed/**"
+      - ".github/workflows/zed-extension.yml"
+  pull_request:
+    paths:
+      - "editors/zed/**"
+      - ".github/workflows/zed-extension.yml"
+
+jobs:
+  check:
+    name: build wasm + lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/zed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust + wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: cargo fmt
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --release --target wasm32-unknown-unknown -- -D warnings
+
+      - name: cargo build (wasm)
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-tarn-wasm
+          path: editors/zed/target/wasm32-unknown-unknown/release/zed_tarn.wasm
+          if-no-files-found: error

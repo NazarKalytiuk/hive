@@ -1,0 +1,17 @@
+id = "tarn"
+name = "Tarn"
+description = "Language server, grammar, snippets, and runnable tasks for Tarn — the CLI-first API testing tool."
+version = "0.1.0"
+schema_version = 1
+authors = ["Nazar Kalytiuk <nazarkalytiuk@gmail.com>"]
+repository = "https://github.com/NazarKalytiuk/zed-tarn"
+
+snippets = "./snippets/tarn.json"
+
+[language_servers.tarn-lsp]
+name = "Tarn LSP"
+language = "Tarn"
+
+[grammars.tarn]
+repository = "https://github.com/zed-industries/tree-sitter-yaml"
+commit = "baff0b51c64ef6a1fb1f8390f3ad6015b83ec13a"
