@@ -1,5 +1,121 @@
 # Changelog
 
+## 0.7.0 — Last-run JSON artifact, discovery excludes, capture cascade, `exists_where`, tarn-lsp YAML gating, and opencode support
+
+### Runner + CLI (tarn)
+
+- **Always-on `.tarn/last-run.json` artifact.** Every run now writes a
+  machine-readable JSON report alongside whatever format the human
+  asked for, so failed runs can be inspected after the fact without
+  rerunning in `--format json`. New `--report-json PATH` override and
+  `--no-last-run-json` opt-out. Human-mode runs announce the artifact
+  path on stderr.
+- **Default directory excludes during discovery.** Test walking now
+  skips `.git`, `.worktrees`, `node_modules`, `.venv`, `venv`, `dist`,
+  `build`, `target`, `tmp`, `.tarn` by default — no more stale
+  worktree copies silently doubling the run. Human-mode prints a
+  discovery summary (files found, excluded roots, duplicate `tests/`
+  tree warnings). `--no-default-excludes` disables the gate when the
+  user genuinely wants the old behavior. Subcommands `run`, `validate`,
+  and `list` all accept the flag.
+- **Cascading capture-failure skip (NAZ-342).** When a step's capture
+  fails, every downstream step referencing `{{ capture.<name> }}` is
+  now marked `failure_category: skipped_due_to_failed_capture` with
+  `error_code: skipped_dependency`, instead of flooding the report
+  with unresolved-template failures. Exit code stays at 3 (the root
+  cause is still `capture_error`); the skips do not escalate it.
+- **Identity-based array assertions (NAZ-341).** New `exists_where`,
+  `not_exists_where`, and `contains_object` (alias) operators under
+  `assert.body.<path>`. Use these instead of `$[0]` lookups and exact
+  `length:` assertions on shared list endpoints so tests stay green
+  when an unrelated writer appends a new row.
+- **Capture `where:` predicate filter.** Select array elements by
+  `{ field: value }` identity before the `first` transform, so
+  captures survive list ordering changes the same way identity-based
+  assertions do.
+- **Richer poll-timeout diagnostics.** Timeouts now carry the final
+  observed `response_status`, `response_summary`, and a `poll final:`
+  assertion surfacing the last-seen value so operators can
+  distinguish "stuck" from "progressing but never matched" without
+  rerunning. Previous behavior left both fields `null` on timeout.
+- **New `fail_fast_within_test` config option.**
+
+### Language server (tarn-lsp)
+
+- **New `is_tarn_file_uri` gate on every request handler.** Claude
+  Code's and opencode's LSP plugin formats both register servers by
+  bare extension (`.yaml` / `.yml`) with no compound-extension or
+  glob support, so `tarn-lsp` ends up attached to every YAML buffer
+  in any project where the plugin is installed — Kubernetes manifests,
+  Compose files, CI configs. Diagnostics, hover, completion,
+  definition, references, prepareRename, rename, codeLens, formatting,
+  codeAction, and documentSymbol now short-circuit through the
+  predicate and return LSP-appropriate empty results for
+  non-`*.tarn.yaml` URIs, so `tarn-lsp` stays silent on foreign YAML
+  instead of emitting bogus results. Full-lifecycle regression test
+  at `tarn-lsp/tests/non_tarn_yaml_gating_test.rs`.
+
+### MCP server (tarn-mcp)
+
+- Tool-call surface extended with `fail_fast_within_test` so the new
+  `RunOptions` field threads through MCP-initiated runs.
+
+### Schema (v1)
+
+- `capture.where` object for predicate filters on array results.
+- `assert.body.<path>.{exists_where, not_exists_where, contains_object}`.
+- Mirrored in `tarn-lsp/schemas/v1/testfile.json` with the existing
+  sync-verification test from 0.6.2 keeping them from drifting.
+
+### opencode integration
+
+- **New first-class opencode support.** Tarn is now integrated into
+  [opencode](https://opencode.ai) with the same MCP + LSP + skill
+  surface Claude Code gets. Since opencode has no plugin installer or
+  marketplace for Rust CLIs, integration is config-driven:
+  - `opencode.jsonc` at the repo root registers `tarn-mcp` (as
+    `mcp.tarn` with `type: "local"`) and `tarn-lsp` (as `lsp.tarn`
+    with `extensions: [".yaml", ".yml"]`).
+  - `.opencode/skills/tarn-api-testing/` is a relative symlink to the
+    canonical `plugin/skills/tarn-api-testing/` — no content
+    duplication. Agents running `opencode` inside this repo pick up
+    the skill automatically.
+  - `editors/opencode/README.md` + `editors/opencode/opencode.example.jsonc`
+    document how to mirror the setup in a third-party repo.
+- Compound-extension caveat documented throughout: opencode's LSP
+  matcher uses `path.parse(file).ext`, so the `tarn` LSP entry claims
+  every `.yaml` / `.yml` in the workspace (not just `.tarn.yaml`) —
+  the new `is_tarn_file_uri` gate above keeps this from being noisy.
+  Install the `lsp.tarn` entry at project level only, not in global
+  `~/.config/opencode/config.json`.
+- opencode threaded into `README.md`, `AGENTS.md`, `docs/TARN_LSP.md`,
+  `docs/MCP_WORKFLOW.md`, `docs/INDEX.md`, `docs/LAUNCH_PLAYBOOK.md`,
+  `docs/site/index.html`, `docs/site/mcp.html`, `docs/site/tarn-lsp.html`,
+  `plugin/skills/tarn-api-testing/SKILL.md`, and
+  `plugin/skills/tarn-api-testing/references/mcp-integration.md`.
+
+### Claude Code marketplace consolidation
+
+- The previously separate `editors/claude-code/.claude-plugin/`
+  marketplace is merged into the repo-root
+  `.claude-plugin/marketplace.json`, so both `tarn` (MCP + skill) and
+  `tarn-lsp` (LSP) ship from a single marketplace. New install flow:
+  ```
+  /plugin marketplace add NazarKalytiuk/hive
+  /plugin install tarn@tarn
+  /plugin install tarn-lsp@tarn --scope project
+  ```
+  **Breaking:** `tarn-lsp@tarn-lsp` and `tarn-lsp@tarn-plugins` (the
+  pre-consolidation plugin identifiers) no longer resolve.
+- `plugin/.claude-plugin/plugin.json` version field fixed — it had
+  drifted to 0.2.0 while everything else was on 0.6.x; now re-aligned
+  to 0.7.0 alongside the rest of the release.
+
+### Housekeeping
+
+- `.gitignore` gates `/.claude/` so Claude Code's session-private
+  auto-memory and per-session settings never land in git.
+
 ## 0.6.2 — Fix crates.io publish blocker, configure release channels (NAZ-314)
 
 - **Fix `cargo publish -p tarn-lsp`**: the compile-time `include_str!`
