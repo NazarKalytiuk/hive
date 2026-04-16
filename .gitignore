@@ -4,3 +4,7 @@
 *~
 .DS_Store
 tarn.env.local.yaml
+
+# Claude Code session-private state (auto-memory, scheduled-task locks,
+# per-session settings). These must never land in the repo.
+/.claude/

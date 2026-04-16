@@ -119,7 +119,7 @@ Schema files live in `schemas/v1/testfile.json` and `schemas/v1/report.json`.
 
 ## MCP Server
 
-Tarn includes an MCP server (`tarn-mcp`) for direct integration with Claude Code, Cursor, and Windsurf.
+Tarn includes an MCP server (`tarn-mcp`) for direct integration with Claude Code, opencode, Cursor, and Windsurf.
 
 ### Claude Code Setup
 
@@ -188,12 +188,26 @@ Add to your project's `.claude/settings.json`:
 ### Claude Code Install
 
 ```
-/plugin marketplace add /absolute/path/to/hive-api-test/editors/claude-code
-/plugin install tarn-lsp@tarn-lsp --scope project
+/plugin marketplace add NazarKalytiuk/hive
+/plugin install tarn-lsp@tarn --scope project
 /reload-plugins
 ```
 
 Compound-extension caveat: the plugin claims all `.yaml` / `.yml` files, so install `--scope project` in Tarn-focused repos only. See `editors/claude-code/tarn-lsp-plugin/README.md` for the full spec.
+
+### opencode Install
+
+Commit `opencode.jsonc` at your repo root (the Tarn repo itself ships one):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": { "tarn": { "type": "local", "command": ["tarn-mcp"], "enabled": true } },
+  "lsp": { "tarn": { "command": ["tarn-lsp"], "extensions": [".yaml", ".yml"] } }
+}
+```
+
+For the `tarn-api-testing` skill, drop `SKILL.md` at `.opencode/skills/tarn-api-testing/SKILL.md` (this repo symlinks to `plugin/skills/tarn-api-testing/`). Same compound-extension caveat as Claude Code: project scope only. See `editors/opencode/README.md` for the full flow.
 
 ### Other Clients
 

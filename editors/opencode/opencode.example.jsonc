@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Tarn MCP server — structured tool calls for write / run / validate / fix-plan.
+  // Requires `tarn-mcp` on $PATH. Build with `cargo install --path tarn-mcp` from a
+  // checkout of https://github.com/NazarKalytiuk/hive.
+  "mcp": {
+    "tarn": {
+      "type": "local",
+      "command": ["tarn-mcp"],
+      "enabled": true
+    }
+  },
+
+  // Tarn LSP — diagnostics, hover, completion, code lens, code actions, rename,
+  // formatting, go-to-definition, references, JSONPath evaluator.
+  // Requires `tarn-lsp` on $PATH. Build with `cargo install --path tarn-lsp`.
+  //
+  // ⚠ Compound-extension caveat: opencode matches LSP servers by final-component
+  // extension (".yaml" / ".yml"), not by full suffix. The server therefore claims
+  // every YAML file in the workspace, not just `.tarn.yaml`. Install only in
+  // Tarn-focused repos; do not put this in your global `~/.config/opencode/config.json`
+  // if you also edit unrelated YAML (Kubernetes manifests, Compose files, CI configs).
+  "lsp": {
+    "tarn": {
+      "command": ["tarn-lsp"],
+      "extensions": [".yaml", ".yml"]
+    }
+  }
+}

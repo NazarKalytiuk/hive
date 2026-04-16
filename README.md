@@ -41,7 +41,7 @@ $ tarn run
 - **50% fewer tokens** than equivalent TypeScript/Python tests &mdash; faster LLM generation, lower cost
 - **Structured JSON output** with request/response on failures &mdash; machines parse it, not regex
 - **Single binary** &mdash; `curl | sh` install, runs in any CI, no runtime needed
-- **MCP server** &mdash; direct integration with Claude Code, Cursor, Windsurf
+- **MCP server** &mdash; direct integration with Claude Code, opencode, Cursor, Windsurf
 - **Everything you need** &mdash; REST, GraphQL, captures, cookies, multipart, includes, polling, Lua scripting, parallel execution, 7 output formats
 
 ## Install
@@ -1178,24 +1178,27 @@ See [docs/MCP_WORKFLOW.md](./docs/MCP_WORKFLOW.md), [docs/AI_WORKFLOW_DEMO.md](.
 
 ## Claude Code Plugin
 
-Tarn ships **two** separate Claude Code plugins. They solve different problems and can be installed independently or together:
+Tarn ships **two** Claude Code plugins from a single marketplace. They solve different problems and can be installed independently or together:
 
-1. **`tarn`** (top-level `.claude-plugin/`) &mdash; bundles the `tarn-mcp` MCP server and the `tarn-api-testing` skill. Gives your agent structured API testing capabilities: `tarn_run`, `tarn_validate`, `tarn_list`, `tarn_fix_plan`.
+1. **`tarn`** (top-level `plugin/`) &mdash; bundles the `tarn-mcp` MCP server and the `tarn-api-testing` skill. Gives your agent structured API testing capabilities: `tarn_run`, `tarn_validate`, `tarn_list`, `tarn_fix_plan`.
 2. **`tarn-lsp`** ([`editors/claude-code/tarn-lsp-plugin/`](./editors/claude-code/tarn-lsp-plugin/)) &mdash; registers the `tarn-lsp` language server with Claude Code's LSP plugin system so you get full `.tarn.yaml` language intelligence (diagnostics, hover, completion, code lens, code actions, quick fix, rename, go-to-definition, and the JSONPath evaluator) while editing in Claude Code.
 
-### `tarn` &mdash; MCP + skill plugin
-
-Published as a Claude Code **marketplace** (a registry that can contain multiple plugins). Installation is two steps:
+Both plugins live in the same marketplace (the repo root `.claude-plugin/marketplace.json`). Register it once, then install either or both:
 
 ```bash
-# 1. Register the marketplace
+# 1. Register the marketplace (once)
 claude plugin marketplace add NazarKalytiuk/hive
 
-# 2. Install the Tarn plugin from it
+# 2a. Install the MCP + skill plugin
 claude plugin install tarn@tarn
+
+# 2b. Install the LSP plugin (project scope — see caveat below)
+claude plugin install tarn-lsp@tarn --scope project
 ```
 
-After installing, Claude Code can write, run, and debug `.tarn.yaml` tests directly via the bundled MCP server and skill. See [MCP Server](#mcp-server) and [Claude Code Skill](#claude-code-skill) for what each component provides.
+After installing `tarn`, Claude Code can write, run, and debug `.tarn.yaml` tests directly via the bundled MCP server and skill. See [MCP Server](#mcp-server) and [Claude Code Skill](#claude-code-skill) for what each component provides.
+
+### `tarn` &mdash; MCP + skill plugin
 
 #### Manual setup
 
@@ -1219,30 +1222,61 @@ This is equivalent to configuring the MCP server in `.claude/settings.json` but 
 The `tarn` plugin configuration lives in `.claude-plugin/`:
 
 - **`plugin.json`** &mdash; name, version, description, author, and repository URL
-- **`marketplace.json`** &mdash; marketplace listing with owner info and plugin registry
+- **`marketplace.json`** &mdash; marketplace listing with owner info and the plugin registry (both `tarn` and `tarn-lsp`)
 
 ### `tarn-lsp` &mdash; language server plugin
 
-Separate from the MCP plugin above. This one registers `tarn-lsp` for `.tarn.yaml` / `.yaml` / `.yml` via Claude Code's LSP plugin system so every feature documented in [`docs/TARN_LSP.md`](./docs/TARN_LSP.md) is available while you edit in Claude Code.
+Separate install from the MCP plugin above (same marketplace though). This one registers `tarn-lsp` for `.tarn.yaml` / `.yaml` / `.yml` via Claude Code's LSP plugin system so every feature documented in [`docs/TARN_LSP.md`](./docs/TARN_LSP.md) is available while you edit in Claude Code.
 
 **Prerequisites:**
 
 - Claude Code **2.0.74+**
 - `tarn-lsp` binary available on `$PATH` &mdash; install with `cargo install --path tarn-lsp` from this repo, or symlink a workspace build (`ln -s $(pwd)/target/release/tarn-lsp /usr/local/bin/tarn-lsp`)
 
-**Install:**
-
-This plugin is published through a *different* marketplace than the `tarn` plugin &mdash; the marketplace root is the `editors/claude-code/` directory in this repo. Use Claude Code's slash commands:
+**Install** (from inside a Claude Code session):
 
 ```
-/plugin marketplace add /absolute/path/to/repo/editors/claude-code
-/plugin install tarn-lsp@tarn-lsp --scope project
+/plugin marketplace add NazarKalytiuk/hive
+/plugin install tarn-lsp@tarn --scope project
 /reload-plugins
 ```
+
+Already registered the marketplace for the `tarn` plugin? Skip the `add` line &mdash; both plugins share the same marketplace now. Substitute `/absolute/path/to/repo` for `NazarKalytiuk/hive` if you want to install from a local checkout instead.
 
 **Compound-extension caveat:** Claude Code's LSP plugin system only supports simple file extensions, so the `tarn-lsp` plugin claims **all** `.yaml` and `.yml` files in any project it is installed in (not just `.tarn.yaml`). Always install with `--scope project` in Tarn-focused repos only &mdash; do not install it globally if you also edit unrelated YAML in Claude Code.
 
 See [`editors/claude-code/tarn-lsp-plugin/README.md`](./editors/claude-code/tarn-lsp-plugin/README.md) for the full spec, troubleshooting, and the list of supported LSP features.
+
+## opencode
+
+[opencode](https://opencode.ai) supports Tarn through config only — there is no plugin installer or marketplace, so integration is three files checked into your repo:
+
+```
+your-repo/
+├── opencode.jsonc                          # MCP + LSP registration
+└── .opencode/skills/tarn-api-testing/      # agent-visible skill
+    └── SKILL.md
+```
+
+This repo ships exactly this layout at [`opencode.jsonc`](./opencode.jsonc) and [`.opencode/skills/tarn-api-testing/`](./.opencode/skills/tarn-api-testing/) (the skill is a symlink to the canonical [`plugin/skills/tarn-api-testing/`](./plugin/skills/tarn-api-testing/)). Clone the repo, install `tarn-mcp` and `tarn-lsp` on `$PATH`, run `opencode` inside — MCP tools, `.tarn.yaml` diagnostics/hover/completion, and the `tarn-api-testing` skill light up immediately.
+
+To mirror the setup in your own repo, copy the snippet from [`editors/opencode/opencode.example.jsonc`](./editors/opencode/opencode.example.jsonc) into your own `opencode.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "tarn": { "type": "local", "command": ["tarn-mcp"], "enabled": true }
+  },
+  "lsp": {
+    "tarn": { "command": ["tarn-lsp"], "extensions": [".yaml", ".yml"] }
+  }
+}
+```
+
+**Compound-extension caveat:** opencode's LSP matcher uses `path.parse(file).ext`, so the `tarn` LSP entry claims every `.yaml` / `.yml` file in the workspace (not just `.tarn.yaml`) — the same limitation as Claude Code. Keep this in project-level `opencode.jsonc`, not your global config.
+
+See [`editors/opencode/README.md`](./editors/opencode/README.md) for prerequisites, troubleshooting, and the full skill-install flow.
 
 ## Claude Code Skill
 
@@ -1258,7 +1292,7 @@ The `skills/tarn-api-testing/` directory contains a Claude Code skill that teach
 - Assertion operator quick reference
 - JSON output schema and failure category taxonomy
 - Diagnosis loop for structured failure triage
-- MCP integration setup for Claude Code, Cursor, and Windsurf
+- MCP integration setup for Claude Code, opencode, Cursor, and Windsurf
 
 **Reference docs** in `skills/tarn-api-testing/references/`:
 

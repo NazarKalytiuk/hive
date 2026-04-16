@@ -38,6 +38,25 @@ Add to `.claude/settings.json` in the project root:
 }
 ```
 
+### opencode
+
+Opencode does **not** read `.mcp.json`. Use its native config — `opencode.jsonc` at the repo root:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "tarn": {
+      "type": "local",
+      "command": ["tarn-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Note the different schema shape: opencode uses `mcp` (not `mcpServers`), `type: "local"` for stdio, and a `command` array that includes both the executable and its args. See `editors/opencode/README.md` for the full setup (MCP + LSP + skill).
+
 ### Cursor
 
 Add to `.cursor/mcp.json`:
@@ -111,7 +130,7 @@ Generate a fix plan for failed test results.
 
 **Returns:** Structured remediation plan with suggested fixes per failed step.
 
-The same `tarn::fix_plan` library that backs this MCP tool also powers the `tarn-lsp` quick-fix code action (`CodeActionKind::QUICKFIX`). Agents working inside Claude Code with the tarn-lsp plugin installed will see the same remediation surfaced as a one-click code action on the diagnostic — the MCP tool is the report-driven path, the LSP quick-fix is the diagnostic-driven path, and the engine is the same. See `docs/MCP_WORKFLOW.md` for the cross-reference.
+The same `tarn::fix_plan` library that backs this MCP tool also powers the `tarn-lsp` quick-fix code action (`CodeActionKind::QUICKFIX`). Agents working inside Claude Code (with the `tarn-lsp` plugin installed) or opencode (with the `lsp.tarn` entry in `opencode.jsonc`) will see the same remediation surfaced as a one-click code action on the diagnostic — the MCP tool is the report-driven path, the LSP quick-fix is the diagnostic-driven path, and the engine is the same. See `docs/MCP_WORKFLOW.md` for the cross-reference.
 
 ## Recommended Agent Loop
 
@@ -132,7 +151,7 @@ The same `tarn::fix_plan` library that backs this MCP tool also powers the `tarn
 ## When to Use MCP vs CLI
 
 **Use MCP (tarn_run tool)** when:
-- Working inside Claude Code, Cursor, or Windsurf
+- Working inside Claude Code, opencode, Cursor, or Windsurf
 - You want structured JSON returned directly to the agent context
 - Iterating on test failures in an agent loop
 

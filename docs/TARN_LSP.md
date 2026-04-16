@@ -506,7 +506,7 @@ VS Code is **not** wired up to `tarn-lsp` today. The existing VS Code extension 
 
 ### Claude Code
 
-Claude Code registers LSP servers through its plugin system — specifically via a `.lsp.json` file inside a Claude Code plugin. This repo ships a ready-to-use plugin at `editors/claude-code/tarn-lsp-plugin/` plus a local marketplace at `editors/claude-code/` so you can install it in a couple of commands.
+Claude Code registers LSP servers through its plugin system — specifically via a `.lsp.json` file inside a Claude Code plugin. This repo ships a ready-to-use plugin at `editors/claude-code/tarn-lsp-plugin/`, surfaced from the repo-root marketplace alongside the `tarn` MCP + skill plugin, so you can install both from one place.
 
 **Prerequisites**
 
@@ -516,14 +516,14 @@ Claude Code registers LSP servers through its plugin system — specifically via
 **Install the plugin** (inside a Claude Code session):
 
 ```shell
-/plugin marketplace add /absolute/path/to/hive-api-test/editors/claude-code
-/plugin install tarn-lsp@tarn-plugins --scope project
+/plugin marketplace add NazarKalytiuk/hive
+/plugin install tarn-lsp@tarn --scope project
 /reload-plugins
 ```
 
 The `--scope project` flag matters — see the **Compound-extension caveat** below.
 
-For a one-off session without persistent installation, use `claude --plugin-dir` instead:
+If you prefer a local checkout, substitute `/absolute/path/to/hive-api-test` for `NazarKalytiuk/hive` in the `marketplace add` call. For a one-off session without persistent installation, use `claude --plugin-dir` instead:
 
 ```shell
 claude --plugin-dir /absolute/path/to/hive-api-test/editors/claude-code/tarn-lsp-plugin
@@ -557,7 +557,7 @@ Install at `--scope project` in Tarn-focused repos only. **Do not install at use
 
 **Verify it works**
 
-Inside Claude Code after install, run `/plugin`, switch to the **Installed** tab, and confirm `tarn-lsp@tarn-plugins` is listed with no errors. Then open any `.tarn.yaml` file and:
+Inside Claude Code after install, run `/plugin`, switch to the **Installed** tab, and confirm `tarn-lsp@tarn` is listed with no errors. Then open any `.tarn.yaml` file and:
 
 1. Introduce a typo in a schema key — Claude's diagnostics indicator (press **Ctrl+O**) shows the parser error with a precise line range.
 2. Hover over `{{ env.api_key }}` — resolved value and source file appear.
@@ -570,6 +570,33 @@ Inside Claude Code after install, run `/plugin`, switch to the **Installed** tab
 - Diagnostics silent on malformed YAML: `tarn-lsp` degrades broken-input formatting to a no-op by design. The parser diagnostics still fire — check the diagnostics panel, not hover.
 
 Full plugin README with extra context: [`editors/claude-code/tarn-lsp-plugin/README.md`](../editors/claude-code/tarn-lsp-plugin/README.md).
+
+### opencode
+
+[opencode](https://opencode.ai) registers LSP servers directly from its config file — no plugin wrapper. This repo commits an [`opencode.jsonc`](../opencode.jsonc) at the root so agents running inside it get `tarn-lsp` automatically.
+
+**Prerequisites**
+
+1. opencode installed (see [opencode.ai/docs](https://opencode.ai/docs/)).
+2. `tarn-lsp` on `$PATH`: `cargo install --path tarn-lsp` from a checkout of this repo.
+
+**Config** (`opencode.jsonc` at your repo root):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "tarn": {
+      "command": ["tarn-lsp"],
+      "extensions": [".yaml", ".yml"]
+    }
+  }
+}
+```
+
+**Compound-extension caveat:** opencode matches LSP servers by final-component extension (`.yaml` / `.yml`), not by full suffix, so this entry claims every YAML file in the workspace — not just `.tarn.yaml`. Commit it at project level in Tarn-focused repos only; do not add it to your global `~/.config/opencode/config.json` if you also edit unrelated YAML through opencode. Same limitation as Claude Code, tracked upstream on both sides.
+
+Full opencode install flow (including the MCP server and `tarn-api-testing` skill): [`editors/opencode/README.md`](../editors/opencode/README.md).
 
 ## Smoke test
 
@@ -656,7 +683,7 @@ Phase L1 is the MVP. Phase L2 and L3 pick up the long tail of LSP features and a
 
 **Phase L2 COMPLETE.** Epic NAZ-296 is closed. The follow-ups below were previously bundled with L2 and remain open as general housekeeping:
 
-- **Claude Code config integration** — shipped as NAZ-310: `editors/claude-code/tarn-lsp-plugin/` plus a local marketplace at `editors/claude-code/`. See the Claude Code section above for install instructions. The remaining gap is Claude Code's lack of compound-extension (`.tarn.yaml`) support in its LSP plugin schema; tracked as an upstream feedback request.
+- **Claude Code config integration** — shipped as NAZ-310: `editors/claude-code/tarn-lsp-plugin/`, surfaced from the repo-root marketplace at `.claude-plugin/marketplace.json` alongside the `tarn` MCP + skill plugin. See the Claude Code section above for install instructions. The remaining gap is Claude Code's lack of compound-extension (`.tarn.yaml`) support in its LSP plugin schema; tracked as an upstream feedback request.
 - **VS Code extension migration** — migrate `editors/vscode/` off its direct providers onto `tarn-lsp`, so there is one implementation of every language feature. Tracked under Phase V (Epic NAZ-308, scaffolding shipped as NAZ-309).
 
 ### Phase L3 — editing polish (complete)

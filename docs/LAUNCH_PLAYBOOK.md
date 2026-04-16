@@ -21,7 +21,7 @@ The positioning to keep repeating:
 - tests are YAML
 - output is structured JSON for agents and CI
 - single binary, no runtime dependencies
-- includes an MCP server for Claude Code / Cursor / Windsurf
+- includes an MCP server for Claude Code / opencode / Cursor / Windsurf
 
 The core workflow Tarn is optimized for:
 
@@ -100,7 +100,7 @@ Tarn is a CLI-first API testing tool written in Rust.
 - Tests are YAML (`.tarn.yaml`)
 - Output is structured JSON for agents and CI
 - Single binary, no runtime dependencies
-- Includes an MCP server for Claude Code / Cursor / Windsurf
+- Includes an MCP server for Claude Code / opencode / Cursor / Windsurf
 
 The loop we optimized for is:
 

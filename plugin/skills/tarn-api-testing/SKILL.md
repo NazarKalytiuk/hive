@@ -292,7 +292,7 @@ See `references/json-output.md` for the full schema.
 
 ## MCP Integration
 
-Tarn ships with `tarn-mcp`, an MCP server for Claude Code, Cursor, and Windsurf.
+Tarn ships with `tarn-mcp`, an MCP server for Claude Code, opencode, Cursor, and Windsurf.
 
 See `references/mcp-integration.md` for setup and tool reference.
 

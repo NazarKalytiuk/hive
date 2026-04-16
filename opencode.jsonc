@@ -1,0 +1,29 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // MCP server: bundled Rust binary, exposes tarn_run / tarn_validate / tarn_list / tarn_fix_plan.
+  // Requires `tarn-mcp` on $PATH (build with `cargo install --path tarn-mcp` from this repo).
+  "mcp": {
+    "tarn": {
+      "type": "local",
+      "command": ["tarn-mcp"],
+      "enabled": true
+    }
+  },
+
+  // LSP: diagnostics, hover, completion, code lens, code actions, rename, formatting,
+  // go-to-definition, references, JSONPath evaluator — see docs/TARN_LSP.md.
+  // Requires `tarn-lsp` on $PATH (build with `cargo install --path tarn-lsp`).
+  //
+  // Compound-extension caveat: opencode's LSP matcher uses `path.parse(file).ext`,
+  // so it can only key off the final extension (".yaml" / ".yml"). The server therefore
+  // claims every YAML file in the workspace, not just `.tarn.yaml`. This config is
+  // appropriate inside Tarn-focused repos; elsewhere, disable it or keep the schema
+  // narrow. See editors/opencode/README.md for the full caveat.
+  "lsp": {
+    "tarn": {
+      "command": ["tarn-lsp"],
+      "extensions": [".yaml", ".yml"]
+    }
+  }
+}

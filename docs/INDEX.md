@@ -49,7 +49,7 @@ This index lists the canonical repository markdown after the roadmap cleanup.
 - `plugin/skills/tarn-api-testing/references/json-output.md`
   - structured JSON report schema and diagnosis algorithm
 - `plugin/skills/tarn-api-testing/references/mcp-integration.md`
-  - MCP server setup and tool reference for Claude Code, Cursor, and Windsurf
+  - MCP server setup and tool reference for Claude Code, opencode, Cursor, and Windsurf
 - `.mcp.json`
   - project-level MCP server configuration (portable across MCP-compatible tools)
 - `docs/TARN_LSP.md`
@@ -60,8 +60,11 @@ This index lists the canonical repository markdown after the roadmap cleanup.
   - editor install paths for Claude Code, Neovim, Helix, Zed, and others
 - `editors/claude-code/tarn-lsp-plugin/README.md`
   - Claude Code plugin that wires `tarn-lsp` into Claude Code via its plugin/LSP system
-  - separate from the top-level `.claude-plugin/` Tarn plugin (MCP + skill)
-  - installs via `/plugin marketplace add editors/claude-code` + `/plugin install tarn-lsp@tarn-lsp --scope project`
+  - shipped from the repo-root marketplace alongside the `tarn` MCP + skill plugin
+  - installs via `/plugin marketplace add NazarKalytiuk/hive` + `/plugin install tarn-lsp@tarn --scope project`
+- `editors/opencode/README.md`
+  - opencode integration: repo-root `opencode.jsonc` + `.opencode/skills/tarn-api-testing/`
+  - config-driven (no marketplace / installer); skill reuses `plugin/skills/tarn-api-testing/` via symlink
 
 ### Workflow and Operations
 

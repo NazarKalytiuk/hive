@@ -17,11 +17,14 @@ The recommended setup is a project-level `.mcp.json` in the repo root:
 }
 ```
 
-This is portable across Claude Code and other MCP-compatible tools. See `plugin/skills/tarn-api-testing/references/mcp-integration.md` for editor-specific alternatives (`.claude/settings.json`, `.cursor/mcp.json`, `.windsurf/mcp.json`).
+This is portable across Claude Code, Cursor, Windsurf, and any other client that reads `.mcp.json`. **opencode is the exception** — it uses its own `opencode.jsonc` schema (`mcp.tarn` with `type: "local"` and a `command` array). See `plugin/skills/tarn-api-testing/references/mcp-integration.md` for the opencode snippet and the other editor-specific alternatives (`.claude/settings.json`, `.cursor/mcp.json`, `.windsurf/mcp.json`).
 
-## Claude Code Skill
+## Agent Skill
 
-The `skills/tarn-api-testing/` directory provides a Claude Code skill that gives the agent structured knowledge about Tarn's workflow, commands, test file format, assertions, captures, and failure diagnosis. When the skill is loaded, the agent can write, run, and debug Tarn tests without needing external documentation.
+The `plugin/skills/tarn-api-testing/` directory is the canonical home for the Tarn agent skill — structured knowledge about Tarn's workflow, commands, test file format, assertions, captures, and failure diagnosis. Two agents pick it up today:
+
+- **Claude Code** loads it from the `tarn` plugin (the plugin ships `plugin/skills/tarn-api-testing/` as its skill directory).
+- **opencode** loads it from `.opencode/skills/tarn-api-testing/`, which this repo provides as a relative symlink to the canonical path above — no content duplication.
 
 ## Available Tools
 

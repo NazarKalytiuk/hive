@@ -11,8 +11,22 @@
     {
       "name": "tarn",
       "source": "./plugin",
-      "description": "CLI-first API testing tool for .tarn.yaml files with structured JSON output and a bundled MCP server for AI-assisted write/run/debug workflows. A companion `tarn-lsp` language server (diagnostics, hover, completion, go-to-definition, rename, formatting, and code actions for .tarn.yaml) ships separately at `editors/claude-code/tarn-lsp-plugin/`.",
+      "description": "CLI-first API testing tool for .tarn.yaml files with structured JSON output and a bundled MCP server for AI-assisted write/run/debug workflows.",
       "version": "0.6.2"
+    },
+    {
+      "name": "tarn-lsp",
+      "source": "./editors/claude-code/tarn-lsp-plugin",
+      "description": "Language Server Protocol plugin for Tarn test files (.tarn.yaml) — diagnostics, hover, completion, symbols, navigation, code actions, quick-fix, formatting, JSONPath evaluator.",
+      "version": "0.6.0",
+      "author": {
+        "name": "Nazar Kalytiuk"
+      },
+      "homepage": "https://github.com/NazarKalytiuk/hive/blob/main/docs/TARN_LSP.md",
+      "repository": "https://github.com/NazarKalytiuk/hive",
+      "license": "MIT",
+      "keywords": ["tarn", "lsp", "api-testing", "yaml"],
+      "category": "Code intelligence"
     }
   ]
 }

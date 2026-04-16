@@ -17,14 +17,16 @@ A Claude Code plugin that wires [`tarn-lsp`](../../../docs/TARN_LSP.md) into the
 
 ## Install the plugin
 
-Claude Code's plugin system works through **marketplaces**. The simplest way to try this plugin is to add the `editors/claude-code/` directory of this repo as a local marketplace, then install the plugin from it:
+Claude Code's plugin system works through **marketplaces**. This plugin is listed in the repo-root marketplace at `.claude-plugin/marketplace.json`, alongside the `tarn` MCP + skill plugin. Register the marketplace once, then install:
 
 ```bash
 # From inside Claude Code
-/plugin marketplace add /absolute/path/to/hive-api-test/editors/claude-code
-/plugin install tarn-lsp@tarn-lsp --scope project
+/plugin marketplace add NazarKalytiuk/hive
+/plugin install tarn-lsp@tarn --scope project
 /reload-plugins
 ```
+
+Prefer installing from a local checkout? Substitute the absolute path to this repo for `NazarKalytiuk/hive` in the `marketplace add` call.
 
 `--scope project` is important — see the [Compound-extension caveat](#compound-extension-caveat) below for why you should not install this plugin at user scope.
 
@@ -79,7 +81,7 @@ Those files aren't Tarn test files — the `.yaml` extension claim is too broad 
 
 - **No code execution.** `tarn run --select` is still a shell command — Claude Code calls it directly, the LSP does not embed the runner. Run-test / run-step code lenses emit the selector; the client (Claude Code) dispatches execution itself.
 - **No bundled `tarn-lsp` binary.** You install the binary separately. A future revision may bundle the binary inside the plugin directory.
-- **No Marketplace publication.** This plugin lives in the `hive` repo at `editors/claude-code/tarn-lsp-plugin/`. It is not published to the official Anthropic marketplace yet; that's a soak-test-and-then-publish follow-up.
+- **No Marketplace publication.** This plugin lives in the `hive` repo at `editors/claude-code/tarn-lsp-plugin/` and is served from the repo-root marketplace (`.claude-plugin/marketplace.json`). It is not published to the official Anthropic marketplace yet; that's a soak-test-and-then-publish follow-up.
 
 ## References
 

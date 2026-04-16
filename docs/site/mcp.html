@@ -72,6 +72,27 @@
             <h2>Editor-specific fallbacks</h2>
             <p>Prefer the portable <code class="ic">.mcp.json</code> above. If a client does not yet pick up project-level MCP files, each one ships its own JSON settings format &mdash; use the same <code class="ic">mcpServers</code> block inside the client's settings file (Claude Code's user-level <code class="ic">mcp.json</code>, Cursor's <code class="ic">~/.cursor/mcp.json</code>, Windsurf's MCP config) as a fallback.</p>
 
+            <h2>opencode</h2>
+            <p><a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> does not read <code class="ic">.mcp.json</code>. Use its native <code class="ic">opencode.jsonc</code> at the repo root &mdash; note the different schema shape (<code class="ic">mcp</code> instead of <code class="ic">mcpServers</code>, <code class="ic">type: "local"</code> for stdio, and a <code class="ic">command</code> array).</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="key">"$schema"</span>: <span class="str">"https://opencode.ai/config.json"</span>,
+  <span class="key">"mcp"</span>: {
+    <span class="key">"tarn"</span>: {
+      <span class="key">"type"</span>: <span class="str">"local"</span>,
+      <span class="key">"command"</span>: [<span class="str">"tarn-mcp"</span>],
+      <span class="key">"enabled"</span>: <span class="value">true</span>
+    }
+  }
+}</pre>
+            </div>
+            <p>This repo commits a working <a href="https://github.com/NazarKalytiuk/hive/blob/main/opencode.jsonc" target="_blank" rel="noopener"><code class="ic">opencode.jsonc</code></a> at its root alongside a <code class="ic">.opencode/skills/tarn-api-testing/</code> symlink, so agents running <code class="ic">opencode</code> inside the Tarn repo get the full MCP + LSP + skill surface with no extra setup. See <a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/opencode/README.md" target="_blank" rel="noopener"><code class="ic">editors/opencode/README.md</code></a> for the full install flow.</p>
+
             <h2>Recommended loop</h2>
             <ol>
               <li>Call <code class="ic">tarn_list</code> to get the suite shape.</li>
