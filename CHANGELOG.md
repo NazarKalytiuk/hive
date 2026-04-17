@@ -1,5 +1,140 @@
 # Changelog
 
+## 0.8.0 — Optional captures, conditional steps, LLM/compact output, fixture store, debug surface, parallel safety, and VS Code MCP backend
+
+### Runner + CLI (tarn)
+
+- **Optional / conditional captures (NAZ-242).** Captures now support
+  `optional: true` (missing JSONPath → variable unset, not a failure),
+  `default:` (numeric, string, or `null` fallback), and `when: { status: ... }`
+  (only attempt capture when the response status matches). Step-level
+  `if:` / `unless:` expressions skip the whole step when the template
+  interpolates to falsy / truthy — truthy rules match empty / `"false"`
+  / `"0"` / `"null"` and unresolved `{{ ... }}` placeholders as falsy.
+  Optional-unset references produce a distinct "template variable
+  'X' was declared optional and not set" error.
+- **Step-level `description:` field (NAZ-243).** Optional
+  human-readable description on any step (matches file/test-level
+  semantics, supports multi-line `|` / `>` YAML). Included in the
+  JSON report and rendered dimmed under the step name in human output.
+- **LLM and compact output formats (NAZ-349, NAZ-240).** `--format llm`
+  emits a grep-friendly verdict line followed by only failing blocks
+  with request/response/assertion details — no boxed headers, stable
+  ordering. `--format compact` is the middle ground: one-line header,
+  per-file badges, inline failure expansion, grouped failure summary.
+  When stdout is not a TTY and no `--format` is set, tarn now
+  auto-selects `llm` so piping no longer dumps boxed human output. New
+  `tarn summary <run.json>` subcommand re-renders a saved JSON report
+  without re-running tests (accepts `-` for stdin).
+- **Verbose response capture on passing steps (NAZ-244).**
+  `--verbose-responses` embeds request/response bodies and resolved
+  captures in the JSON report for every step, not just failed ones.
+  Per-step `debug: true` opts individual steps in without a global
+  flag. Bodies truncate to 8 KiB with a `"...<truncated: N bytes>"`
+  marker; `--max-body <bytes>` overrides the cap. Replaces the
+  `status: 999` workaround that everyone was using to see passing
+  response bodies.
+- **Parallel safety markers (NAZ-249).** `serial_only: true` on a file
+  or a named test pins the whole file onto the serial worker under
+  `--parallel` (file-level isolation remains the unit). `group:
+  <name>` buckets files sharing a resource onto the same worker so
+  Postgres-hitting tests run sequentially even when other buckets run
+  in parallel. Running `--parallel` without `parallel_opt_in: true` in
+  `tarn.config.yaml` now prints a one-line warning on stderr;
+  `--no-parallel-warning` suppresses it for CI that has already opted
+  in via flags.
+- **Filter flags for the debug surface (NAZ-256).** `--test-filter
+  <name>` and `--step-filter <name-or-index>` narrow a run to a single
+  test or step without building a `--select` expression. Synthesizes a
+  wildcard selector that applies across every discovered file.
+- **Route-ordering diagnostic hint (NAZ-250).** When a status
+  assertion fails with a 4xx response whose body carries a textual
+  signal ("route not found", "invalid uuid", validation-param error,
+  etc.), the report now includes a `note:` line pointing at the
+  NestJS-style dynamic-route trap. Hint appears inline in human
+  output and as a `hints: [...]` array on the failing status
+  assertion in JSON output. New `docs/TROUBLESHOOTING.md` covers the
+  pattern.
+- **Fixture store writer (NAZ-252).** Every step now writes a fixture
+  to `.tarn/fixtures/<file-hash>/<test-slug>/<step-index>/` (redacted
+  same as the JSON report), retaining a rolling history (5 by default,
+  `--fixture-retention N` overrides) plus a `latest-passed.json` copy
+  for every successful run. `--no-fixtures` disables writes. Feeds
+  the LSP hover/diff/JSONPath evaluator and the debug-surface `diff
+  last passing` command. `.tarn/fixtures/` is gitignored by default.
+- **`.tarn/state.json` sidecar (NAZ-257).** Human-readable state
+  snapshot written atomically after every run — last-run summary,
+  failure list, current debug session, env metadata. Schema-versioned
+  so LLM tooling can tail it without breaking when fields evolve.
+- **`.tarn/last-run.json` augmented (NAZ-256).** The always-on
+  artifact now also records `args`, `env_name`, `working_directory`,
+  `start_time`, and `end_time` so "rerun last failures" replays with
+  the same env and flags even after the user has changed directories.
+
+### Language server (tarn-lsp)
+
+- **Fixture-driven inline JSONPath evaluator (NAZ-254).** The existing
+  `tarn.evaluateJsonpath` custom command now returns a typed
+  three-variant result: `{ result: "match", value }` on hit, `{ result:
+  "no_match", available_top_keys }` on miss, or `{ result: "no_fixture",
+  message }` when no recorded response exists for the step. Hover on a
+  JSONPath literal inside `capture:` or `assert.body.*` shows the
+  matched value inline against the latest fixture.
+- **LLM command surface (NAZ-257).** `docs/commands.json` is the
+  authoritative manifest for every stable `tarn.*` command the LSP
+  exposes. All commands return `{ schema_version: 1, data: ... }`
+  envelopes for forward compatibility. New commands:
+  `tarn.explainFailure`, `tarn.getFixture`, `tarn.clearFixtures`.
+  `tarn.explainFailure` returns a structured blob (expected vs actual,
+  preceding step captures, root-cause hint heuristics for 5xx / auth /
+  JSONPath-no-match / unresolved-capture) that agents can paste into a
+  reasoning loop without further context.
+- **Debug surface (NAZ-256).** New commands:
+  `tarn.runFile`, `tarn.runTest`, `tarn.runStep`, `tarn.runLastFailures`
+  stream `tarn/progress` notifications during execution.
+  `tarn.debugTest` starts a step-through session that publishes
+  `tarn/captureState` notifications between steps; agents drive it
+  with `tarn.debugContinue`, `tarn.debugStepOver`,
+  `tarn.debugRerunStep`, `tarn.debugRestart`, `tarn.debugStop`.
+  `tarn.getCaptureState` polls the current snapshot.
+  `tarn.diffLastPassing` returns a structured status / headers / body
+  diff against the most recent passing fixture, or `{ error:
+  "no_baseline" }` when none exists. A new `run_test_steps` callback
+  API in the core runner drives the debugger without forking a child
+  process.
+
+### MCP server (tarn-mcp)
+
+- **`cwd` parameter on every tool (NAZ-248).** `tarn_run`, `tarn_list`,
+  `tarn_validate`, and `tarn_fix_plan` now accept an optional absolute
+  `cwd` that drives `tarn.config.yaml`, `tarn.env*.yaml`, include
+  paths, and multipart file paths. Defaults to the workspace root the
+  MCP client announced during `initialize`, falling back to the server
+  process `cwd`. An explicit `cwd` without a `tarn.config.yaml` now
+  fails fast with the resolved path in the error message instead of
+  silently defaulting — removes the `{{ env.base_url }}` resolution
+  bug that forced the team to "always use the CLI" when running via
+  Claude Code.
+
+### VS Code extension
+
+- **MCP backend (NAZ-279).** New `tarn.backend: "cli" | "mcp"`
+  setting. When set to `mcp`, the extension spawns `tarn-mcp` once per
+  workspace and dispatches `tarn_run` / `tarn_list` / `tarn_validate`
+  / `tarn_fix_plan` as JSON-RPC calls over stdio, reducing per-run
+  latency and sharing process state across commands. NDJSON streaming
+  gracefully degrades to final-report polling (documented). When the
+  MCP binary is missing, falls back to the CLI with a one-shot
+  notification. New `tarn.mcpPath` override for non-standard
+  installations. Test Explorer and every other existing feature runs
+  unchanged against either backend.
+- **Debug panel (NAZ-256).** New `Tarn: Debug Test` and `Tarn: Diff
+  Last Passing` commands wired from code lens. A minimal HTML webview
+  shows the current step, captures, last response, and assertion
+  failures with Continue / Step Over / Rerun Step / Restart / Stop
+  buttons. `Tarn: Diff Last Passing` opens a standard VS Code diff tab
+  comparing the most recent passing fixture against the current one.
+
 ## 0.7.0 — Last-run JSON artifact, discovery excludes, capture cascade, `exists_where`, tarn-lsp YAML gating, and opencode support
 
 ### Runner + CLI (tarn)

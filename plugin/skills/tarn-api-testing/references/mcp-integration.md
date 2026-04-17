@@ -89,17 +89,30 @@ Add to `.windsurf/mcp.json`:
 
 **Prerequisite:** `tarn-mcp` binary must be in `$PATH`. Build with `cargo build --release -p tarn-mcp`.
 
+## Resolving the working directory (`cwd`)
+
+Every tool accepts an optional `cwd` absolute path that drives config discovery (`tarn.config.yaml`, `tarn.env*.yaml`), include-path resolution, and multipart file paths. The server uses it in this priority order:
+
+1. `cwd` argument on the tool call, if the caller passed one. Must be absolute and point at an existing directory; a missing `tarn.config.yaml` there now fails fast with the resolved path in the error — no silent fallback.
+2. The workspace root the MCP client announced during `initialize` (`workspaceFolders[0].uri`, `rootUri`, or `rootPath`).
+3. The server process's current directory.
+
+This fixes the long-standing "MCP can't resolve `{{ env.base_url }}`" issue — if you previously had to shell out to `tarn` from the terminal because the MCP tool picked up the wrong working dir, pass `cwd` explicitly (or rely on the client's workspace hint) and it will work.
+
 ## Available Tools
+
+All tools accept `cwd` in addition to the parameters below.
 
 ### tarn_run
 
 Run API tests and return structured JSON results.
 
 **Parameters:**
-- `file` (optional) — path to a specific `.tarn.yaml` file; omit to run all
+- `path` (optional) — path to a specific `.tarn.yaml` file or directory; relative paths resolve against `cwd`, defaults to `"tests"`
 - `env` (optional) — environment name (maps to `tarn.env.{name}.yaml`)
 - `tag` (optional) — run only tests matching this tag
-- `vars` (optional) — key=value overrides
+- `vars` (optional) — object of key/value string overrides
+- `cwd` (optional) — absolute working directory (see above)
 
 **Returns:** Full JSON report matching `schemas/v1/report.json`.
 
@@ -108,7 +121,8 @@ Run API tests and return structured JSON results.
 Validate YAML syntax without executing HTTP requests.
 
 **Parameters:**
-- `file` (optional) — path to validate; omit for all files
+- `path` (optional) — path to validate; relative against `cwd`
+- `cwd` (optional) — absolute working directory
 
 **Returns:** Validation result with any parse errors and their locations.
 
@@ -117,7 +131,8 @@ Validate YAML syntax without executing HTTP requests.
 List all available test files, test groups, and steps.
 
 **Parameters:**
-- `file` (optional) — list steps for a specific file
+- `path` (optional) — list steps for a specific file or directory
+- `cwd` (optional) — absolute working directory
 
 **Returns:** Structured listing of tests and steps.
 
@@ -127,6 +142,7 @@ Generate a fix plan for failed test results.
 
 **Parameters:**
 - `report` — JSON report from a failed `tarn_run`
+- `cwd` (optional) — absolute working directory used for any follow-up `tarn_run` invocations
 
 **Returns:** Structured remediation plan with suggested fixes per failed step.
 
