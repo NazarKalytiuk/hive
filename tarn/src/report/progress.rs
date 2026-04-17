@@ -443,6 +443,7 @@ mod tests {
             duration_ms: 10,
             step_results: vec![StepResult {
                 name: format!("{}/step", name),
+                description: None,
                 passed,
                 duration_ms: 10,
                 assertion_results: if passed {

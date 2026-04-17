@@ -210,6 +210,7 @@ mod tests {
             duration_ms: 10,
             file_results: vec![make_file_result(StepResult {
                 name: "ok".into(),
+                description: None,
                 passed: true,
                 duration_ms: 5,
                 assertion_results: vec![AssertionResult::pass("status", "200", "200")],
@@ -240,6 +241,7 @@ mod tests {
             duration_ms: 10,
             file_results: vec![make_file_result(StepResult {
                 name: "ok".into(),
+                description: None,
                 passed: true,
                 duration_ms: 5,
                 assertion_results: vec![AssertionResult::pass("status", "200", "200")],

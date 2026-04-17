@@ -528,6 +528,7 @@ fn skipped_due_to_failed_capture(step: &Step, failed_refs: &[String]) -> StepRes
     );
     StepResult {
         name: step.name.clone(),
+        description: step.description.clone(),
         passed: false,
         duration_ms: 0,
         assertion_results: vec![AssertionResult::fail(
@@ -549,6 +550,7 @@ fn skipped_due_to_failed_capture(step: &Step, failed_refs: &[String]) -> StepRes
 fn fail_fast_skipped_step(step: &Step) -> StepResult {
     StepResult {
         name: step.name.clone(),
+        description: step.description.clone(),
         passed: false,
         duration_ms: 0,
         assertion_results: vec![AssertionResult::fail(
@@ -604,6 +606,7 @@ fn runtime_failure_step(
 
     StepResult {
         name: step.name.clone(),
+        description: step.description.clone(),
         passed: false,
         duration_ms,
         assertion_results: vec![AssertionResult::fail(
@@ -1030,6 +1033,7 @@ fn run_step(
         let names = unresolved.join(", ");
         return Ok(StepResult {
             name: step.name.clone(),
+            description: step.description.clone(),
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -1069,6 +1073,7 @@ fn run_step(
         );
         return Ok(StepResult {
             name: step.name.clone(),
+            description: step.description.clone(),
             passed: true,
             duration_ms: 0,
             assertion_results: vec![],
@@ -1180,6 +1185,7 @@ fn run_step(
                 ));
                 return Ok(StepResult {
                     name: step.name.clone(),
+                    description: step.description.clone(),
                     passed: false,
                     duration_ms: response.duration_ms,
                     assertion_results: all_assertions,
@@ -1209,6 +1215,7 @@ fn run_step(
 
             return Ok(StepResult {
                 name: step.name.clone(),
+                description: step.description.clone(),
                 passed: all_passed,
                 duration_ms: response.duration_ms,
                 assertion_results: all_assertions,
@@ -1236,6 +1243,7 @@ fn run_step(
 
     Ok(StepResult {
         name: step.name.clone(),
+        description: step.description.clone(),
         passed: false,
         duration_ms: response.duration_ms,
         assertion_results,
@@ -1316,6 +1324,7 @@ fn run_step_poll(
             let names = unresolved.join(", ");
             return Ok(StepResult {
                 name: step.name.clone(),
+                description: step.description.clone(),
                 passed: false,
                 duration_ms: 0,
                 assertion_results: vec![AssertionResult::fail(
@@ -1438,6 +1447,7 @@ fn run_step_poll(
                         ));
                         return Ok(StepResult {
                             name: step.name.clone(),
+                            description: step.description.clone(),
                             passed: false,
                             duration_ms: response.duration_ms,
                             assertion_results: all_assertions,
@@ -1469,6 +1479,7 @@ fn run_step_poll(
 
             return Ok(StepResult {
                 name: step.name.clone(),
+                description: step.description.clone(),
                 passed: all_passed,
                 duration_ms: response.duration_ms,
                 assertion_results: all_assertions,
@@ -1494,6 +1505,7 @@ fn run_step_poll(
             // loop body; fall back to the original minimal message.
             return Ok(StepResult {
                 name: step.name.clone(),
+                description: step.description.clone(),
                 passed: false,
                 duration_ms: 0,
                 assertion_results: vec![AssertionResult::fail(
@@ -1577,6 +1589,7 @@ fn run_step_poll(
 
     Ok(StepResult {
         name: step.name.clone(),
+        description: step.description.clone(),
         passed: false,
         duration_ms: 0,
         assertion_results,

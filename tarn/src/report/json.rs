@@ -182,6 +182,10 @@ fn render_step(
         },
     });
 
+    if let Some(ref description) = step.description {
+        obj["description"] = json!(description);
+    }
+
     if let Some(location) = &step.location {
         obj["location"] = location_json(location);
     }
@@ -451,6 +455,7 @@ mod tests {
                     duration_ms: 100,
                     step_results: vec![StepResult {
                         name: "step1".into(),
+                        description: None,
                         passed: true,
                         duration_ms: 50,
                         assertion_results: vec![AssertionResult::pass("status", "200", "200")],
@@ -491,6 +496,7 @@ mod tests {
                     duration_ms: 200,
                     step_results: vec![StepResult {
                         name: "bad_step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 100,
                         assertion_results: vec![AssertionResult::fail(
@@ -607,6 +613,7 @@ mod tests {
                     duration_ms: 10,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 10,
                         assertion_results: vec![AssertionResult::fail_with_diff(
@@ -725,6 +732,7 @@ mod tests {
                     duration_ms: 10,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 10,
                         assertion_results: vec![AssertionResult::fail(
@@ -840,5 +848,81 @@ mod tests {
             "schema validation failed: {:?}",
             result.err()
         );
+    }
+
+    // --- Step-level descriptions in JSON report (NAZ-243) ---
+
+    /// Build a minimal passing `RunResult` whose sole step carries the
+    /// given `description` so report-shape tests share one tiny fixture.
+    fn make_run_with_step_description(description: Option<&str>) -> RunResult {
+        RunResult {
+            duration_ms: 10,
+            file_results: vec![FileResult {
+                file: "test.tarn.yaml".into(),
+                name: "Test".into(),
+                passed: true,
+                duration_ms: 10,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
+                setup_results: vec![],
+                test_results: vec![TestResult {
+                    name: "my_test".into(),
+                    description: None,
+                    passed: true,
+                    duration_ms: 10,
+                    step_results: vec![StepResult {
+                        name: "step".into(),
+                        description: description.map(str::to_string),
+                        passed: true,
+                        duration_ms: 5,
+                        assertion_results: vec![AssertionResult::pass("status", "200", "200")],
+                        request_info: None,
+                        response_info: None,
+                        error_category: None,
+                        response_status: None,
+                        response_summary: None,
+                        captures_set: vec![],
+                        location: None,
+                    }],
+                    captures: HashMap::new(),
+                }],
+                teardown_results: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn json_includes_step_description_when_present() {
+        // When the step carries a `description`, it must surface under
+        // the step node so AI consumers reading the JSON report can pair
+        // each assertion failure with the author's intent.
+        let output = render(&make_run_with_step_description(Some("Checks /health")));
+        let parsed: Value = serde_json::from_str(&output).unwrap();
+        let step = &parsed["files"][0]["tests"][0]["steps"][0];
+        assert_eq!(step["description"], "Checks /health");
+    }
+
+    #[test]
+    fn json_omits_step_description_when_missing() {
+        // A step without a description must not emit an empty or null
+        // `description` key — silence keeps compact JSON payloads tight.
+        let output = render(&make_run_with_step_description(None));
+        let parsed: Value = serde_json::from_str(&output).unwrap();
+        let step = &parsed["files"][0]["tests"][0]["steps"][0];
+        assert!(
+            step.get("description").is_none(),
+            "expected no `description` key, got: {:?}",
+            step
+        );
+    }
+
+    #[test]
+    fn json_step_description_validates_against_report_schema() {
+        // Schema regression guard: stepResult must allow the new field
+        // so downstream consumers that validate against report.json
+        // don't reject runs that use it.
+        validate_against_schema(&render(&make_run_with_step_description(Some(
+            "Checks /health",
+        ))));
     }
 }

@@ -124,6 +124,7 @@
       "required": ["name", "status", "duration_ms", "assertions"],
       "properties": {
         "name": { "type": "string" },
+        "description": { "type": "string" },
         "status": { "$ref": "#/$defs/status" },
         "duration_ms": { "type": "integer", "minimum": 0 },
         "assertions": { "$ref": "#/$defs/assertionSummary" },

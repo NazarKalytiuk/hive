@@ -122,6 +122,7 @@ mod tests {
                     duration_ms: 500,
                     step_results: vec![StepResult {
                         name: "Check status".into(),
+                        description: None,
                         passed,
                         duration_ms: 250,
                         assertion_results: if passed {
@@ -216,6 +217,7 @@ mod tests {
                 redacted_values: vec![],
                 setup_results: vec![StepResult {
                     name: "Auth".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 50,
                     assertion_results: vec![],
@@ -230,6 +232,7 @@ mod tests {
                 test_results: vec![],
                 teardown_results: vec![StepResult {
                     name: "Cleanup".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 30,
                     assertion_results: vec![],
@@ -270,6 +273,7 @@ mod tests {
                     duration_ms: 10,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 10,
                         assertion_results: vec![AssertionResult::fail(

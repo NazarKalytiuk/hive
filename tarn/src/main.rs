@@ -2442,6 +2442,7 @@ steps:
     fn run_result_exit_code_prefers_runtime_failure_categories() {
         let make_step = |category| StepResult {
             name: "step".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail("runtime", "ok", "error", "boom")],

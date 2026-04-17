@@ -204,6 +204,10 @@
           "description": "Human-readable step name",
           "minLength": 1
         },
+        "description": {
+          "type": "string",
+          "description": "Optional human-readable description of this step. Supports multi-line YAML block scalars (`|`, `>`)."
+        },
         "request": { "$ref": "#/$defs/Request" },
         "capture": {
           "type": "object",
