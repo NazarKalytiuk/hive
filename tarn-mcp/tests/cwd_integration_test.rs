@@ -220,9 +220,11 @@ fn tarn_run_rejects_relative_cwd() {
 
 #[test]
 fn tarn_run_rejects_nonexistent_cwd() {
-    let err = tarn_mcp::tools::tarn_run(&json!({
-        "cwd": "/definitely/not/a/real/tarn/cwd/naz-248"
-    }))
-    .expect_err("missing cwd must be rejected");
+    // Build a platform-absolute path (Unix-style `/…` is not absolute on
+    // Windows) by joining a missing leaf onto an existing TempDir.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let missing = tmp.path().join("definitely-not-a-real-tarn-cwd-naz-248");
+    let err = tarn_mcp::tools::tarn_run(&json!({ "cwd": missing.to_string_lossy() }))
+        .expect_err("missing cwd must be rejected");
     assert!(err.contains("does not exist"), "got: {err}");
 }
