@@ -94,6 +94,17 @@ pub struct TarnConfig {
     /// every subsequent step a cascade echo rather than new information.
     #[serde(default, alias = "fail-fast-within-test")]
     pub fail_fast_within_test: bool,
+
+    /// Explicit opt-in for `--parallel` execution. When `None` (the
+    /// default) and a user passes `--parallel` on the CLI, Tarn emits a
+    /// one-line stderr warning that parallel execution without isolation
+    /// primitives may expose shared-state races. Set to `Some(true)` in
+    /// `tarn.config.yaml` after the suite has been audited for cross-file
+    /// state sharing (DB fixtures, global counters, filesystem
+    /// fixtures). `Some(false)` is accepted and behaves like `None` but
+    /// records an explicit "not yet opted in" signal.
+    #[serde(default, alias = "parallel-opt-in")]
+    pub parallel_opt_in: Option<bool>,
 }
 
 fn default_test_dir() -> String {
@@ -126,6 +137,7 @@ impl Default for TarnConfig {
             key: None,
             insecure: false,
             fail_fast_within_test: false,
+            parallel_opt_in: None,
         }
     }
 }
@@ -338,6 +350,7 @@ mod tests {
             key: Some("certs/client-key.pem".into()),
             insecure: true,
             fail_fast_within_test: false,
+            parallel_opt_in: None,
         };
 
         let transport = config.http_transport();
@@ -370,6 +383,7 @@ mod tests {
             key: None,
             insecure: false,
             fail_fast_within_test: false,
+            parallel_opt_in: None,
         }
         .normalized();
 
@@ -377,6 +391,55 @@ mod tests {
         assert_eq!(defaults.timeout, Some(4000));
         assert_eq!(defaults.retries, Some(2));
         assert_eq!(defaults.connect_timeout, Some(250));
+    }
+
+    #[test]
+    fn parallel_opt_in_parses_when_set_true() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("tarn.config.yaml");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        write!(f, "parallel_opt_in: true\n").unwrap();
+
+        let config = load_config(dir.path()).unwrap();
+        assert_eq!(config.parallel_opt_in, Some(true));
+    }
+
+    #[test]
+    fn parallel_opt_in_parses_when_set_false() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("tarn.config.yaml");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        write!(f, "parallel_opt_in: false\n").unwrap();
+
+        let config = load_config(dir.path()).unwrap();
+        // Explicit `false` is preserved as `Some(false)` so the
+        // warning logic can distinguish "never touched" from "opted
+        // out" — documentation contract in config.rs docstrings.
+        assert_eq!(config.parallel_opt_in, Some(false));
+    }
+
+    #[test]
+    fn parallel_opt_in_defaults_to_none() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("tarn.config.yaml");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        write!(f, "parallel: true\n").unwrap();
+
+        let config = load_config(dir.path()).unwrap();
+        assert_eq!(config.parallel_opt_in, None);
+    }
+
+    #[test]
+    fn parallel_opt_in_accepts_kebab_case_alias() {
+        // `parallel-opt-in` alias so users who prefer YAML kebab-case
+        // keys (common in ops tooling) still hit the field.
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("tarn.config.yaml");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        write!(f, "parallel-opt-in: true\n").unwrap();
+
+        let config = load_config(dir.path()).unwrap();
+        assert_eq!(config.parallel_opt_in, Some(true));
     }
 
     #[test]

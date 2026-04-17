@@ -38,6 +38,16 @@
       "enum": ["auto", "off", "per-test"],
       "default": "auto"
     },
+    "serial_only": {
+      "type": "boolean",
+      "description": "When true, this file must never run concurrently with other files under --parallel. The scheduler pins serial_only files onto a single worker that runs after every parallel-safe bucket completes. Use this for tests that share mutable state (DB fixtures, singletons).",
+      "default": false
+    },
+    "group": {
+      "type": "string",
+      "description": "Optional resource group name. Files sharing the same `group` land in the same parallel bucket and run sequentially within the group, while different groups run in parallel. Useful for 'all the postgres tests' or 'all the S3 tests' where an external resource forces per-resource serialization.",
+      "minLength": 1
+    },
     "redaction": {
       "$ref": "#/$defs/RedactionConfig",
       "description": "Report-time redaction policy for sensitive headers"
@@ -163,6 +173,11 @@
           "description": "Steps in this test group. Supports include directives.",
           "items": { "$ref": "#/$defs/StepOrInclude" },
           "minItems": 1
+        },
+        "serial_only": {
+          "type": "boolean",
+          "description": "When true, this test must never run concurrently with other work under --parallel. Because Tarn's parallelism unit is the file, this escalates the whole file to the serial bucket to preserve per-file isolation (setup, teardown, cookie jars, captures).",
+          "default": false
         }
       },
       "required": ["steps"]

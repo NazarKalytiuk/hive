@@ -1727,6 +1727,81 @@ steps:
     }
 
     #[test]
+    fn schema_accepts_serial_only_and_group_markers() {
+        // Guardrail: `serial_only:` (file + test level) and `group:`
+        // must validate against the published JSON Schema so editor
+        // integrations with schemaStore configuration accept them
+        // without false "unknown property" diagnostics.
+        let schema_str =
+            std::fs::read_to_string("../schemas/v1/testfile.json").expect("Schema file not found");
+        let schema_value: serde_json::Value =
+            serde_json::from_str(&schema_str).expect("Schema is not valid JSON");
+        let schema = jsonschema::validator_for(&schema_value).expect("Invalid JSON Schema");
+
+        let yaml = r#"
+name: Parallel safety demo
+serial_only: true
+group: postgres
+tests:
+  smoke:
+    serial_only: true
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: http://localhost/health
+"#;
+        let yaml_value: serde_json::Value =
+            serde_yaml::from_str(yaml).expect("YAML must parse as JSON-compatible");
+        schema
+            .validate(&yaml_value)
+            .expect("serial_only/group must pass schema validation");
+    }
+
+    #[test]
+    fn parser_accepts_serial_only_and_group() {
+        // Round-trip through the actual parser: parse_str must keep
+        // the markers intact on both file and per-test levels.
+        let tf = parse_yaml(
+            r#"
+name: Parallel safety demo
+serial_only: true
+group: postgres
+tests:
+  smoke:
+    serial_only: true
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: http://localhost/health
+"#,
+        )
+        .unwrap();
+        assert!(tf.serial_only);
+        assert_eq!(tf.group.as_deref(), Some("postgres"));
+        let smoke = tf.tests.get("smoke").unwrap();
+        assert!(smoke.serial_only);
+    }
+
+    #[test]
+    fn parser_defaults_serial_only_and_group_to_off() {
+        let tf = parse_yaml(
+            r#"
+name: Default
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#,
+        )
+        .unwrap();
+        assert!(!tf.serial_only);
+        assert_eq!(tf.group, None);
+    }
+
+    #[test]
     fn tarn_parser_accepts_all_examples() {
         let examples = glob::glob("../examples/*.tarn.yaml")
             .expect("Failed to glob examples")

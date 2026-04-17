@@ -86,13 +86,25 @@ enum Commands {
         #[arg(short, long)]
         watch: bool,
 
-        /// Run test files in parallel
+        /// Run test files in parallel. Only safe when tests don't share
+        /// mutable state (DB rows, global counters, filesystem fixtures).
+        /// Mark state-sharing files with `serial_only: true` or bucket
+        /// them with a shared `group:` name; opt in via
+        /// `parallel_opt_in: true` in `tarn.config.yaml` to silence the
+        /// startup warning once the suite has been audited.
         #[arg(long)]
         parallel: bool,
 
         /// Number of parallel workers (default: number of CPUs)
         #[arg(short, long)]
         jobs: Option<usize>,
+
+        /// Suppress the `--parallel` isolation warning. Use in CI once
+        /// the suite has been verified safe for concurrent execution.
+        /// Prefer setting `parallel_opt_in: true` in the project
+        /// config; this flag is an escape hatch for one-off runs.
+        #[arg(long = "no-parallel-warning")]
+        no_parallel_warning: bool,
 
         /// Load and persist cookie jars to a JSON file
         #[arg(long = "cookie-jar")]
@@ -345,6 +357,7 @@ fn main() {
             watch,
             parallel,
             jobs,
+            no_parallel_warning,
             cookie_jar,
             cookie_jar_per_test,
             proxy,
@@ -375,6 +388,7 @@ fn main() {
             watch,
             parallel,
             jobs,
+            no_parallel_warning,
             cookie_jar.as_deref(),
             cookie_jar_per_test,
             HttpTransportConfig {
@@ -486,6 +500,7 @@ fn run_command(
     watch: bool,
     parallel: bool,
     jobs: Option<usize>,
+    no_parallel_warning: bool,
     cookie_jar_path: Option<&str>,
     cookie_jar_per_test: bool,
     cli_http_transport: HttpTransportConfig,
@@ -595,6 +610,10 @@ fn run_command(
         fail_fast_within_test: project.config.fail_fast_within_test,
     };
     let effective_parallel = parallel || project.config.parallel;
+
+    if effective_parallel && !no_parallel_warning {
+        emit_parallel_opt_in_warning(&mut std::io::stderr(), project.config.parallel_opt_in);
+    }
 
     if cookie_jar_path.is_some() && effective_parallel {
         eprintln!("Error: `--cookie-jar` is not supported with parallel execution");
@@ -1007,6 +1026,26 @@ fn run_files_parallel(
 ) -> Result<Vec<tarn::assert::types::FileResult>, (i32, String)> {
     use rayon::prelude::*;
 
+    // Parse every file once up front so the scheduler can read
+    // `serial_only` and `group:` without re-reading YAML from the
+    // parallel workers. Parsed `TestFile`s are also reused by the
+    // actual execution below, saving a second parse per file.
+    let parsed: Vec<(String, tarn::model::TestFile)> = files
+        .iter()
+        .map(|file_path| {
+            let path = Path::new(file_path);
+            let test_file =
+                parser::parse_file(path).map_err(|e| (e.exit_code(), e.to_string()))?;
+            Ok::<_, (i32, String)>((file_path.clone(), test_file))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let metadata: Vec<runner::SchedulingMetadata> = parsed
+        .iter()
+        .map(|(path, tf)| runner::SchedulingMetadata::from_test_file(path, tf))
+        .collect();
+
+    let worker_count = jobs.unwrap_or_else(num_cpus_for_scheduling);
     if let Some(j) = jobs {
         rayon::ThreadPoolBuilder::new()
             .num_threads(j)
@@ -1014,44 +1053,155 @@ fn run_files_parallel(
             .ok();
     }
 
-    let mut results: Vec<tarn::assert::types::FileResult> = files
+    let plan = runner::plan_schedule(&metadata, worker_count);
+
+    // Index parsed files by path so each bucket can borrow them
+    // without re-parsing. Cloning the `TestFile` per execution keeps
+    // rayon worker closures `Send`-safe without wrestling with `Arc`.
+    let parsed_by_path: std::collections::HashMap<String, tarn::model::TestFile> =
+        parsed.into_iter().collect();
+
+    // Parallel stage: each bucket runs on one worker and processes its
+    // files sequentially. Across buckets rayon drives them
+    // concurrently.
+    let parallel_results: Vec<tarn::assert::types::FileResult> = plan
+        .parallel_buckets
         .par_iter()
-        .map(|file_path| {
-            let path = Path::new(file_path);
-            let mut test_file =
-                parser::parse_file(path).map_err(|e| (e.exit_code(), e.to_string()))?;
-            let project = load_project_context(path.parent().unwrap_or(Path::new(".")))
-                .map_err(|e| (e.exit_code(), e.to_string()))?;
-            apply_project_defaults(&mut test_file, &project.config);
-            apply_cli_extra_redact_headers(&mut test_file, extra_redact_headers);
-            let file_run_opts = runner::RunOptions {
-                http: resolve_http_transport_config(&project.config, &run_opts.http),
-                ..run_opts.clone()
-            };
-            let resolved_env = resolve_env_for_file(&test_file, path, env_name, cli_vars)
-                .map_err(|e| (e.exit_code(), e.to_string()))?;
-            let mut local_jars = std::collections::HashMap::new();
-            let result = runner::run_file_with_cookie_jars(
-                &test_file,
-                file_path,
-                &resolved_env,
-                tag_filter,
-                selectors,
-                &file_run_opts,
-                &mut local_jars,
-                None,
-            )
-            .map_err(|e| (e.exit_code(), e.to_string()))?;
-            if let Some(p) = progress {
-                p.file_finished(&result);
+        .map(|bucket| {
+            let mut bucket_results = Vec::with_capacity(bucket.len());
+            for file_path in bucket {
+                let test_file = parsed_by_path.get(file_path).ok_or_else(|| {
+                    (
+                        2,
+                        format!("Internal scheduler error: missing parse for {}", file_path),
+                    )
+                })?;
+                bucket_results.push(execute_one_file(
+                    file_path,
+                    test_file,
+                    cli_vars,
+                    env_name,
+                    tag_filter,
+                    selectors,
+                    run_opts,
+                    extra_redact_headers,
+                    progress,
+                )?);
             }
-            Ok(result)
+            Ok::<_, (i32, String)>(bucket_results)
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    // Serial stage: files flagged `serial_only` run sequentially on a
+    // single worker, after every parallel bucket has finished. Keeps
+    // state-sharing tests out of concurrency entirely.
+    let mut serial_results = Vec::with_capacity(plan.serial.len());
+    for file_path in &plan.serial {
+        let test_file = parsed_by_path.get(file_path).ok_or_else(|| {
+            (
+                2,
+                format!("Internal scheduler error: missing parse for {}", file_path),
+            )
+        })?;
+        serial_results.push(execute_one_file(
+            file_path,
+            test_file,
+            cli_vars,
+            env_name,
+            tag_filter,
+            selectors,
+            run_opts,
+            extra_redact_headers,
+            progress,
+        )?);
+    }
+
+    let mut results: Vec<tarn::assert::types::FileResult> = parallel_results
+        .into_iter()
+        .chain(serial_results)
+        .collect();
 
     // Sort for deterministic output
     results.sort_by(|a, b| a.file.cmp(&b.file));
     Ok(results)
+}
+
+/// Run a single parsed test file through the full pipeline (project
+/// defaults -> redaction -> env resolution -> execution). Shared
+/// between the parallel buckets and the serial tail so both paths
+/// exercise identical per-file wiring.
+#[allow(clippy::too_many_arguments)]
+fn execute_one_file(
+    file_path: &str,
+    test_file: &tarn::model::TestFile,
+    cli_vars: &[(String, String)],
+    env_name: Option<&str>,
+    tag_filter: &[String],
+    selectors: &[Selector],
+    run_opts: &runner::RunOptions,
+    extra_redact_headers: &[String],
+    progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+) -> Result<tarn::assert::types::FileResult, (i32, String)> {
+    let path = Path::new(file_path);
+    let mut test_file = test_file.clone();
+    let project = load_project_context(path.parent().unwrap_or(Path::new(".")))
+        .map_err(|e| (e.exit_code(), e.to_string()))?;
+    apply_project_defaults(&mut test_file, &project.config);
+    apply_cli_extra_redact_headers(&mut test_file, extra_redact_headers);
+    let file_run_opts = runner::RunOptions {
+        http: resolve_http_transport_config(&project.config, &run_opts.http),
+        ..run_opts.clone()
+    };
+    let resolved_env = resolve_env_for_file(&test_file, path, env_name, cli_vars)
+        .map_err(|e| (e.exit_code(), e.to_string()))?;
+    let mut local_jars = std::collections::HashMap::new();
+    let result = runner::run_file_with_cookie_jars(
+        &test_file,
+        file_path,
+        &resolved_env,
+        tag_filter,
+        selectors,
+        &file_run_opts,
+        &mut local_jars,
+        None,
+    )
+    .map_err(|e| (e.exit_code(), e.to_string()))?;
+    if let Some(p) = progress {
+        p.file_finished(&result);
+    }
+    Ok(result)
+}
+
+/// Scheduling-side fallback for worker count when `--jobs` is not set.
+/// Kept tiny and separate from rayon's global thread pool so the
+/// scheduler never depends on pool initialization order.
+fn num_cpus_for_scheduling() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
+/// Emit the one-line `--parallel` isolation warning to the supplied
+/// writer when the project has not opted in via
+/// `parallel_opt_in: true` in `tarn.config.yaml`. Callers pass
+/// `project.config.parallel_opt_in` as-is; `Some(true)` is the only
+/// value that silences the warning.
+///
+/// Written as a pure function over `std::io::Write` so it can be unit
+/// tested without intercepting stderr. The runtime call site passes
+/// `std::io::stderr()` so the warning stays out of stdout (which may
+/// be an NDJSON stream) and does not break machine-readable output.
+fn emit_parallel_opt_in_warning<W: std::io::Write>(writer: &mut W, opt_in: Option<bool>) {
+    if opt_in == Some(true) {
+        return;
+    }
+    let _ = writeln!(
+        writer,
+        "warning: --parallel enabled without parallel_opt_in: true in tarn.config.yaml. Tests without serial_only may share state."
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2570,6 +2720,8 @@ steps:
             tests: Default::default(),
             steps: vec![],
             cookies: None,
+            serial_only: false,
+            group: None,
         };
 
         apply_project_defaults(
@@ -2590,6 +2742,7 @@ steps:
                 key: None,
                 insecure: false,
                 fail_fast_within_test: false,
+                parallel_opt_in: None,
             },
         );
 
@@ -2622,6 +2775,8 @@ steps:
             tests: Default::default(),
             steps: vec![],
             cookies: None,
+            serial_only: false,
+            group: None,
         };
 
         apply_project_defaults(
@@ -2654,6 +2809,7 @@ steps:
                 key: None,
                 insecure: false,
                 fail_fast_within_test: false,
+                parallel_opt_in: None,
             },
         );
 
@@ -2689,6 +2845,7 @@ steps:
             key: Some("project-key.pem".into()),
             insecure: false,
             fail_fast_within_test: false,
+            parallel_opt_in: None,
         };
 
         let transport = resolve_http_transport_config(
@@ -2730,6 +2887,7 @@ steps:
             key: Some("project-key.pem".into()),
             insecure: true,
             fail_fast_within_test: false,
+            parallel_opt_in: None,
         };
 
         let transport = resolve_http_transport_config(&config, &HttpTransportConfig::default());
@@ -2756,5 +2914,91 @@ steps:
             Some(HttpVersionPreference::Http2)
         );
         assert_eq!(cli_http_version(false, false), None);
+    }
+
+    // ---- --parallel opt-in warning ----
+
+    #[test]
+    fn parallel_opt_in_warning_fires_without_opt_in() {
+        // Default config (opt_in = None) must surface the warning so
+        // users learn about the isolation tradeoff on first use.
+        let mut buf: Vec<u8> = Vec::new();
+        emit_parallel_opt_in_warning(&mut buf, None);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("warning: --parallel enabled without parallel_opt_in: true"),
+            "warning prefix missing: {output}"
+        );
+        assert!(
+            output.contains("serial_only"),
+            "warning should mention serial_only as mitigation: {output}"
+        );
+        // One-liner: exactly one newline at the end.
+        assert_eq!(output.matches('\n').count(), 1);
+    }
+
+    #[test]
+    fn parallel_opt_in_warning_fires_when_opted_out_explicitly() {
+        // `Some(false)` is deliberate opt-out — still warn, matching
+        // the "default == not opted in" documented contract.
+        let mut buf: Vec<u8> = Vec::new();
+        emit_parallel_opt_in_warning(&mut buf, Some(false));
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("warning: --parallel enabled without parallel_opt_in: true"));
+    }
+
+    #[test]
+    fn parallel_opt_in_warning_silent_when_opted_in() {
+        // Projects that have audited their tests for cross-file state
+        // set `parallel_opt_in: true` — the warning must stay quiet.
+        let mut buf: Vec<u8> = Vec::new();
+        emit_parallel_opt_in_warning(&mut buf, Some(true));
+        assert!(buf.is_empty(), "opt-in should suppress warning");
+    }
+
+    // ---- --no-parallel-warning suppression ----
+
+    /// Integration-style test: build a tarn binary invocation via the
+    /// clap parser and confirm `--no-parallel-warning` reaches
+    /// `run_command` as expected. This guards against accidental
+    /// removal of the flag wiring without the test running a real
+    /// network request.
+    #[test]
+    fn no_parallel_warning_flag_parses_cleanly() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from([
+            "tarn",
+            "run",
+            "tests",
+            "--parallel",
+            "--no-parallel-warning",
+        ])
+        .expect("flag should parse");
+        match cli.command {
+            Commands::Run {
+                parallel,
+                no_parallel_warning,
+                ..
+            } => {
+                assert!(parallel);
+                assert!(no_parallel_warning);
+            }
+            _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn no_parallel_warning_defaults_off() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["tarn", "run", "tests", "--parallel"]).unwrap();
+        match cli.command {
+            Commands::Run {
+                no_parallel_warning,
+                ..
+            } => {
+                assert!(!no_parallel_warning);
+            }
+            _ => panic!("Expected Run command"),
+        }
     }
 }

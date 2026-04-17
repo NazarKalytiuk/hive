@@ -44,6 +44,114 @@ pub struct RunOptions {
 /// Name of the default cookie jar used when no `cookies: <name>` is set on a step.
 const DEFAULT_JAR_NAME: &str = "default";
 
+/// Scheduling metadata extracted from a `.tarn.yaml` file before the
+/// scheduler decides where the file belongs. Kept deliberately small so
+/// the scheduler can inspect every discovered file cheaply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchedulingMetadata {
+    /// The file's path (as reported to the user in results).
+    pub file: String,
+    /// Forced onto the serial worker when true, either because the file
+    /// sets `serial_only: true` at the top level or because any of its
+    /// named tests do. Individual-test pinning promotes the whole file
+    /// to serial since Tarn's parallelism unit is the file.
+    pub serial_only: bool,
+    /// Optional resource group name. Files sharing the same `group:`
+    /// string must land in the same parallel bucket so they run
+    /// sequentially relative to each other.
+    pub group: Option<String>,
+}
+
+impl SchedulingMetadata {
+    /// Build metadata directly from a parsed `TestFile`. Any named test
+    /// marked `serial_only: true` escalates the whole file to serial —
+    /// see docs on [`crate::model::TestGroup::serial_only`].
+    pub fn from_test_file(file: &str, test_file: &TestFile) -> Self {
+        let any_test_serial = test_file.tests.values().any(|t| t.serial_only);
+        Self {
+            file: file.to_string(),
+            serial_only: test_file.serial_only || any_test_serial,
+            group: test_file.group.clone(),
+        }
+    }
+}
+
+/// Output of the scheduler planning step.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SchedulePlan {
+    /// Buckets to run in parallel with each other. Files inside a
+    /// bucket run sequentially (to preserve `group:` ordering and keep
+    /// per-bucket shared-resource assumptions intact).
+    pub parallel_buckets: Vec<Vec<String>>,
+    /// Files that must run after every parallel bucket finishes, in
+    /// sequence, on a single worker. Ordering matches input discovery
+    /// order so reports stay deterministic.
+    pub serial: Vec<String>,
+}
+
+/// Plan how a flat list of files should be dispatched across `jobs`
+/// parallel workers under `--parallel`. Pure function — no I/O, no
+/// rayon — so it can be exhaustively unit-tested.
+///
+/// Rules (in order):
+///
+/// 1. Any file flagged `serial_only` (either file-level or because one
+///    of its named tests set `serial_only: true`) is pulled out of the
+///    parallel set and deferred to the serial bucket.
+/// 2. The remaining files are bucketed by their `group:` string. Files
+///    without a group get their own singleton bucket so they can run on
+///    any worker. Files sharing a group land in the same bucket so
+///    they run sequentially relative to each other.
+/// 3. Buckets are assigned across the available workers round-robin
+///    based on `jobs`. When `jobs` is 0 or 1 the plan collapses to a
+///    single parallel bucket (functionally sequential).
+///
+/// Within a bucket, file ordering matches the input slice so operators
+/// can still reason about side-effect ordering inside a resource group.
+pub fn plan_schedule(metadata: &[SchedulingMetadata], jobs: usize) -> SchedulePlan {
+    let worker_count = jobs.max(1);
+    let mut serial: Vec<String> = Vec::new();
+    let mut parallel_metadata: Vec<&SchedulingMetadata> = Vec::new();
+    for entry in metadata {
+        if entry.serial_only {
+            serial.push(entry.file.clone());
+        } else {
+            parallel_metadata.push(entry);
+        }
+    }
+
+    // Bucket parallel-safe files by group. Files without a group are
+    // given a unique synthetic key (their index) so every ungrouped file
+    // becomes its own bucket — this preserves the previous behaviour
+    // where every file could run on any worker. `IndexMap` preserves
+    // insertion order, which gives deterministic bucket ordering across
+    // runs with the same inputs.
+    let mut buckets: IndexMap<String, Vec<String>> = IndexMap::new();
+    for (idx, entry) in parallel_metadata.iter().enumerate() {
+        let key = match entry.group.as_deref() {
+            Some(name) if !name.is_empty() => format!("group:{}", name),
+            _ => format!("__ungrouped__:{}", idx),
+        };
+        buckets.entry(key).or_default().push(entry.file.clone());
+    }
+
+    // Distribute buckets across workers round-robin so a small number of
+    // groups does not starve the pool. `worker_buckets` collapses many
+    // logical groups into `worker_count` scheduling lanes that rayon can
+    // drive in parallel.
+    let mut worker_buckets: Vec<Vec<String>> = vec![Vec::new(); worker_count];
+    for (i, (_key, files)) in buckets.into_iter().enumerate() {
+        let slot = i % worker_count;
+        worker_buckets[slot].extend(files);
+    }
+    worker_buckets.retain(|b| !b.is_empty());
+
+    SchedulePlan {
+        parallel_buckets: worker_buckets,
+        serial,
+    }
+}
+
 /// Resolve the effective cookie mode for a file run. CLI override wins over
 /// the file's declared mode. `Off` always wins over per-test because "off"
 /// means no jar activity at all, and there is nothing to reset.
@@ -2604,5 +2712,246 @@ steps:
         assert_eq!(tf.steps[0].connect_timeout, Some(222));
         assert_eq!(tf.steps[0].follow_redirects, Some(true));
         assert_eq!(tf.steps[0].max_redirs, Some(3));
+    }
+
+    // ---- Scheduler: plan_schedule + SchedulingMetadata ----
+
+    fn meta(file: &str, serial_only: bool, group: Option<&str>) -> SchedulingMetadata {
+        SchedulingMetadata {
+            file: file.to_string(),
+            serial_only,
+            group: group.map(|g| g.to_string()),
+        }
+    }
+
+    #[test]
+    fn plan_schedule_partitions_serial_only_files_onto_serial_bucket() {
+        // With 4 files, 2 marked serial_only and 2 parallel-safe, the
+        // scheduler must keep the parallel set on workers and defer
+        // both serial-only files to the serial lane.
+        let metadata = vec![
+            meta("a.tarn.yaml", false, None),
+            meta("b.tarn.yaml", true, None),
+            meta("c.tarn.yaml", false, None),
+            meta("d.tarn.yaml", true, None),
+        ];
+
+        let plan = plan_schedule(&metadata, 3);
+
+        assert_eq!(plan.serial, vec!["b.tarn.yaml", "d.tarn.yaml"]);
+        // Two ungrouped parallel-safe files turn into two buckets
+        // across 3 workers, so the plan reports exactly two
+        // non-empty parallel lanes.
+        assert_eq!(plan.parallel_buckets.len(), 2);
+        let parallel_files: BTreeSet<String> = plan
+            .parallel_buckets
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        assert_eq!(
+            parallel_files,
+            BTreeSet::from(["a.tarn.yaml".into(), "c.tarn.yaml".into()])
+        );
+    }
+
+    #[test]
+    fn plan_schedule_groups_same_group_onto_single_bucket() {
+        // Three pg-group files must share one bucket (sequential within
+        // the group), while ungrouped files parallelize.
+        let metadata = vec![
+            meta("pg1.tarn.yaml", false, Some("pg")),
+            meta("other.tarn.yaml", false, None),
+            meta("pg2.tarn.yaml", false, Some("pg")),
+            meta("another.tarn.yaml", false, None),
+            meta("pg3.tarn.yaml", false, Some("pg")),
+        ];
+
+        let plan = plan_schedule(&metadata, 4);
+
+        assert!(plan.serial.is_empty());
+        // Find the bucket containing the group "pg" — all three pg
+        // files must sit in the same lane and keep insertion order.
+        let pg_bucket = plan
+            .parallel_buckets
+            .iter()
+            .find(|b| b.iter().any(|f| f == "pg1.tarn.yaml"))
+            .expect("pg bucket should exist");
+        assert_eq!(
+            pg_bucket,
+            &vec![
+                "pg1.tarn.yaml".to_string(),
+                "pg2.tarn.yaml".to_string(),
+                "pg3.tarn.yaml".to_string()
+            ]
+        );
+        // The two ungrouped files are not part of the pg bucket.
+        assert!(!pg_bucket.iter().any(|f| f == "other.tarn.yaml"));
+        assert!(!pg_bucket.iter().any(|f| f == "another.tarn.yaml"));
+    }
+
+    #[test]
+    fn plan_schedule_separate_groups_parallelize_across_buckets() {
+        // Two different groups land in different buckets so they can
+        // run on different workers.
+        let metadata = vec![
+            meta("pg1.tarn.yaml", false, Some("pg")),
+            meta("pg2.tarn.yaml", false, Some("pg")),
+            meta("s3a.tarn.yaml", false, Some("s3")),
+            meta("s3b.tarn.yaml", false, Some("s3")),
+        ];
+
+        let plan = plan_schedule(&metadata, 2);
+        assert!(plan.serial.is_empty());
+
+        // Two groups -> two buckets. Each bucket is fully contained in
+        // one group, so no bucket mixes pg and s3 files.
+        assert_eq!(plan.parallel_buckets.len(), 2);
+        for bucket in &plan.parallel_buckets {
+            let all_pg = bucket.iter().all(|f| f.starts_with("pg"));
+            let all_s3 = bucket.iter().all(|f| f.starts_with("s3"));
+            assert!(
+                all_pg || all_s3,
+                "bucket must not mix groups: {:?}",
+                bucket
+            );
+        }
+    }
+
+    #[test]
+    fn plan_schedule_single_worker_collapses_buckets() {
+        let metadata = vec![
+            meta("a.tarn.yaml", false, None),
+            meta("b.tarn.yaml", false, None),
+            meta("c.tarn.yaml", false, Some("pg")),
+            meta("d.tarn.yaml", false, Some("pg")),
+        ];
+
+        let plan = plan_schedule(&metadata, 1);
+        assert!(plan.serial.is_empty());
+        assert_eq!(plan.parallel_buckets.len(), 1);
+        assert_eq!(plan.parallel_buckets[0].len(), 4);
+    }
+
+    #[test]
+    fn plan_schedule_zero_jobs_is_treated_as_one() {
+        // Defensive: caller may pass 0 (no opinion) — scheduler must
+        // collapse to a single lane rather than panic on vec![_; 0].
+        let metadata = vec![meta("a.tarn.yaml", false, None)];
+        let plan = plan_schedule(&metadata, 0);
+        assert_eq!(plan.parallel_buckets.len(), 1);
+        assert_eq!(plan.parallel_buckets[0], vec!["a.tarn.yaml".to_string()]);
+    }
+
+    #[test]
+    fn plan_schedule_empty_input_returns_empty_plan() {
+        let plan = plan_schedule(&[], 4);
+        assert!(plan.parallel_buckets.is_empty());
+        assert!(plan.serial.is_empty());
+    }
+
+    #[test]
+    fn plan_schedule_all_serial_only_leaves_parallel_empty() {
+        let metadata = vec![
+            meta("a.tarn.yaml", true, None),
+            meta("b.tarn.yaml", true, Some("pg")),
+        ];
+        let plan = plan_schedule(&metadata, 4);
+        assert!(plan.parallel_buckets.is_empty());
+        assert_eq!(plan.serial, vec!["a.tarn.yaml", "b.tarn.yaml"]);
+    }
+
+    #[test]
+    fn plan_schedule_serial_only_preserves_input_order() {
+        let metadata = vec![
+            meta("z.tarn.yaml", true, None),
+            meta("a.tarn.yaml", true, None),
+            meta("m.tarn.yaml", true, None),
+        ];
+        let plan = plan_schedule(&metadata, 2);
+        // Serial bucket preserves discovery order so reports are
+        // deterministic — no alphabetic re-sort here.
+        assert_eq!(
+            plan.serial,
+            vec!["z.tarn.yaml", "a.tarn.yaml", "m.tarn.yaml"]
+        );
+    }
+
+    #[test]
+    fn scheduling_metadata_from_test_file_detects_file_level_serial_only() {
+        let yaml = r#"
+name: Ser
+serial_only: true
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(md.serial_only);
+        assert_eq!(md.group, None);
+    }
+
+    #[test]
+    fn scheduling_metadata_escalates_when_any_test_is_serial_only() {
+        // Even if the file is not serial, a single serial_only test
+        // pins the whole file to serial — this keeps per-file
+        // isolation semantics intact because the parallelism unit is
+        // the file.
+        let yaml = r#"
+name: Escalate
+tests:
+  fast:
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: http://localhost
+  slow:
+    serial_only: true
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(md.serial_only);
+    }
+
+    #[test]
+    fn scheduling_metadata_reads_group() {
+        let yaml = r#"
+name: Grouped
+group: postgres
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(!md.serial_only);
+        assert_eq!(md.group.as_deref(), Some("postgres"));
+    }
+
+    #[test]
+    fn scheduling_metadata_defaults_when_unset() {
+        let yaml = r#"
+name: Default
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(!md.serial_only);
+        assert_eq!(md.group, None);
     }
 }
