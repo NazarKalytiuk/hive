@@ -46,6 +46,7 @@ const TEST_GROUP_FIELDS: &[(&str, &str)] = &[
 ];
 const STEP_FIELDS: &[(&str, &str)] = &[
     ("name", "name"),
+    ("description", "description"),
     ("request", "request"),
     ("capture", "capture"),
     ("assert", "assert"),

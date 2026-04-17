@@ -136,6 +136,9 @@ impl AssertionResult {
 #[derive(Debug, Clone)]
 pub struct StepResult {
     pub name: String,
+    /// Optional human-readable description carried over from `Step.description`.
+    /// Included in the JSON report and rendered in the human formatter.
+    pub description: Option<String>,
     pub passed: bool,
     pub duration_ms: u64,
     pub assertion_results: Vec<AssertionResult>,
@@ -385,6 +388,7 @@ mod tests {
     fn step_result_counts() {
         let sr = StepResult {
             name: "test".into(),
+            description: None,
             passed: false,
             duration_ms: 100,
             assertion_results: vec![
@@ -411,6 +415,7 @@ mod tests {
     fn step_result_error_code_uses_timeout_subtypes() {
         let poll_timeout = StepResult {
             name: "poll".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -434,6 +439,7 @@ mod tests {
 
         let request_timeout = StepResult {
             name: "http".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -460,6 +466,7 @@ mod tests {
     fn step_result_error_code_uses_connection_subtypes() {
         let refused = StepResult {
             name: "refused".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -480,6 +487,7 @@ mod tests {
 
         let tls = StepResult {
             name: "tls".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -503,6 +511,7 @@ mod tests {
     fn step_result_error_code_unresolved_template() {
         let sr = StepResult {
             name: "unresolved".into(),
+            description: None,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -532,6 +541,7 @@ mod tests {
             step_results: vec![
                 StepResult {
                     name: "create".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 200,
                     assertion_results: vec![AssertionResult::pass("status", "201", "201")],
@@ -545,6 +555,7 @@ mod tests {
                 },
                 StepResult {
                     name: "verify".into(),
+                    description: None,
                     passed: false,
                     duration_ms: 100,
                     assertion_results: vec![AssertionResult::fail(
@@ -580,6 +591,7 @@ mod tests {
             redacted_values: vec![],
             setup_results: vec![StepResult {
                 name: "setup".into(),
+                description: None,
                 passed: true,
                 duration_ms: 50,
                 assertion_results: vec![],
@@ -599,6 +611,7 @@ mod tests {
                 step_results: vec![
                     StepResult {
                         name: "s1".into(),
+                        description: None,
                         passed: true,
                         duration_ms: 400,
                         assertion_results: vec![],
@@ -612,6 +625,7 @@ mod tests {
                     },
                     StepResult {
                         name: "s2".into(),
+                        description: None,
                         passed: true,
                         duration_ms: 400,
                         assertion_results: vec![],
@@ -652,6 +666,7 @@ mod tests {
                         duration_ms: 100,
                         step_results: vec![StepResult {
                             name: "s".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 100,
                             assertion_results: vec![],
@@ -682,6 +697,7 @@ mod tests {
                         duration_ms: 200,
                         step_results: vec![StepResult {
                             name: "s".into(),
+                            description: None,
                             passed: false,
                             duration_ms: 200,
                             assertion_results: vec![],

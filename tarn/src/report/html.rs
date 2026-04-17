@@ -798,6 +798,7 @@ mod tests {
                 redacted_values: vec![],
                 setup_results: vec![StepResult {
                     name: "Auth".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 50,
                     assertion_results: vec![AssertionResult::pass("status", "200", "200")],
@@ -817,6 +818,7 @@ mod tests {
                     step_results: vec![
                         StepResult {
                             name: "GET /users".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 40,
                             assertion_results: vec![
@@ -833,6 +835,7 @@ mod tests {
                         },
                         StepResult {
                             name: "POST /users".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 40,
                             assertion_results: vec![AssertionResult::pass("status", "201", "201")],
@@ -849,6 +852,7 @@ mod tests {
                 }],
                 teardown_results: vec![StepResult {
                     name: "Cleanup".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 20,
                     assertion_results: vec![],
@@ -886,6 +890,7 @@ mod tests {
                     step_results: vec![
                         StepResult {
                             name: "Create user".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 100,
                             assertion_results: vec![AssertionResult::pass("status", "201", "201")],
@@ -899,6 +904,7 @@ mod tests {
                         },
                         StepResult {
                             name: "Verify user".into(),
+                            description: None,
                             passed: false,
                             duration_ms: 80,
                             assertion_results: vec![

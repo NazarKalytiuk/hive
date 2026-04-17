@@ -360,6 +360,7 @@ fn golden_run_result() -> RunResult {
             redacted_values: vec!["env-secret-123".into(), "capture-secret-456".into()],
             setup_results: vec![StepResult {
                 name: "Authenticate".into(),
+                description: None,
                 passed: true,
                 duration_ms: 12,
                 assertion_results: vec![AssertionResult::pass("status", "200", "200")],
@@ -379,6 +380,7 @@ fn golden_run_result() -> RunResult {
                 step_results: vec![
                     StepResult {
                         name: "Create item".into(),
+                        description: None,
                         passed: true,
                         duration_ms: 34,
                         assertion_results: vec![
@@ -395,6 +397,7 @@ fn golden_run_result() -> RunResult {
                     },
                     StepResult {
                         name: "Fetch item".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 56,
                         assertion_results: vec![
@@ -437,6 +440,7 @@ fn golden_run_result() -> RunResult {
             }],
             teardown_results: vec![StepResult {
                 name: "Cleanup".into(),
+                description: None,
                 passed: true,
                 duration_ms: 8,
                 assertion_results: vec![],

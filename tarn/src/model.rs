@@ -231,6 +231,13 @@ pub struct TestGroup {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Step {
     pub name: String,
+
+    /// Optional human-readable description for this step.
+    /// Supports multi-line values via YAML block scalars (`|`, `>`).
+    /// Rendered below the step name in human output and included in
+    /// the JSON report under the step node.
+    pub description: Option<String>,
+
     pub request: Request,
 
     /// Captures from the response (JSONPath or header with optional regex)
@@ -1354,5 +1361,139 @@ steps:
         // Empty merge must not drop anything.
         redaction.merge_headers(std::iter::empty::<String>());
         assert_eq!(redaction.headers, vec!["authorization", "cookie"]);
+    }
+
+    // --- Step-level descriptions (NAZ-243) ---
+
+    #[test]
+    fn deserialize_step_with_description() {
+        // Single-line `description:` on a step must deserialize cleanly
+        // without the historical "Unknown field 'description' at
+        // root.tests.X.steps[N]" error.
+        let yaml = r#"
+name: Step description
+steps:
+  - name: GET /health
+    description: "Verifies the health endpoint stays reachable"
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+    assert:
+      status: 200
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps.len(), 1);
+        assert_eq!(
+            tf.steps[0].description.as_deref(),
+            Some("Verifies the health endpoint stays reachable")
+        );
+    }
+
+    #[test]
+    fn deserialize_step_description_missing_defaults_to_none() {
+        let yaml = r#"
+name: No description
+steps:
+  - name: GET /health
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps.len(), 1);
+        assert!(tf.steps[0].description.is_none());
+    }
+
+    #[test]
+    fn deserialize_step_with_folded_multiline_description() {
+        // YAML block scalars (`|` literal and `>` folded) must survive the
+        // deserializer: line breaks for `|`, joined-with-spaces for `>`.
+        // This is what lets users write long step docs without escaping.
+        let yaml = r#"
+name: Multi-line step description
+steps:
+  - name: GET /health
+    description: |
+      This step hits the health endpoint.
+      It verifies the service is reachable.
+    request:
+      method: GET
+      url: "http://localhost:3000/health"
+  - name: GET /status
+    description: >
+      Folded description
+      on two lines.
+    request:
+      method: GET
+      url: "http://localhost:3000/status"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.steps.len(), 2);
+        let literal = tf.steps[0].description.as_deref().unwrap();
+        assert!(
+            literal.contains("This step hits the health endpoint.")
+                && literal.contains("It verifies the service is reachable."),
+            "literal block should preserve both lines, got: {:?}",
+            literal
+        );
+        assert!(
+            literal.contains('\n'),
+            "literal block `|` must keep the newline between lines, got: {:?}",
+            literal
+        );
+        let folded = tf.steps[1].description.as_deref().unwrap();
+        assert_eq!(folded.trim_end(), "Folded description on two lines.");
+    }
+
+    #[test]
+    fn deserialize_step_description_inside_named_test() {
+        // This mirrors the original NAZ-243 repro: a step inside a named
+        // test group used to fail parsing with "Unknown field
+        // 'description' at root.tests.smoke.steps[0]".
+        let yaml = r#"
+name: Named tests
+tests:
+  smoke:
+    description: "Smoke tests"
+    steps:
+      - name: ping
+        description: "Ping the service"
+        request:
+          method: GET
+          url: "http://localhost:3000/ping"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        let test = tf.tests.get("smoke").expect("smoke test group");
+        assert_eq!(test.description.as_deref(), Some("Smoke tests"));
+        assert_eq!(test.steps.len(), 1);
+        assert_eq!(
+            test.steps[0].description.as_deref(),
+            Some("Ping the service")
+        );
+    }
+
+    #[test]
+    fn file_and_test_level_descriptions_still_deserialize() {
+        // Regression guard: adding a step-level `description:` must not
+        // break the pre-existing file-level and test-group-level fields
+        // on which the schema already depended.
+        let yaml = r#"
+name: Suite
+description: "File-level description"
+tests:
+  t1:
+    description: "Group description"
+    steps:
+      - name: step
+        description: "Step description"
+        request:
+          method: GET
+          url: "http://localhost:3000"
+"#;
+        let tf: TestFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(tf.description.as_deref(), Some("File-level description"));
+        let group = tf.tests.get("t1").unwrap();
+        assert_eq!(group.description.as_deref(), Some("Group description"));
+        assert_eq!(group.steps[0].description.as_deref(), Some("Step description"));
     }
 }

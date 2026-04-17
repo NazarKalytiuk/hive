@@ -93,6 +93,7 @@ mod tests {
                     duration_ms: 100,
                     step_results: vec![StepResult {
                         name: "Check status".into(),
+                        description: None,
                         passed,
                         duration_ms: 50,
                         assertion_results: if passed {
@@ -179,6 +180,7 @@ mod tests {
                     step_results: vec![
                         StepResult {
                             name: "step1".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 100,
                             assertion_results: vec![],
@@ -192,6 +194,7 @@ mod tests {
                         },
                         StepResult {
                             name: "step2".into(),
+                            description: None,
                             passed: true,
                             duration_ms: 100,
                             assertion_results: vec![],
@@ -244,6 +247,7 @@ mod tests {
                     duration_ms: 10,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 10,
                         assertion_results: vec![AssertionResult::fail(

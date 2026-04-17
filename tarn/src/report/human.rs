@@ -167,6 +167,21 @@ fn render_file(output: &mut String, file_result: &FileResult, opts: RenderOption
     ));
 }
 
+/// Render a step's optional `description:` underneath its name line.
+/// Each description line is indented so it visually nests under the step
+/// glyph and dimmed via the `colored` crate to match how setup/teardown
+/// headers and the `└─` connector are rendered elsewhere in this module.
+/// Multi-line descriptions (from YAML `|` or `>` scalars) are split so
+/// every line gets the same dimmed indent — no raw `\n` tokens leak into
+/// the human report.
+fn render_step_description_into(output: &mut String, step: &StepResult) {
+    if let Some(ref description) = step.description {
+        for line in description.lines() {
+            output.push_str(&format!("     {}\n", line.dimmed()));
+        }
+    }
+}
+
 fn render_step_into(
     output: &mut String,
     step: &StepResult,
@@ -180,6 +195,7 @@ fn render_step_into(
             step.name,
             step.duration_ms
         ));
+        render_step_description_into(output, step);
     } else if matches!(
         step.error_category,
         Some(FailureCategory::SkippedDueToFailedCapture)
@@ -192,6 +208,7 @@ fn render_step_into(
             "⊘".yellow(),
             step.name.yellow(),
         ));
+        render_step_description_into(output, step);
         if let Some(reason) = step.assertion_results.iter().find(|a| !a.passed) {
             let reason = sanitize_assertion(reason, redaction, redacted_values);
             output.push_str(&format!(
@@ -207,6 +224,7 @@ fn render_step_into(
             step.name.red(),
             step.duration_ms
         ));
+        render_step_description_into(output, step);
         // Show failure details
         let failures = step.failures();
         let hints = step_hints(step);
@@ -275,6 +293,7 @@ mod tests {
                     duration_ms: 100,
                     step_results: vec![StepResult {
                         name: "Check status".into(),
+                        description: None,
                         passed,
                         duration_ms: 50,
                         assertion_results: if passed {
@@ -332,6 +351,7 @@ mod tests {
                 redacted_values: vec![],
                 setup_results: vec![StepResult {
                     name: "Auth".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 50,
                     assertion_results: vec![],
@@ -346,6 +366,7 @@ mod tests {
                 test_results: vec![],
                 teardown_results: vec![StepResult {
                     name: "Cleanup".into(),
+                    description: None,
                     passed: true,
                     duration_ms: 30,
                     assertion_results: vec![],
@@ -385,6 +406,7 @@ mod tests {
                     duration_ms: 100,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 50,
                         assertion_results: vec![
@@ -433,6 +455,7 @@ mod tests {
                     duration_ms: 100,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 50,
                         assertion_results: vec![AssertionResult::fail_with_diff(
@@ -681,6 +704,7 @@ mod tests {
                     duration_ms: 10,
                     step_results: vec![StepResult {
                         name: "step".into(),
+                        description: None,
                         passed: false,
                         duration_ms: 10,
                         assertion_results: vec![AssertionResult::fail(
@@ -706,5 +730,147 @@ mod tests {
         let output = render(&result);
         assert!(!output.contains("secret-token"));
         assert!(output.contains("Expected [hidden] to be accepted"));
+    }
+
+    // --- Step-level descriptions in human report (NAZ-243) ---
+
+    /// Strip the ANSI SGR escape sequences the `colored` crate emits so
+    /// assertions can compare raw text regardless of whether another
+    /// parallel test flipped the global color override. Only matches the
+    /// `\x1b[...m` sequences `colored` produces — the `.dimmed()`,
+    /// `.green()`, `.red()`, and `.yellow()` wrappers used in this
+    /// module — so we do not pull in an extra dependency just for tests.
+    fn strip_ansi(input: &str) -> String {
+        let mut out = String::with_capacity(input.len());
+        let mut chars = input.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                // Consume the `[...m` CSI sequence.
+                if chars.next() != Some('[') {
+                    continue;
+                }
+                for ch in chars.by_ref() {
+                    if ch == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// Build a run result whose sole step carries the given pass-state
+    /// and optional description so each human-render test touches exactly
+    /// one variable. Tests pair this with `strip_ansi` on the render
+    /// output so assertions are stable even when another parallel test
+    /// is flipping the `colored` crate's global override.
+    fn run_with_single_step(passed: bool, description: Option<&str>) -> RunResult {
+        RunResult {
+            duration_ms: 10,
+            file_results: vec![FileResult {
+                file: "test.tarn.yaml".into(),
+                name: "Suite".into(),
+                passed,
+                duration_ms: 10,
+                redaction: crate::model::RedactionConfig::default(),
+                redacted_values: vec![],
+                setup_results: vec![],
+                test_results: vec![TestResult {
+                    name: "group".into(),
+                    description: None,
+                    passed,
+                    duration_ms: 10,
+                    step_results: vec![StepResult {
+                        name: "Step name".into(),
+                        description: description.map(str::to_string),
+                        passed,
+                        duration_ms: 5,
+                        assertion_results: if passed {
+                            vec![AssertionResult::pass("status", "200", "200")]
+                        } else {
+                            vec![AssertionResult::fail(
+                                "status",
+                                "200",
+                                "500",
+                                "status mismatch",
+                            )]
+                        },
+                        request_info: None,
+                        response_info: None,
+                        error_category: None,
+                        response_status: None,
+                        response_summary: None,
+                        captures_set: vec![],
+                        location: None,
+                    }],
+                    captures: HashMap::new(),
+                }],
+                teardown_results: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn human_renders_step_description_for_passing_step() {
+        // After stripping ANSI escapes, the description text must appear
+        // in the output underneath the step name.
+        let result = run_with_single_step(true, Some("Checks /health"));
+        let output = strip_ansi(&render(&result));
+        assert!(
+            output.contains("Step name"),
+            "step name must still render, got: {}",
+            output
+        );
+        assert!(
+            output.contains("Checks /health"),
+            "description must render beneath the step, got: {}",
+            output
+        );
+        // Description should appear AFTER the step name line, not before.
+        let name_pos = output.find("Step name").unwrap();
+        let desc_pos = output.find("Checks /health").unwrap();
+        assert!(
+            desc_pos > name_pos,
+            "description must render below the step name, got name@{} desc@{}",
+            name_pos,
+            desc_pos
+        );
+    }
+
+    #[test]
+    fn human_renders_step_description_for_failing_step() {
+        // Failures must still surface the description so operators see
+        // the author's intent alongside the mismatch.
+        let result = run_with_single_step(false, Some("Checks /health"));
+        let output = strip_ansi(&render(&result));
+        assert!(output.contains("Checks /health"));
+        assert!(output.contains("status mismatch"));
+    }
+
+    #[test]
+    fn human_omits_step_description_line_when_missing() {
+        // No description must mean no "Checks /health" line leaks in —
+        // the guard ensures the helper is a true no-op when the field is
+        // absent rather than emitting an empty indented row.
+        let result = run_with_single_step(true, None);
+        let output = strip_ansi(&render(&result));
+        assert!(output.contains("Step name"));
+        assert!(!output.contains("Checks /health"));
+    }
+
+    #[test]
+    fn human_renders_multi_line_step_description_indented() {
+        // Multi-line descriptions (from YAML `|` scalars) must keep each
+        // line on its own indented row so the report stays readable.
+        let result = run_with_single_step(true, Some("First line\nSecond line"));
+        let output = strip_ansi(&render(&result));
+        assert!(output.contains("First line"));
+        assert!(output.contains("Second line"));
+        // Each rendered line should carry the same five-space indent used
+        // by the description block so the two lines align under the step.
+        assert!(output.contains("     First line"));
+        assert!(output.contains("     Second line"));
     }
 }
