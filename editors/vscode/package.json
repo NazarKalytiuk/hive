@@ -253,6 +253,17 @@
         "title": "%command.tarn.filterHistory.title%",
         "category": "%command.category%",
         "icon": "$(filter)"
+      },
+      {
+        "command": "tarn.debugTest",
+        "title": "Tarn: Debug Test",
+        "category": "Tarn",
+        "icon": "$(debug)"
+      },
+      {
+        "command": "tarn.diffLastPassing",
+        "title": "Tarn: Diff Last Passing",
+        "category": "Tarn"
       }
     ],
     "viewsContainers": {
@@ -385,6 +396,14 @@
         },
         {
           "command": "tarn.rerunFromHistory",
+          "when": "false"
+        },
+        {
+          "command": "tarn.debugTest",
+          "when": "false"
+        },
+        {
+          "command": "tarn.diffLastPassing",
           "when": "false"
         },
         {

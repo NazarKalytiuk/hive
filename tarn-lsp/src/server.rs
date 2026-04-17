@@ -23,8 +23,10 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use std::time::Instant;
 
+use crossbeam_channel::Sender;
 use lsp_server::{Connection, ExtractError, Message, Notification, Request, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
@@ -46,13 +48,16 @@ use crate::code_actions;
 use crate::code_lens;
 use crate::completion;
 use crate::debounce::DebounceTracker;
+use crate::debug_session::{self, SessionRegistry};
 use crate::definition;
 use crate::diagnostics;
+use crate::diff;
 use crate::formatting;
 use crate::hover;
 use crate::jsonpath_eval;
 use crate::references;
 use crate::rename;
+use crate::run_commands::{self, NotificationSink};
 use crate::symbols;
 use crate::workspace::WorkspaceIndex;
 
@@ -140,7 +145,7 @@ impl DocumentStore {
 /// world on every keystroke. Existing handlers (hover, completion,
 /// definition, document symbols) still take `&DocumentStore` directly;
 /// only references reaches into the full state.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ServerState {
     /// In-memory document store. Keys are LSP `Url`s exactly as the
     /// client sends them.
@@ -149,11 +154,48 @@ pub struct ServerState {
     /// query. See [`crate::workspace::WorkspaceIndex`] for the
     /// invalidation rules.
     pub workspace_index: WorkspaceIndex,
+    /// NAZ-256 Requirement B: registry of in-flight debug sessions. A
+    /// new entry is inserted when `tarn.debugTest` starts a session; the
+    /// worker thread auto-prunes its entry on exit so long-running
+    /// servers do not accumulate dead handles.
+    pub debug_sessions: SessionRegistry,
+}
+
+impl std::fmt::Debug for ServerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerState")
+            .field("documents", &self.documents)
+            .field("workspace_index", &self.workspace_index)
+            .field("debug_sessions_len", &self.debug_sessions.len())
+            .finish()
+    }
 }
 
 impl ServerState {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// Notification sink backed by the real LSP `Connection` sender. Used by
+/// the run-from-gutter and debug-session commands so they can stream
+/// `tarn/progress` and `tarn/captureState` notifications without
+/// reaching into the connection directly.
+pub struct ConnectionSink {
+    sender: Sender<Message>,
+}
+
+impl ConnectionSink {
+    pub fn new(sender: Sender<Message>) -> Self {
+        Self { sender }
+    }
+}
+
+impl NotificationSink for ConnectionSink {
+    fn send(&self, note: Notification) -> Result<(), String> {
+        self.sender
+            .send(Message::Notification(note))
+            .map_err(|e| format!("sender disconnected: {e}"))
     }
 }
 
@@ -272,7 +314,9 @@ fn main_loop(
                 // L2.1 added go-to-definition; L2.2 adds references.
                 // Anything else falls through to a JSON-RPC "method not
                 // found" response until later tickets add more handlers.
-                let resp = dispatch_request(req, &mut state);
+                let sink: Arc<dyn NotificationSink + Send + Sync> =
+                    Arc::new(ConnectionSink::new(connection.sender.clone()));
+                let resp = dispatch_request(req, &mut state, sink);
                 connection.sender.send(Message::Response(resp))?;
             }
             Message::Response(_) => {
@@ -328,7 +372,11 @@ fn is_timeout(err: &crossbeam_channel::RecvTimeoutError) -> bool {
 /// which completes Phase L2. L3.1 adds `textDocument/formatting` via
 /// [`formatting::text_document_formatting`], the first Phase L3 editing
 /// feature.
-fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
+fn dispatch_request(
+    req: Request,
+    state: &mut ServerState,
+    sink: Arc<dyn NotificationSink + Send + Sync>,
+) -> Response {
     // Capture the id up-front: `Request::extract` takes `self` by value
     // so we can't read `req.id` after a failed extract.
     let id = req.id.clone();
@@ -461,16 +509,18 @@ fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
         ExecuteCommand::METHOD => match req.extract::<ExecuteCommandParams>(ExecuteCommand::METHOD)
         {
             Ok((req_id, params)) => {
-                // L3.6 (NAZ-307): `workspace/executeCommand` dispatches
-                // every client-invoked command through one pure handler.
-                // Today only `tarn.evaluateJsonpath` is registered; see
-                // `jsonpath_eval::workspace_execute_command` for the
-                // argument shape and return envelope. Unknown command
-                // IDs bubble back as a `MethodNotFound` ResponseError.
-                match jsonpath_eval::workspace_execute_command(state, params) {
-                    Ok(result) => Response {
+                // L3.6 (NAZ-307) + NAZ-256: `workspace/executeCommand`
+                // dispatches every client-invoked command through a
+                // small chain of handlers. Each handler module returns
+                // `Some(result)` for commands it owns and `None` to
+                // pass through. Unknown command IDs bubble back as a
+                // `MethodNotFound` ResponseError.
+                let outcome =
+                    dispatch_execute_command(state, params, sink.as_ref(), sink.clone());
+                match outcome {
+                    Ok(value) => Response {
                         id: req_id,
-                        result: Some(result.unwrap_or(serde_json::Value::Null)),
+                        result: Some(value),
                         error: None,
                     },
                     Err(err) => Response {
@@ -485,6 +535,55 @@ fn dispatch_request(req: Request, state: &mut ServerState) -> Response {
         },
         _ => method_not_found(req),
     }
+}
+
+/// Route a `workspace/executeCommand` request through each command
+/// module in turn. The first module that recognises the command wins;
+/// if no module claims it the caller surfaces a `MethodNotFound` error.
+///
+/// Each branch returns the raw JSON value the client receives (already
+/// unwrapped from any `Option`) so the caller only has to map it into
+/// a `Response`. The `sink` arguments are split because
+/// `run_commands::dispatch` takes a shared reference while
+/// `debug_session::dispatch` needs an owning `Arc` — a session worker
+/// keeps the sink alive across threads.
+fn dispatch_execute_command(
+    state: &mut ServerState,
+    params: lsp_types::ExecuteCommandParams,
+    sink_ref: &(dyn NotificationSink + Send + Sync),
+    sink_arc: Arc<dyn NotificationSink + Send + Sync>,
+) -> Result<serde_json::Value, lsp_server::ResponseError> {
+    // jsonpath evaluation (L3.6)
+    if params.command == jsonpath_eval::EVALUATE_JSONPATH_COMMAND {
+        let result = jsonpath_eval::workspace_execute_command(state, params)?;
+        return Ok(result.unwrap_or(serde_json::Value::Null));
+    }
+
+    // run-from-gutter commands (NAZ-256 Req A)
+    if let Some(res) = run_commands::dispatch(&params.command, &params.arguments, sink_ref) {
+        return res;
+    }
+
+    // debug-session commands (NAZ-256 Req B)
+    if let Some(res) = debug_session::dispatch(
+        &params.command,
+        &params.arguments,
+        &state.debug_sessions,
+        sink_arc,
+    ) {
+        return res;
+    }
+
+    // response diff command (NAZ-256 Req C)
+    if let Some(res) = diff::dispatch(&params.command, &params.arguments) {
+        return res;
+    }
+
+    Err(lsp_server::ResponseError {
+        code: lsp_server::ErrorCode::MethodNotFound as i32,
+        message: format!("workspace/executeCommand: unknown command `{}`", params.command),
+        data: None,
+    })
 }
 
 /// Shared JSON serialization for successful request handlers. Produces

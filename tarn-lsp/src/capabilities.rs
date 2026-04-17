@@ -62,7 +62,15 @@ use lsp_types::{
     ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, WorkDoneProgressOptions,
 };
 
+use crate::debug_session::{
+    DEBUG_CONTINUE_COMMAND, DEBUG_RERUN_STEP_COMMAND, DEBUG_RESTART_COMMAND, DEBUG_STEP_OVER_COMMAND,
+    DEBUG_STOP_COMMAND, DEBUG_TEST_COMMAND, GET_CAPTURE_STATE_COMMAND,
+};
+use crate::diff::DIFF_LAST_PASSING_COMMAND;
 use crate::jsonpath_eval::EVALUATE_JSONPATH_COMMAND;
+use crate::run_commands::{
+    RUN_FILE_COMMAND, RUN_LAST_FAILURES_COMMAND, RUN_STEP_COMMAND, RUN_TEST_COMMAND,
+};
 
 /// Return the `ServerCapabilities` this server currently advertises.
 ///
@@ -180,7 +188,24 @@ pub fn server_capabilities() -> ServerCapabilities {
         // (VS Code extension migration onto tarn-lsp) is the next
         // coordinated initiative.
         execute_command_provider: Some(ExecuteCommandOptions {
-            commands: vec![EVALUATE_JSONPATH_COMMAND.to_owned()],
+            commands: vec![
+                EVALUATE_JSONPATH_COMMAND.to_owned(),
+                // NAZ-256 Requirement A: run-from-gutter commands.
+                RUN_FILE_COMMAND.to_owned(),
+                RUN_TEST_COMMAND.to_owned(),
+                RUN_STEP_COMMAND.to_owned(),
+                RUN_LAST_FAILURES_COMMAND.to_owned(),
+                // NAZ-256 Requirement B: step-through debugger.
+                DEBUG_TEST_COMMAND.to_owned(),
+                DEBUG_CONTINUE_COMMAND.to_owned(),
+                DEBUG_STEP_OVER_COMMAND.to_owned(),
+                DEBUG_RERUN_STEP_COMMAND.to_owned(),
+                DEBUG_RESTART_COMMAND.to_owned(),
+                DEBUG_STOP_COMMAND.to_owned(),
+                GET_CAPTURE_STATE_COMMAND.to_owned(),
+                // NAZ-256 Requirement C: response diff vs last passing.
+                DIFF_LAST_PASSING_COMMAND.to_owned(),
+            ],
             work_done_progress_options: WorkDoneProgressOptions::default(),
         }),
 

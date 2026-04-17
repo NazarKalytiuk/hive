@@ -53,6 +53,19 @@ enum Commands {
         #[arg(long = "select", value_name = "FILE[::TEST[::STEP]]")]
         select: Vec<String>,
 
+        /// Restrict the run to a single named test. Ergonomic shorthand for
+        /// `--select FILE::TEST`; internally composed against every file in
+        /// the discovery set. Combine with `--step-filter` to narrow further.
+        #[arg(long = "test-filter", value_name = "NAME")]
+        test_filter: Option<String>,
+
+        /// Restrict the run to a single step within the `--test-filter` test.
+        /// Accepts a 0-based numeric index or an exact step name. When used
+        /// without `--test-filter` it applies to the flat-steps form of the
+        /// file. Internally composes into the selector grammar.
+        #[arg(long = "step-filter", value_name = "INDEX|NAME")]
+        step_filter: Option<String>,
+
         /// Override environment variables (key=value)
         #[arg(long = "var", value_name = "KEY=VALUE")]
         vars: Vec<String>,
@@ -335,6 +348,8 @@ fn main() {
             json_mode,
             tag,
             select,
+            test_filter,
+            step_filter,
             vars,
             env_name,
             verbose,
@@ -367,6 +382,8 @@ fn main() {
             env_name.as_deref(),
             tag.as_deref(),
             &select,
+            test_filter.as_deref(),
+            step_filter.as_deref(),
             verbose,
             only_failed,
             no_progress,
@@ -478,6 +495,8 @@ fn run_command(
     env_name: Option<&str>,
     tag: Option<&str>,
     select: &[String],
+    test_filter: Option<&str>,
+    step_filter: Option<&str>,
     verbose: bool,
     only_failed: bool,
     no_progress: bool,
@@ -503,7 +522,7 @@ fn run_command(
             }
         };
     let tag_filter = tag.map(runner::parse_tag_filter).unwrap_or_default();
-    let selectors = match selector::parse_all(select) {
+    let mut selectors = match selector::parse_all(select) {
         Ok(s) => s,
         Err(errs) => {
             for err in errs {
@@ -512,6 +531,26 @@ fn run_command(
             return 2;
         }
     };
+
+    // --test-filter / --step-filter: synthesize a "wildcard" selector that
+    // applies across every discovered file. We pair the filter values with
+    // the sentinel `*` file glob using `Selector::with_filters` so the
+    // selector module stays the single source of truth for matching logic
+    // (file suffix match, step name vs. index, etc.). `--step-filter`
+    // without `--test-filter` applies to the flat-steps form of the file
+    // (where the test name mirrors the file's `name:` value); the runner
+    // already handles that case because `matches_test` is `true` for any
+    // selector without a `::TEST` component.
+    if test_filter.is_some() || step_filter.is_some() {
+        let synth = match runner::build_filter_selector(test_filter, step_filter) {
+            Ok(sel) => sel,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return 2;
+            }
+        };
+        selectors.push(synth);
+    }
     let mut output_targets = match parse_output_targets(format_specs) {
         Ok(targets) => targets,
         Err(e) => {
@@ -530,7 +569,7 @@ fn run_command(
     // the existing `emit_run_outputs` plumbing (path resolution, error
     // reporting, the "<format> report saved to …" message) instead of
     // carving out a side-channel writer.
-    if !no_last_run_json {
+    let last_run_artifact_path: Option<PathBuf> = if !no_last_run_json {
         let artifact_path = match report_json_path {
             Some(p) => p.to_path_buf(),
             None => project.root_dir.join(".tarn").join("last-run.json"),
@@ -539,10 +578,13 @@ fn run_command(
             0,
             OutputTarget {
                 format: OutputFormat::Json,
-                path: Some(artifact_path),
+                path: Some(artifact_path.clone()),
             },
         );
-    }
+        Some(artifact_path)
+    } else {
+        None
+    };
     let json_output_mode = match json_mode.parse::<JsonOutputMode>() {
         Ok(mode) => mode,
         Err(e) => {
@@ -620,9 +662,23 @@ fn run_command(
         }
     }
 
+    // Capture the CLI invocation and timing context once per call so the
+    // post-run augmentation can stamp `.tarn/last-run.json` with the
+    // arguments and environment that produced the file. The VS Code /
+    // LSP "rerun last failures" workflow relies on this so replays pick
+    // up the same `-e <env>` even after the user has changed directories.
+    let run_args: Vec<String> = std::env::args().collect();
+    let working_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let env_label = env_name.map(|s| s.to_string());
+
     // Build the run closure (used by both normal and watch mode)
-    let do_run = |run_files: &[String]| {
-        execute_run(
+    let last_run_path_clone = last_run_artifact_path.clone();
+    let run_args_clone = run_args.clone();
+    let working_directory_clone = working_directory.clone();
+    let env_label_clone = env_label.clone();
+    let do_run = move |run_files: &[String]| {
+        let start_time = chrono::Utc::now();
+        let exit = execute_run(
             run_files,
             &cli_vars,
             env_name,
@@ -638,7 +694,29 @@ fn run_command(
             effective_parallel,
             jobs,
             extra_redact_headers,
-        )
+        );
+        let end_time = chrono::Utc::now();
+        if let Some(artifact) = &last_run_path_clone {
+            if let Err(e) = augment_last_run_json(
+                artifact,
+                &run_args_clone,
+                env_label_clone.as_deref(),
+                &working_directory_clone,
+                start_time,
+                end_time,
+            ) {
+                // Augmentation is best-effort: a failure here must not
+                // flip a successful run's exit code to 3. We log to
+                // stderr so CI can pick it up without surprising the
+                // user, but the run result itself is authoritative.
+                eprintln!(
+                    "Warning: failed to augment last-run.json at {}: {}",
+                    artifact.display(),
+                    e
+                );
+            }
+        }
+        exit
     };
 
     if watch {
@@ -646,6 +724,58 @@ fn run_command(
     } else {
         do_run(&files)
     }
+}
+
+/// Merge `args`, `env_name`, `working_directory`, `start_time`, `end_time`
+/// into the top-level object of `artifact_path` (the always-on JSON
+/// artifact written by `emit_run_outputs`). The file must already exist
+/// and contain a valid JSON object — this function is called after the
+/// regular JSON writer has finished so that invariant holds.
+///
+/// Augmentation is skipped (without error) if the file is missing: the
+/// user may have passed `--no-last-run-json` between runs, or moved the
+/// artifact elsewhere.
+fn augment_last_run_json(
+    artifact_path: &Path,
+    args: &[String],
+    env_name: Option<&str>,
+    working_directory: &Path,
+    start_time: chrono::DateTime<chrono::Utc>,
+    end_time: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let content = match std::fs::read_to_string(artifact_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("read: {}", e)),
+    };
+    let mut value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("parse: {}", e))?;
+    let Some(obj) = value.as_object_mut() else {
+        return Err("top-level is not a JSON object".to_string());
+    };
+    obj.insert("args".to_string(), serde_json::json!(args));
+    obj.insert(
+        "env_name".to_string(),
+        match env_name {
+            Some(s) => serde_json::Value::String(s.to_string()),
+            None => serde_json::Value::Null,
+        },
+    );
+    obj.insert(
+        "working_directory".to_string(),
+        serde_json::Value::String(working_directory.display().to_string()),
+    );
+    obj.insert(
+        "start_time".to_string(),
+        serde_json::Value::String(start_time.to_rfc3339()),
+    );
+    obj.insert(
+        "end_time".to_string(),
+        serde_json::Value::String(end_time.to_rfc3339()),
+    );
+
+    let rendered = serde_json::to_string_pretty(&value).map_err(|e| format!("render: {}", e))?;
+    std::fs::write(artifact_path, rendered).map_err(|e| format!("write: {}", e))
 }
 
 #[allow(clippy::too_many_arguments)]
