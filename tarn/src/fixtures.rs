@@ -150,12 +150,7 @@ pub fn step_fixture_dir(root: &Path, file_path: &Path, test: &str, step_index: u
 /// step. Read-only consumers (LSP, docs, replay) should try this
 /// before walking the rolling history — it is the only stable name
 /// that survives every retention cycle.
-pub fn latest_passed_path(
-    root: &Path,
-    file_path: &Path,
-    test: &str,
-    step_index: usize,
-) -> PathBuf {
+pub fn latest_passed_path(root: &Path, file_path: &Path, test: &str, step_index: usize) -> PathBuf {
     step_fixture_dir(root, file_path, test, step_index).join(LATEST_PASSED_FILENAME)
 }
 

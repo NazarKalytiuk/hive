@@ -398,7 +398,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let config_path = dir.path().join("tarn.config.yaml");
         let mut f = std::fs::File::create(&config_path).unwrap();
-        write!(f, "parallel_opt_in: true\n").unwrap();
+        writeln!(f, "parallel_opt_in: true").unwrap();
 
         let config = load_config(dir.path()).unwrap();
         assert_eq!(config.parallel_opt_in, Some(true));
@@ -409,7 +409,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let config_path = dir.path().join("tarn.config.yaml");
         let mut f = std::fs::File::create(&config_path).unwrap();
-        write!(f, "parallel_opt_in: false\n").unwrap();
+        writeln!(f, "parallel_opt_in: false").unwrap();
 
         let config = load_config(dir.path()).unwrap();
         // Explicit `false` is preserved as `Some(false)` so the
@@ -423,7 +423,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let config_path = dir.path().join("tarn.config.yaml");
         let mut f = std::fs::File::create(&config_path).unwrap();
-        write!(f, "parallel: true\n").unwrap();
+        writeln!(f, "parallel: true").unwrap();
 
         let config = load_config(dir.path()).unwrap();
         assert_eq!(config.parallel_opt_in, None);
@@ -436,7 +436,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let config_path = dir.path().join("tarn.config.yaml");
         let mut f = std::fs::File::create(&config_path).unwrap();
-        write!(f, "parallel-opt-in: true\n").unwrap();
+        writeln!(f, "parallel-opt-in: true").unwrap();
 
         let config = load_config(dir.path()).unwrap();
         assert_eq!(config.parallel_opt_in, Some(true));

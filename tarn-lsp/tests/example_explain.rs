@@ -4,7 +4,9 @@
 //!   cargo test -p tarn-lsp --test example_explain -- --ignored --nocapture
 
 use serde_json::json;
-use tarn::report::fixture_writer::{self, Fixture, FixtureRequest, FixtureResponse, FixtureWriteConfig};
+use tarn::report::fixture_writer::{
+    self, Fixture, FixtureRequest, FixtureResponse, FixtureWriteConfig,
+};
 use tarn_lsp::explain_failure::{workspace_explain_failure, EXPLAIN_FAILURE_COMMAND};
 use tarn_lsp::server::ServerState;
 use tempfile::TempDir;

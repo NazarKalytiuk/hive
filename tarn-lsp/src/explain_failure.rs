@@ -160,9 +160,9 @@ pub fn workspace_explain_failure(
 }
 
 fn parse_args(args: &[Value]) -> Result<ExplainArgs, ResponseError> {
-    let first = args
-        .first()
-        .ok_or_else(|| invalid_params(format!("{EXPLAIN_FAILURE_COMMAND} requires one argument")))?;
+    let first = args.first().ok_or_else(|| {
+        invalid_params(format!("{EXPLAIN_FAILURE_COMMAND} requires one argument"))
+    })?;
     serde_json::from_value::<ExplainArgs>(first.clone())
         .map_err(|e| invalid_params(format!("{EXPLAIN_FAILURE_COMMAND}: invalid argument: {e}")))
 }
@@ -188,23 +188,19 @@ fn resolve_target(
         let steps = steps_for_test(parsed, test);
         let idx = match step {
             StepSelector::Index(i) => *i,
-            StepSelector::Name(name) => steps
-                .iter()
-                .position(|s| &s.name == name)
-                .ok_or_else(|| {
+            StepSelector::Name(name) => {
+                steps.iter().position(|s| &s.name == name).ok_or_else(|| {
                     invalid_params(format!(
                         "tarn.explainFailure: step `{name}` not found in test `{test}`"
                     ))
-                })?,
+                })?
+            }
         };
-        let step_name = steps
-            .get(idx)
-            .map(|s| s.name.clone())
-            .ok_or_else(|| {
-                invalid_params(format!(
-                    "tarn.explainFailure: step #{idx} out of range in test `{test}`"
-                ))
-            })?;
+        let step_name = steps.get(idx).map(|s| s.name.clone()).ok_or_else(|| {
+            invalid_params(format!(
+                "tarn.explainFailure: step #{idx} out of range in test `{test}`"
+            ))
+        })?;
         return Ok((test.to_string(), idx, step_name));
     }
 
@@ -281,8 +277,7 @@ fn collect_preceding(
         if idx >= step_index {
             break;
         }
-        let fixture =
-            tarn::report::fixture_writer::read_latest_fixture(root, file, test, idx);
+        let fixture = tarn::report::fixture_writer::read_latest_fixture(root, file, test, idx);
         match fixture {
             Some(fx) => out.push(PrecedingStep {
                 step: step.name.clone(),
@@ -428,8 +423,7 @@ fn generate_root_cause_hint(
 
     // Heuristic 2: unresolved capture / failed upstream capture.
     if message_lower.contains("unresolved")
-        || message_lower.contains("capture")
-            && preceding.iter().any(|s| !s.passed)
+        || message_lower.contains("capture") && preceding.iter().any(|s| !s.passed)
     {
         if let Some(broken) = preceding.iter().find(|s| !s.passed) {
             return format!(

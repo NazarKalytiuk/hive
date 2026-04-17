@@ -313,9 +313,7 @@ fn tarn() -> Command {
 fn passed_summary_predicate(count: usize) -> predicates::BoxPredicate<str> {
     let human = format!("{} passed", count);
     let llm = format!("PASS {}/", count);
-    predicates::BoxPredicate::new(
-        predicate::str::contains(human).or(predicate::str::contains(llm)),
-    )
+    predicates::BoxPredicate::new(predicate::str::contains(human).or(predicate::str::contains(llm)))
 }
 
 /// Companion of [`passed_summary_predicate`] for the `FAILED` summary
@@ -324,9 +322,7 @@ fn passed_summary_predicate(count: usize) -> predicates::BoxPredicate<str> {
 fn failed_summary_predicate(count: usize) -> predicates::BoxPredicate<str> {
     let human = format!("{} failed", count);
     let llm = format!(", {} failed", count);
-    predicates::BoxPredicate::new(
-        predicate::str::contains(human).or(predicate::str::contains(llm)),
-    )
+    predicates::BoxPredicate::new(predicate::str::contains(human).or(predicate::str::contains(llm)))
 }
 
 fn write_nested_test_file(root: &std::path::Path, relative: &str, content: &str) -> PathBuf {
@@ -1621,15 +1617,11 @@ fn cookies_leak_between_named_tests_by_default() {
         &per_test_cookies_fixture(&server.base_url(), ""),
     );
 
-    tarn()
-        .args(["run", &test_file])
-        .assert()
-        .failure()
-        .stdout(
-            passed_summary_predicate(1)
-                .or(predicate::str::contains("failed"))
-                .or(predicate::str::contains("FAIL ")),
-        );
+    tarn().args(["run", &test_file]).assert().failure().stdout(
+        passed_summary_predicate(1)
+            .or(predicate::str::contains("failed"))
+            .or(predicate::str::contains("FAIL ")),
+    );
 }
 
 #[test]
@@ -4697,4 +4689,118 @@ steps:
         "stdin summary failed: {}",
         stdout
     );
+}
+
+// ============================================================================
+// NAZ-256 Req A: --test-filter and --step-filter shorthand flags
+// ============================================================================
+
+#[test]
+fn test_filter_runs_only_the_named_test() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--test-filter",
+            "login",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let tests = parsed["files"][0]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0]["name"], "login");
+}
+
+#[test]
+fn step_filter_by_numeric_index_runs_single_step() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--test-filter",
+            "login",
+            "--step-filter",
+            "0",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let steps = parsed["files"][0]["tests"][0]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["name"], "step one");
+}
+
+#[test]
+fn step_filter_by_name_runs_single_step() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .args([
+            "run",
+            &file,
+            "--test-filter",
+            "login",
+            "--step-filter",
+            "step two",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let steps = parsed["files"][0]["tests"][0]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["name"], "step two");
+}
+
+#[test]
+fn last_run_json_is_augmented_with_args_env_working_directory() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let file = select_fixture_file(&dir, &server.base_url());
+
+    let output = tarn()
+        .current_dir(dir.path())
+        .args(["run", &file, "--no-progress"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+
+    let artifact = dir.path().join(".tarn").join("last-run.json");
+    assert!(artifact.exists(), "last-run.json must exist");
+    let raw = std::fs::read_to_string(&artifact).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+    assert!(parsed["args"].is_array(), "args should be an array");
+    assert_eq!(parsed["env_name"], serde_json::Value::Null);
+    assert!(
+        parsed["working_directory"].is_string(),
+        "working_directory should be a string"
+    );
+    assert!(parsed["start_time"].is_string());
+    assert!(parsed["end_time"].is_string());
 }

@@ -1459,8 +1459,7 @@ fn validate_test_file(tf: &TestFile, path: &Path) -> Result<(), TarnError> {
             // missing value legal. A `false` here explicitly says
             // "fail on missing", which negates the other two fields
             // and is guaranteed to be a user mistake.
-            if matches!(ext.optional, Some(false))
-                && (ext.default.is_some() || ext.when.is_some())
+            if matches!(ext.optional, Some(false)) && (ext.default.is_some() || ext.when.is_some())
             {
                 return Err(TarnError::Validation(format!(
                     "{}: Step '{}' capture '{}' has 'optional: false' but also 'default:' or 'when:' — \

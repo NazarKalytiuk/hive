@@ -32,6 +32,7 @@ import { resolveTarnLspBinary } from "./lsp/tarnLspResolver";
 import { startTarnLspClient } from "./lsp/client";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { warnIfTarnOutdated } from "./version";
+import { registerDebugCommands } from "./debug";
 import {
   RunHistoryStore,
   RunHistoryTreeProvider,
@@ -291,6 +292,19 @@ export async function activate(
       // l10n-ignore: debug log with tarn-lsp prefix.
       output.appendLine(
         `[tarn-lsp] experimental client started (binary=${resolvedLsp.path})`,
+      );
+      // NAZ-256 Req E: the Debug Test + Diff Last Passing commands
+      // route through `workspace/executeCommand`, so they only make
+      // sense when the LSP client is actually running. Register them
+      // here so a user with the flag off never sees the commands in
+      // the palette pretending to work.
+      context.subscriptions.push(
+        registerDebugCommands(context, {
+          sendRequest: (method, params) =>
+            tarnLspClient!.sendRequest(method, params) as Promise<unknown>,
+          onNotification: (method, handler) =>
+            tarnLspClient!.onNotification(method, handler),
+        }),
       );
     } catch (err) {
       // l10n-ignore: debug log with tarn-lsp prefix.

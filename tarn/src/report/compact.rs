@@ -129,8 +129,7 @@ fn render_file_failures(out: &mut String, file: &FileResult, opts: RenderOptions
         ));
         out.push_str(&format!(
             "    {}\n",
-            request_arrow_response(step, &file.redaction, &file.redacted_values)
-                .dimmed()
+            request_arrow_response(step, &file.redaction, &file.redacted_values).dimmed()
         ));
     }
 
@@ -159,8 +158,7 @@ fn render_file_failures(out: &mut String, file: &FileResult, opts: RenderOptions
         ));
         out.push_str(&format!(
             "    {}\n",
-            request_arrow_response(step, &file.redaction, &file.redacted_values)
-                .dimmed()
+            request_arrow_response(step, &file.redaction, &file.redacted_values).dimmed()
         ));
     }
 }
@@ -192,8 +190,7 @@ fn render_test_failures(
         ));
         out.push_str(&format!(
             "    {}\n",
-            request_arrow_response(step, &file.redaction, &file.redacted_values)
-                .dimmed()
+            request_arrow_response(step, &file.redaction, &file.redacted_values).dimmed()
         ));
         printed_anything = true;
     }
@@ -497,8 +494,7 @@ mod tests {
             step_results: vec![failing_step("login", 500)],
             captures: HashMap::new(),
         };
-        tr.captures
-            .insert("payload".into(), json!("a".repeat(200)));
+        tr.captures.insert("payload".into(), json!("a".repeat(200)));
         let file = FileResult {
             file: "b.tarn.yaml".into(),
             name: "b".into(),

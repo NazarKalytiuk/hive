@@ -24,6 +24,14 @@
 
 use std::path::Path;
 
+/// Sentinel file component used by [`Selector::wildcard`] so
+/// [`Selector::matches_file`] can short-circuit a file match when the
+/// selector was produced by the `--test-filter` / `--step-filter` shorthand
+/// flags (which do not carry a specific file path). Pinned as a constant
+/// so tests, the runner, and anything that builds a wildcard selector
+/// reference one source of truth.
+pub const WILDCARD_FILE: &str = "*";
+
 /// A single `--select` entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selector {
@@ -42,6 +50,24 @@ pub enum StepSelector {
 }
 
 impl Selector {
+    /// Construct a synthetic selector whose file component matches every
+    /// discovered path. Used by the `--test-filter` / `--step-filter`
+    /// shorthand flags so a caller that does not yet know which files
+    /// the discovery walker will yield can still narrow the run down to
+    /// a single test and/or step.
+    ///
+    /// The file component is stored as the sentinel `"*"` — [`matches_file`]
+    /// short-circuits `true` for that literal so it never has to collide
+    /// with path-suffix semantics. Tests, step index, and step name still
+    /// use the same matching rules as an explicit selector.
+    pub fn wildcard(test: Option<String>, step: Option<StepSelector>) -> Self {
+        Self {
+            file: WILDCARD_FILE.to_owned(),
+            test,
+            step,
+        }
+    }
+
     /// Parse a `FILE[::TEST[::STEP]]` selector string.
     ///
     /// Returns an error if the string is empty, contains empty components,
@@ -91,7 +117,12 @@ impl Selector {
 
     /// True if this selector applies to the given file path. Uses suffix
     /// matching so callers can pass either absolute or relative paths.
+    /// The [`WILDCARD_FILE`] sentinel (produced by
+    /// [`Selector::wildcard`]) short-circuits to `true` for every path.
     pub fn matches_file(&self, file_path: &str) -> bool {
+        if self.file == WILDCARD_FILE {
+            return true;
+        }
         path_suffix_matches(file_path, &self.file)
     }
 

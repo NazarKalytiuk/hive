@@ -41,14 +41,48 @@
     {
       "id": "tarn.debugTest",
       "title": "Debug test",
-      "status": "stub",
+      "status": "implemented",
       "params": {
         "file": "string (path)",
         "test": "string",
         "step": "string | number (optional)"
       },
-      "returns": "DebugSession v1",
-      "implementation": "NAZ-256"
+      "returns": "DebugSession v1 { sessionId }"
+    },
+    {
+      "id": "tarn.debugContinue",
+      "title": "Debug: continue",
+      "status": "implemented",
+      "params": { "sessionId": "string" },
+      "returns": "{ ok: true }"
+    },
+    {
+      "id": "tarn.debugStepOver",
+      "title": "Debug: step over",
+      "status": "implemented",
+      "params": { "sessionId": "string" },
+      "returns": "{ ok: true }"
+    },
+    {
+      "id": "tarn.debugRerunStep",
+      "title": "Debug: rerun current step",
+      "status": "implemented",
+      "params": { "sessionId": "string" },
+      "returns": "{ ok: true }"
+    },
+    {
+      "id": "tarn.debugRestart",
+      "title": "Debug: restart session",
+      "status": "implemented",
+      "params": { "sessionId": "string" },
+      "returns": "{ ok: true }"
+    },
+    {
+      "id": "tarn.debugStop",
+      "title": "Debug: stop session",
+      "status": "implemented",
+      "params": { "sessionId": "string" },
+      "returns": "{ ok: true }"
     },
     {
       "id": "tarn.runLastFailures",

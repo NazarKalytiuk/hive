@@ -71,7 +71,10 @@ pub struct ClearFixturesArgs {
 #[serde(untagged)]
 pub enum GetFixtureResponse {
     Ok(Value),
-    Missing { error: &'static str, message: String },
+    Missing {
+        error: &'static str,
+        message: String,
+    },
 }
 
 /// Response shape for `tarn.clearFixtures` — reports how many
@@ -133,11 +136,13 @@ pub fn workspace_clear_fixtures(
 
     let scope: String;
     let root = workspace_root_from_state(state)
-        .or_else(|| args.file.as_ref().and_then(|f| {
-            let p = PathBuf::from(f);
-            crate::code_actions::response_source::workspace_root_for(&p)
-                .or_else(|| p.parent().map(Path::to_path_buf))
-        }))
+        .or_else(|| {
+            args.file.as_ref().and_then(|f| {
+                let p = PathBuf::from(f);
+                crate::code_actions::response_source::workspace_root_for(&p)
+                    .or_else(|| p.parent().map(Path::to_path_buf))
+            })
+        })
         .ok_or_else(|| {
             invalid_params(
                 "tarn.clearFixtures: unable to determine workspace root; open a Tarn buffer first",
@@ -193,9 +198,8 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
     let first = args
         .first()
         .ok_or_else(|| invalid_params(format!("{command} requires one argument object")))?;
-    serde_json::from_value::<T>(first.clone()).map_err(|e| {
-        invalid_params(format!("{command}: invalid argument shape: {e}"))
-    })
+    serde_json::from_value::<T>(first.clone())
+        .map_err(|e| invalid_params(format!("{command}: invalid argument shape: {e}")))
 }
 
 fn parse_file_arg(file: &str) -> Result<PathBuf, ResponseError> {

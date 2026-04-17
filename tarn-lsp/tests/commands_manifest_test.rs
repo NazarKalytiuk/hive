@@ -16,7 +16,8 @@ fn commands_json_contains_every_registered_id() {
         serde_json::from_slice(&raw).expect("docs/commands.json must parse as JSON");
 
     assert_eq!(
-        manifest["schema_version"], serde_json::json!(1),
+        manifest["schema_version"],
+        serde_json::json!(1),
         "docs/commands.json schema_version must match tarn_lsp::envelope::COMMAND_SCHEMA_VERSION"
     );
 

@@ -228,6 +228,42 @@ pub fn parse_tag_filter(tag_str: &str) -> Vec<String> {
         .collect()
 }
 
+/// Compose the `--test-filter` / `--step-filter` CLI shorthand flags into
+/// a single wildcard [`Selector`] that applies to every discovered file.
+///
+/// The step filter accepts a zero-based numeric index or an exact step
+/// name, matching [`selector::StepSelector`]'s parse rules. Returns an
+/// error when both filters are empty (the caller is expected to skip the
+/// synthesis in that case) or when the step value would be ambiguous
+/// (empty string).
+pub fn build_filter_selector(
+    test_filter: Option<&str>,
+    step_filter: Option<&str>,
+) -> Result<Selector, String> {
+    if test_filter.is_none() && step_filter.is_none() {
+        return Err("build_filter_selector called without any filter".to_string());
+    }
+    let test = test_filter
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let step = match step_filter {
+        None => None,
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err("--step-filter value is empty".to_string());
+            }
+            if let Ok(idx) = trimmed.parse::<usize>() {
+                Some(selector::StepSelector::Index(idx))
+            } else {
+                Some(selector::StepSelector::Name(trimmed.to_string()))
+            }
+        }
+    };
+    Ok(Selector::wildcard(test, step))
+}
+
 /// Run a single test file and return results.
 pub fn run_file(
     test_file: &TestFile,
@@ -883,7 +919,10 @@ fn evaluate_step_condition(
         if !truthy {
             return Some(condition_skipped_step(
                 step,
-                format!("`if:` expression {} evaluated falsy; step skipped.", quote(expr)),
+                format!(
+                    "`if:` expression {} evaluated falsy; step skipped.",
+                    quote(expr)
+                ),
             ));
         }
     }
@@ -992,7 +1031,7 @@ fn unresolved_template_step(
         return Some(StepResult {
             name: step.name.clone(),
             description: step.description.clone(),
-        debug: step.debug,
+            debug: step.debug,
             passed: false,
             duration_ms: 0,
             assertion_results: vec![AssertionResult::fail(
@@ -1253,7 +1292,10 @@ fn build_response_info(response: &http::HttpResponse, max_body_bytes: usize) -> 
 /// form is within `max_bytes` are returned unchanged. Larger bodies are
 /// replaced with a string marker so the output stays machine-parseable
 /// (`"...<truncated: N bytes>"`).
-pub(crate) fn truncate_report_body(body: &serde_json::Value, max_bytes: usize) -> serde_json::Value {
+pub(crate) fn truncate_report_body(
+    body: &serde_json::Value,
+    max_bytes: usize,
+) -> serde_json::Value {
     if max_bytes == 0 {
         return body.clone();
     }
@@ -1579,7 +1621,7 @@ fn run_step(
         return Ok(StepResult {
             name: step.name.clone(),
             description: step.description.clone(),
-        debug: step.debug,
+            debug: step.debug,
             passed: true,
             duration_ms: 0,
             assertion_results: vec![],
@@ -1708,7 +1750,7 @@ fn run_step(
                 return Ok(StepResult {
                     name: step.name.clone(),
                     description: step.description.clone(),
-        debug: step.debug,
+                    debug: step.debug,
                     passed: false,
                     duration_ms: response.duration_ms,
                     assertion_results: all_assertions,
@@ -1747,7 +1789,7 @@ fn run_step(
             return Ok(StepResult {
                 name: step.name.clone(),
                 description: step.description.clone(),
-        debug: step.debug,
+                debug: step.debug,
                 passed: all_passed,
                 duration_ms: response.duration_ms,
                 assertion_results: all_assertions,
@@ -1852,8 +1894,7 @@ fn run_step_poll(
         // Check for unresolved template expressions before sending.
         // Shares its classification with the non-poll path so a single
         // optional-unset message wording serves both entry points.
-        if let Some(result) =
-            unresolved_template_step(step, &request, &request_info, &request.ctx)
+        if let Some(result) = unresolved_template_step(step, &request, &request_info, &request.ctx)
         {
             return Ok(result);
         }
@@ -1968,7 +2009,7 @@ fn run_step_poll(
                         return Ok(StepResult {
                             name: step.name.clone(),
                             description: step.description.clone(),
-        debug: step.debug,
+                            debug: step.debug,
                             passed: false,
                             duration_ms: response.duration_ms,
                             assertion_results: all_assertions,
@@ -2006,7 +2047,7 @@ fn run_step_poll(
             return Ok(StepResult {
                 name: step.name.clone(),
                 description: step.description.clone(),
-        debug: step.debug,
+                debug: step.debug,
                 passed: all_passed,
                 duration_ms: response.duration_ms,
                 assertion_results: all_assertions,
@@ -2037,7 +2078,7 @@ fn run_step_poll(
             return Ok(StepResult {
                 name: step.name.clone(),
                 description: step.description.clone(),
-        debug: step.debug,
+                debug: step.debug,
                 passed: false,
                 duration_ms: 0,
                 assertion_results: vec![AssertionResult::fail(
@@ -2302,6 +2343,317 @@ fn interpolate_yaml_value(value: &serde_yaml::Value, ctx: &Context) -> serde_yam
         ),
         other => other.clone(),
     }
+}
+
+/// Direction given by a debug session callback after each step outcome.
+///
+/// Returned by the closure passed to [`run_test_steps`]. The runner reads
+/// this value after each step's [`StepOutcome`] and decides whether to
+/// advance to the next step, re-run the current one without advancing, or
+/// abort the remaining steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepControl {
+    /// Advance to the next step (or stop if the test is finished).
+    Continue,
+    /// Re-run the current step without advancing the index. Captures and
+    /// cookies survive the retry so late-attempt success can still feed
+    /// downstream steps.
+    Retry,
+    /// Abort the remaining steps. The session finishes with
+    /// whatever step results have accumulated up to this point.
+    Stop,
+}
+
+/// Phase identifier so callbacks (and the LSP debug UI) can tell a setup
+/// step apart from a "real" test step or a teardown step. The runner
+/// emits setup/teardown outcomes too so the debugger can surface captures
+/// and responses from shared fixtures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepPhase {
+    /// A step in the file's `setup:` block.
+    Setup,
+    /// A step inside the targeted test (`tests.<name>.steps` or the
+    /// file-level flat `steps:`).
+    Test,
+    /// A step in the file's `teardown:` block. Teardown is emitted even if
+    /// a previous step triggered [`StepControl::Stop`] so users can still
+    /// see clean-up results.
+    Teardown,
+}
+
+/// Payload emitted by [`run_test_steps`] between steps. Combines the
+/// finished step's raw [`StepResult`], its source phase, and a snapshot of
+/// the captures visible after the step ran so the debugger can render a
+/// full UI state (captures panel, last-response panel, step counter)
+/// without reaching back into runner internals.
+#[derive(Debug, Clone)]
+pub struct StepOutcome {
+    /// Which phase produced this step (setup / test / teardown).
+    pub phase: StepPhase,
+    /// Zero-based index of the step within its phase's step list.
+    pub step_index: usize,
+    /// Full `StepResult` — including assertion results, request/response
+    /// info, and the list of capture names the step wrote.
+    pub result: StepResult,
+    /// Snapshot of every capture visible to subsequent steps after this
+    /// step finished. Only includes the callers' view of capture state —
+    /// the runner's internal machinery (cookies, redaction cache) is not
+    /// surfaced here.
+    pub captures: HashMap<String, serde_json::Value>,
+}
+
+/// Options for [`run_test_steps`]. Separate from [`RunOptions`] because
+/// step-by-step runs rarely need parallel cookie jars, multi-file CLI
+/// plumbing, etc. — a debug session always targets a single test.
+#[derive(Debug, Clone, Default)]
+pub struct StepByStepOptions {
+    /// Underlying runner options (verbose, dry-run, HTTP transport, etc.).
+    pub run: RunOptions,
+    /// When true, the teardown phase is skipped. Useful for a debug
+    /// session that aborted mid-way and should not mutate external state.
+    pub skip_teardown: bool,
+    /// When true, the setup phase is skipped. Handy when the caller wants
+    /// to single-step through test steps without re-running shared
+    /// fixtures — the debugger uses this after a
+    /// [`StepControl::Retry`] against a setup step has already rebuilt
+    /// the initial state.
+    pub skip_setup: bool,
+}
+
+/// Outcome of a full step-by-step run. Collected for callers that want
+/// to hand the session back to the normal reporting pipeline after a
+/// debug session ends.
+#[derive(Debug, Clone, Default)]
+pub struct StepByStepReport {
+    /// Results from setup steps that were actually executed (setup stops
+    /// on [`StepControl::Stop`] and does not run when `skip_setup` is
+    /// true).
+    pub setup_results: Vec<StepResult>,
+    /// Results from the targeted test's steps.
+    pub test_results: Vec<StepResult>,
+    /// Results from teardown steps.
+    pub teardown_results: Vec<StepResult>,
+    /// Captures visible at the end of the session.
+    pub captures: HashMap<String, serde_json::Value>,
+    /// True when the callback returned [`StepControl::Stop`] at any
+    /// point so the caller can tell an aborted session from a
+    /// fully-finished one.
+    pub aborted: bool,
+}
+
+/// Drive a single test in step-by-step mode, invoking `on_step` after
+/// each step completes to decide what to do next.
+///
+/// The callback receives a [`StepOutcome`] with the finished step's full
+/// [`StepResult`] plus a post-step captures snapshot, and returns a
+/// [`StepControl`] value that tells the runner whether to advance, retry
+/// the current step, or stop.
+///
+/// This is the core primitive the LSP debug session ([`tarn-lsp`'s
+/// `debug_session`]) wraps with channel-based pausing so a human user
+/// can step through a Tarn test interactively. The runner here is
+/// synchronous: it calls `on_step` inline between steps, and the LSP
+/// wrapper turns that inline call into "publish a `tarn/captureState`
+/// notification, wait for a `tarn.debug*` command, map it to a
+/// `StepControl`".
+pub fn run_test_steps<F>(
+    test_file: &TestFile,
+    file_path: &str,
+    env: &HashMap<String, String>,
+    test_name: &str,
+    opts: &StepByStepOptions,
+    mut on_step: F,
+) -> Result<StepByStepReport, TarnError>
+where
+    F: FnMut(&StepOutcome) -> StepControl,
+{
+    let client = http::HttpClient::new(&opts.run.http)?;
+    let redaction = test_file.redaction.clone().unwrap_or_default();
+    let mut redacted_values = collect_redacted_env_values(env, &redaction);
+    let mut cookie_jars: HashMap<String, CookieJar> = HashMap::new();
+    let cookie_mode = effective_cookie_mode(test_file.cookies, opts.run.cookie_jar_per_test);
+    let cookies_enabled = cookie_mode != CookieMode::Off;
+    let base_dir = Path::new(file_path)
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+
+    // Locate the steps this session should drive. The caller names the
+    // enclosing test: either a named group (`tests.<name>`), the file's
+    // flat `steps:` block (test_name == test_file.name), or an empty
+    // lookup error.
+    let test_steps: Vec<Step> = if let Some(group) = test_file.tests.get(test_name) {
+        group.steps.clone()
+    } else if test_file.name == test_name && !test_file.steps.is_empty() {
+        test_file.steps.clone()
+    } else {
+        return Err(TarnError::Config(format!(
+            "run_test_steps: no test named `{}` in `{}`",
+            test_name, file_path
+        )));
+    };
+
+    let mut captures: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut optional_unset: HashSet<String> = HashSet::new();
+    let mut aborted = false;
+    let mut report = StepByStepReport::default();
+
+    // Phase 1: setup
+    if !opts.skip_setup && !test_file.setup.is_empty() {
+        let outcome = drive_phase_steps(
+            &test_file.setup,
+            StepPhase::Setup,
+            env,
+            &mut captures,
+            &mut optional_unset,
+            test_file,
+            &redaction,
+            &mut redacted_values,
+            &client,
+            &opts.run,
+            cookies_enabled,
+            &mut cookie_jars,
+            &base_dir,
+            &mut on_step,
+        )?;
+        report.setup_results = outcome.results;
+        aborted |= outcome.aborted;
+    }
+
+    // Phase 2: target test. Still run even when setup failed — the LSP
+    // debugger wants to show the user each failed step so they can retry
+    // after a fix, not silently skip to teardown.
+    if !aborted {
+        let outcome = drive_phase_steps(
+            &test_steps,
+            StepPhase::Test,
+            env,
+            &mut captures,
+            &mut optional_unset,
+            test_file,
+            &redaction,
+            &mut redacted_values,
+            &client,
+            &opts.run,
+            cookies_enabled,
+            &mut cookie_jars,
+            &base_dir,
+            &mut on_step,
+        )?;
+        report.test_results = outcome.results;
+        aborted |= outcome.aborted;
+    }
+
+    // Phase 3: teardown. Always runs (like the regular runner) unless the
+    // caller explicitly disables it. Teardown ignores `aborted` — it's a
+    // clean-up pass that should fire whether or not the user stopped the
+    // debug session early.
+    if !opts.skip_teardown && !test_file.teardown.is_empty() {
+        let outcome = drive_phase_steps(
+            &test_file.teardown,
+            StepPhase::Teardown,
+            env,
+            &mut captures,
+            &mut optional_unset,
+            test_file,
+            &redaction,
+            &mut redacted_values,
+            &client,
+            &opts.run,
+            cookies_enabled,
+            &mut cookie_jars,
+            &base_dir,
+            &mut on_step,
+        )?;
+        report.teardown_results = outcome.results;
+        aborted |= outcome.aborted;
+    }
+
+    report.captures = captures;
+    report.aborted = aborted;
+    Ok(report)
+}
+
+/// Execution result of one phase of [`run_test_steps`].
+struct DrivenPhaseOutcome {
+    results: Vec<StepResult>,
+    aborted: bool,
+}
+
+/// Run one phase's step list with callback-driven flow control. Shared
+/// implementation behind [`run_test_steps`].
+#[allow(clippy::too_many_arguments)]
+fn drive_phase_steps<F>(
+    steps: &[Step],
+    phase: StepPhase,
+    env: &HashMap<String, String>,
+    captures: &mut HashMap<String, serde_json::Value>,
+    optional_unset: &mut HashSet<String>,
+    test_file: &TestFile,
+    redaction: &RedactionConfig,
+    redacted_values: &mut BTreeSet<String>,
+    client: &http::HttpClient,
+    opts: &RunOptions,
+    cookies_enabled: bool,
+    cookie_jars: &mut HashMap<String, CookieJar>,
+    base_dir: &Path,
+    on_step: &mut F,
+) -> Result<DrivenPhaseOutcome, TarnError>
+where
+    F: FnMut(&StepOutcome) -> StepControl,
+{
+    let mut results: Vec<StepResult> = Vec::with_capacity(steps.len());
+    let mut aborted = false;
+    let mut index = 0;
+
+    while index < steps.len() {
+        let step = &steps[index];
+        let result = run_step(
+            step,
+            env,
+            captures,
+            optional_unset,
+            test_file,
+            redaction,
+            redacted_values,
+            client,
+            opts,
+            cookies_enabled,
+            cookie_jars,
+            base_dir,
+        )?;
+
+        let outcome = StepOutcome {
+            phase,
+            step_index: index,
+            result: result.clone(),
+            captures: captures.clone(),
+        };
+
+        match on_step(&outcome) {
+            StepControl::Continue => {
+                results.push(result);
+                index += 1;
+            }
+            StepControl::Retry => {
+                // Do not record this result. Captures from the retry will
+                // overwrite anything the retried step wrote; the runner's
+                // `run_step` is idempotent with respect to captures
+                // (they're re-extracted on every call) so rerunning a
+                // failed step is safe.
+                //
+                // We deliberately do not touch `results` so the previous
+                // attempt stays out of the final report.
+            }
+            StepControl::Stop => {
+                results.push(result);
+                aborted = true;
+                break;
+            }
+        }
+    }
+
+    Ok(DrivenPhaseOutcome { results, aborted })
 }
 
 /// Directory basenames that are skipped during recursive test discovery
@@ -3281,12 +3633,8 @@ steps:
 
         assert_eq!(plan.serial, vec!["b.tarn.yaml", "d.tarn.yaml"]);
         assert_eq!(plan.parallel_buckets.len(), 2);
-        let parallel_files: BTreeSet<String> = plan
-            .parallel_buckets
-            .iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let parallel_files: BTreeSet<String> =
+            plan.parallel_buckets.iter().flatten().cloned().collect();
         assert_eq!(
             parallel_files,
             BTreeSet::from(["a.tarn.yaml".into(), "c.tarn.yaml".into()])
@@ -3470,5 +3818,190 @@ steps:
         let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
         assert!(!md.serial_only);
         assert_eq!(md.group, None);
+    }
+
+    // --- NAZ-256: --test-filter / --step-filter shorthand flags ---
+
+    #[test]
+    fn build_filter_selector_requires_at_least_one_filter() {
+        assert!(build_filter_selector(None, None).is_err());
+    }
+
+    #[test]
+    fn build_filter_selector_accepts_test_only() {
+        let sel = build_filter_selector(Some("login"), None).unwrap();
+        assert_eq!(sel.test.as_deref(), Some("login"));
+        assert!(sel.step.is_none());
+    }
+
+    #[test]
+    fn build_filter_selector_maps_numeric_step_to_index() {
+        let sel = build_filter_selector(Some("login"), Some("2")).unwrap();
+        assert_eq!(sel.step, Some(crate::selector::StepSelector::Index(2)));
+    }
+
+    #[test]
+    fn build_filter_selector_maps_named_step() {
+        let sel = build_filter_selector(Some("login"), Some("bye")).unwrap();
+        assert_eq!(
+            sel.step,
+            Some(crate::selector::StepSelector::Name("bye".into()))
+        );
+    }
+
+    #[test]
+    fn build_filter_selector_rejects_empty_step_value() {
+        assert!(build_filter_selector(None, Some("   ")).is_err());
+    }
+
+    #[test]
+    fn build_filter_selector_produces_wildcard_file() {
+        let sel = build_filter_selector(Some("login"), None).unwrap();
+        assert!(sel.matches_file("any/path/foo.tarn.yaml"));
+        assert!(sel.matches_file("another/bar.tarn.yaml"));
+    }
+
+    // --- NAZ-256: run_test_steps callback API ---
+    //
+    // These tests drive `run_test_steps` against a dry-run test file so
+    // no HTTP server is needed. The callback interception runs on every
+    // step regardless of whether it actually hit the network; dry-run
+    // short-circuits inside `run_step` but still produces a StepResult.
+
+    fn dry_run_test_file() -> crate::model::TestFile {
+        let yaml = r#"
+name: Debug callback fixture
+tests:
+  scenario:
+    steps:
+      - name: s1
+        request:
+          method: GET
+          url: "http://127.0.0.1:1/health"
+      - name: s2
+        request:
+          method: GET
+          url: "http://127.0.0.1:1/health"
+      - name: s3
+        request:
+          method: GET
+          url: "http://127.0.0.1:1/health"
+"#;
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn run_test_steps_continue_runs_every_step_in_order() {
+        let tf = dry_run_test_file();
+        let mut names = Vec::new();
+        let opts = StepByStepOptions {
+            run: RunOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let report = run_test_steps(
+            &tf,
+            "dry.tarn.yaml",
+            &HashMap::new(),
+            "scenario",
+            &opts,
+            |outcome| {
+                names.push(outcome.result.name.clone());
+                StepControl::Continue
+            },
+        )
+        .unwrap();
+        assert_eq!(names, vec!["s1", "s2", "s3"]);
+        assert_eq!(report.test_results.len(), 3);
+        assert!(!report.aborted);
+    }
+
+    #[test]
+    fn run_test_steps_stop_short_circuits_remaining() {
+        let tf = dry_run_test_file();
+        let mut names = Vec::new();
+        let opts = StepByStepOptions {
+            run: RunOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let report = run_test_steps(
+            &tf,
+            "dry.tarn.yaml",
+            &HashMap::new(),
+            "scenario",
+            &opts,
+            |outcome| {
+                names.push(outcome.result.name.clone());
+                if outcome.result.name == "s1" {
+                    StepControl::Stop
+                } else {
+                    StepControl::Continue
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(names, vec!["s1"]);
+        assert!(report.aborted);
+        assert_eq!(report.test_results.len(), 1);
+    }
+
+    #[test]
+    fn run_test_steps_retry_reruns_current_step_without_advancing() {
+        let tf = dry_run_test_file();
+        let mut attempts: HashMap<String, u32> = HashMap::new();
+        let opts = StepByStepOptions {
+            run: RunOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let report = run_test_steps(
+            &tf,
+            "dry.tarn.yaml",
+            &HashMap::new(),
+            "scenario",
+            &opts,
+            |outcome| {
+                let name = outcome.result.name.clone();
+                let counter = attempts.entry(name.clone()).or_insert(0);
+                *counter += 1;
+                if name == "s2" && *counter < 3 {
+                    StepControl::Retry
+                } else {
+                    StepControl::Continue
+                }
+            },
+        )
+        .unwrap();
+
+        // Every step runs at least once; s2 runs 3 times (2 retries + 1 final).
+        assert_eq!(attempts["s1"], 1);
+        assert_eq!(attempts["s2"], 3);
+        assert_eq!(attempts["s3"], 1);
+        // The final report only records the advancing result — retries
+        // are discarded so the final view shows one row per step.
+        assert_eq!(report.test_results.len(), 3);
+    }
+
+    #[test]
+    fn run_test_steps_unknown_test_returns_config_error() {
+        let tf = dry_run_test_file();
+        let opts = StepByStepOptions::default();
+        let err = run_test_steps(
+            &tf,
+            "dry.tarn.yaml",
+            &HashMap::new(),
+            "does_not_exist",
+            &opts,
+            |_| StepControl::Continue,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no test named"));
     }
 }

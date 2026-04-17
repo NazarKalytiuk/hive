@@ -136,7 +136,10 @@ fn execute_jsonpath_step_ref_missing_sidecar_returns_no_fixture_variant() {
         })],
     );
     assert_eq!(response["data"]["result"], serde_json::json!("no_fixture"));
-    assert!(response["data"]["message"].as_str().unwrap().contains("no fixture"));
+    assert!(response["data"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("no fixture"));
 
     shutdown_and_join(client_conn, server_thread);
 }

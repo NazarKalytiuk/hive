@@ -80,7 +80,11 @@ fn state_json_is_written_at_end_of_run() {
         Some("https://x.test".into()),
     );
     let written = write_state(tmp.path(), &state).expect("write_state ok");
-    assert!(written.is_file(), "state.json must exist at {}", written.display());
+    assert!(
+        written.is_file(),
+        "state.json must exist at {}",
+        written.display()
+    );
     assert!(
         !tmp.path().join(".tarn/state.json.tmp").exists(),
         "tmp file must be gone after the atomic rename"

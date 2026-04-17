@@ -10,7 +10,9 @@ use crate::assert::types::{
     AssertionResult, ErrorCode, FailureCategory, FileResult, RunResult, StepResult, TestResult,
 };
 use crate::model::RedactionConfig;
-use crate::report::redaction::{redact_headers, sanitize_assertion, sanitize_json, sanitize_string};
+use crate::report::redaction::{
+    redact_headers, sanitize_assertion, sanitize_json, sanitize_string,
+};
 
 /// Maximum characters rendered for an assertion message in the compact
 /// summary. LLM format uses a different cap via `format_assertion_line`.
@@ -372,8 +374,7 @@ mod tests {
         let mut step = failing_step_with_status("s", 500);
         let big = serde_json::Value::String("x".repeat(64));
         step.response_info.as_mut().unwrap().body = Some(big);
-        let preview =
-            response_body_preview(&step, &RedactionConfig::default(), &[], 20).unwrap();
+        let preview = response_body_preview(&step, &RedactionConfig::default(), &[], 20).unwrap();
         assert!(preview.contains("<truncated:"));
         assert!(preview.len() < 100);
     }

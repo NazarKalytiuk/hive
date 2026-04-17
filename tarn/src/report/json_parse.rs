@@ -48,15 +48,12 @@ pub fn parse(input: &str) -> Result<RunResult, ParseError> {
 
     let mut file_results = Vec::with_capacity(files_array.len());
     for (idx, file_value) in files_array.iter().enumerate() {
-        let parsed = parse_file(file_value)
-            .map_err(|e| ParseError(format!("files[{}]: {}", idx, e.0)))?;
+        let parsed =
+            parse_file(file_value).map_err(|e| ParseError(format!("files[{}]: {}", idx, e.0)))?;
         file_results.push(parsed);
     }
 
-    let duration_ms = obj
-        .get("duration_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let duration_ms = obj.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
 
     Ok(RunResult {
         file_results,
@@ -72,10 +69,7 @@ fn parse_file(value: &Value) -> Result<FileResult, ParseError> {
     let file = string_field(obj, "file").unwrap_or_default();
     let name = string_field(obj, "name").unwrap_or_else(|| file.clone());
     let passed = status_to_passed(obj.get("status"));
-    let duration_ms = obj
-        .get("duration_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let duration_ms = obj.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
 
     let setup_results = parse_step_array(obj.get("setup"))?;
     let teardown_results = parse_step_array(obj.get("teardown"))?;
@@ -108,10 +102,7 @@ fn parse_test(value: &Value) -> Result<TestResult, ParseError> {
     let name = string_field(obj, "name").unwrap_or_default();
     let description = string_field(obj, "description");
     let passed = status_to_passed(obj.get("status"));
-    let duration_ms = obj
-        .get("duration_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let duration_ms = obj.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
 
     let captures: HashMap<String, Value> = obj
         .get("captures")
@@ -146,10 +137,7 @@ fn parse_step(value: &Value) -> Result<StepResult, ParseError> {
     let name = string_field(obj, "name").unwrap_or_default();
     let description = string_field(obj, "description");
     let passed = status_to_passed(obj.get("status"));
-    let duration_ms = obj
-        .get("duration_ms")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let duration_ms = obj.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
     let response_status = obj
         .get("response_status")
         .and_then(Value::as_u64)
@@ -158,7 +146,12 @@ fn parse_step(value: &Value) -> Result<StepResult, ParseError> {
     let captures_set = obj
         .get("captures_set")
         .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default();
 
     let assertion_results = obj
@@ -166,7 +159,12 @@ fn parse_step(value: &Value) -> Result<StepResult, ParseError> {
         .and_then(Value::as_object)
         .and_then(|a| a.get("details"))
         .and_then(Value::as_array)
-        .map(|details| details.iter().map(parse_assertion).collect::<Result<Vec<_>, _>>())
+        .map(|details| {
+            details
+                .iter()
+                .map(parse_assertion)
+                .collect::<Result<Vec<_>, _>>()
+        })
         .transpose()?
         .unwrap_or_default();
 
@@ -284,9 +282,7 @@ fn status_to_passed(value: Option<&Value>) -> bool {
 }
 
 fn string_field(obj: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
-    obj.get(name)
-        .and_then(Value::as_str)
-        .map(|s| s.to_string())
+    obj.get(name).and_then(Value::as_str).map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -332,8 +328,7 @@ mod tests {
             }],
             captures: HashMap::new(),
         };
-        tr.captures
-            .insert("token".into(), serde_json::json!("abc"));
+        tr.captures.insert("token".into(), serde_json::json!("abc"));
 
         RunResult {
             duration_ms: 200,
@@ -382,14 +377,8 @@ mod tests {
         let json = render(&run);
         let parsed = parse(&json).unwrap();
         let test = &parsed.file_results[0].test_results[0];
-        assert_eq!(
-            test.captures.get("token"),
-            Some(&serde_json::json!("abc"))
-        );
-        assert_eq!(
-            test.step_results[0].captures_set,
-            vec!["id".to_string()]
-        );
+        assert_eq!(test.captures.get("token"), Some(&serde_json::json!("abc")));
+        assert_eq!(test.step_results[0].captures_set, vec!["id".to_string()]);
     }
 
     #[test]

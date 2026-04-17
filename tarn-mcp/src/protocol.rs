@@ -106,7 +106,10 @@ pub fn workspace_root() -> Option<PathBuf> {
 /// state between cases.
 fn workspace_root_from_params(init_params: &Value) -> Option<PathBuf> {
     // Priority 1: `workspaceFolders[0].uri` — the modern MCP/LSP field.
-    if let Some(folders) = init_params.get("workspaceFolders").and_then(|v| v.as_array()) {
+    if let Some(folders) = init_params
+        .get("workspaceFolders")
+        .and_then(|v| v.as_array())
+    {
         for folder in folders {
             if let Some(uri) = folder.get("uri").and_then(|v| v.as_str()) {
                 if let Some(path) = path_from_uri_or_path(uri) {

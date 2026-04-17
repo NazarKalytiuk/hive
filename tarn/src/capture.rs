@@ -292,7 +292,10 @@ fn yaml_to_json(value: &serde_yaml::Value) -> Value {
             for (k, v) in map {
                 let key = match k {
                     serde_yaml::Value::String(s) => s.clone(),
-                    other => serde_yaml::to_string(other).unwrap_or_default().trim().to_string(),
+                    other => serde_yaml::to_string(other)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string(),
                 };
                 obj.insert(key, yaml_to_json(v));
             }
@@ -997,7 +1000,10 @@ mod tests {
             &Context::new(),
         )
         .unwrap();
-        assert_eq!(captures.values.get("email").unwrap(), &json!("alice@test.com"));
+        assert_eq!(
+            captures.values.get("email").unwrap(),
+            &json!("alice@test.com")
+        );
     }
 
     #[test]
@@ -1404,7 +1410,10 @@ mod tests {
             &Context::new(),
         )
         .unwrap();
-        assert_eq!(captures.values.get("ct").unwrap(), &json!("application/json"));
+        assert_eq!(
+            captures.values.get("ct").unwrap(),
+            &json!("application/json")
+        );
     }
 
     #[test]
@@ -1738,7 +1747,10 @@ mod tests {
             &Context::new(),
         )
         .unwrap();
-        assert_eq!(captures.values.get("session_cookie").unwrap(), &json!("abc123"));
+        assert_eq!(
+            captures.values.get("session_cookie").unwrap(),
+            &json!("abc123")
+        );
     }
 
     #[test]
@@ -2194,11 +2206,11 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let hit = extract_captures(&response_view(201, &body, &headers), &map, &Context::new())
-            .unwrap();
+        let hit =
+            extract_captures(&response_view(201, &body, &headers), &map, &Context::new()).unwrap();
         assert_eq!(hit.values.get("id"), Some(&json!(7)));
-        let miss = extract_captures(&response_view(202, &body, &headers), &map, &Context::new())
-            .unwrap();
+        let miss =
+            extract_captures(&response_view(202, &body, &headers), &map, &Context::new()).unwrap();
         assert!(miss.optional_unset.contains("id"));
 
         let mut range_map = HashMap::new();
@@ -2218,13 +2230,19 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let range_hit =
-            extract_captures(&response_view(422, &body, &headers), &range_map, &Context::new())
-                .unwrap();
+        let range_hit = extract_captures(
+            &response_view(422, &body, &headers),
+            &range_map,
+            &Context::new(),
+        )
+        .unwrap();
         assert_eq!(range_hit.values.get("err"), Some(&json!(7)));
-        let range_miss =
-            extract_captures(&response_view(500, &body, &headers), &range_map, &Context::new())
-                .unwrap();
+        let range_miss = extract_captures(
+            &response_view(500, &body, &headers),
+            &range_map,
+            &Context::new(),
+        )
+        .unwrap();
         assert!(range_miss.optional_unset.contains("err"));
     }
 

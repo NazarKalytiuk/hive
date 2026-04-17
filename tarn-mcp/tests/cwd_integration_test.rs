@@ -108,11 +108,7 @@ fn handle_one(mut stream: TcpStream) {
 ///   - `tests/health.tarn.yaml` (a single-step GET that expects 200)
 fn scaffold_project(dir: &Path, base_url: &str) {
     std::fs::write(dir.join("tarn.config.yaml"), "test_dir: tests\n").unwrap();
-    std::fs::write(
-        dir.join("tarn.env.yaml"),
-        format!("base_url: {base_url}\n"),
-    )
-    .unwrap();
+    std::fs::write(dir.join("tarn.env.yaml"), format!("base_url: {base_url}\n")).unwrap();
     let tests_dir = dir.join("tests");
     std::fs::create_dir_all(&tests_dir).unwrap();
     std::fs::write(

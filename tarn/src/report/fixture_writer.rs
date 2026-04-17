@@ -244,9 +244,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
     let tmp = path.with_extension(format!(
         "{}.tmp",
-        path.extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
+        path.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)?;
@@ -452,17 +450,8 @@ mod tests {
         let mut fx = build_fixture(&sr, &redaction, &["leaky-secret".into()]);
         let mut all_captures = HashMap::new();
         all_captures.insert("user_id".to_string(), serde_json::json!(7));
-        all_captures.insert(
-            "other".to_string(),
-            serde_json::json!("should-not-appear"),
-        );
-        attach_captures(
-            &mut fx,
-            &all_captures,
-            &["user_id".into()],
-            &redaction,
-            &[],
-        );
+        all_captures.insert("other".to_string(), serde_json::json!("should-not-appear"));
+        attach_captures(&mut fx, &all_captures, &["user_id".into()], &redaction, &[]);
         assert_eq!(fx.captures.get("user_id"), Some(&serde_json::json!(7)));
         assert!(!fx.captures.contains_key("other"));
     }
@@ -527,9 +516,7 @@ mod tests {
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| {
-                n != LATEST_PASSED_FILENAME && n != INDEX_FILENAME && !n.ends_with(".tmp")
-            })
+            .filter(|n| n != LATEST_PASSED_FILENAME && n != INDEX_FILENAME && !n.ends_with(".tmp"))
             .collect();
         assert_eq!(
             entries.len(),

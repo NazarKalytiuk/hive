@@ -470,7 +470,11 @@ mod tests {
         };
         let err = require_config_for_explicit_cwd(&resolved).unwrap_err();
         assert!(err.contains("tarn.config.yaml"), "got: {}", err);
-        assert!(err.contains(&tmp.path().display().to_string()), "got: {}", err);
+        assert!(
+            err.contains(&tmp.path().display().to_string()),
+            "got: {}",
+            err
+        );
     }
 
     #[test]
@@ -499,7 +503,10 @@ mod tests {
     fn resolve_path_against_cwd_joins_relative() {
         let cwd = std::path::Path::new("/tmp/workspace");
         let joined = resolve_path_against_cwd("tests/x.tarn.yaml", cwd);
-        assert_eq!(joined, std::path::PathBuf::from("/tmp/workspace/tests/x.tarn.yaml"));
+        assert_eq!(
+            joined,
+            std::path::PathBuf::from("/tmp/workspace/tests/x.tarn.yaml")
+        );
     }
 
     #[test]

@@ -202,9 +202,7 @@ fn step_file_to_pathbuf(file: &str) -> PathBuf {
 /// Entry point for the `tarn.evaluateJsonpath` dispatch used by the
 /// server's `workspace/executeCommand` router. Always returns the
 /// [`crate::envelope`]-wrapped payload on success.
-pub fn dispatch_evaluate_jsonpath(
-    params: ExecuteCommandParams,
-) -> Result<Value, ResponseError> {
+pub fn dispatch_evaluate_jsonpath(params: ExecuteCommandParams) -> Result<Value, ResponseError> {
     let source: Arc<dyn RecordedResponseSource> = Arc::new(DiskResponseSource);
     let result = execute_evaluate_jsonpath(&params.arguments, source.as_ref())?;
     envelope::wrap(result).map_err(internal_error_from_serde)

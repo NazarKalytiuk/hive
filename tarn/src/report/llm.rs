@@ -15,7 +15,7 @@
 use crate::assert::types::{FailureCategory, FileResult, RunResult, StepResult};
 use crate::model::RedactionConfig;
 use crate::report::failure::{
-    format_assertion_line, for_each_step, group_failures, request_line, response_body_preview,
+    for_each_step, format_assertion_line, group_failures, request_line, response_body_preview,
     skip_cascade_summary, LLM_BODY_PREVIEW_CHARS,
 };
 use crate::report::redaction::sanitize_assertion;
@@ -449,8 +449,7 @@ mod tests {
                 location: None,
             });
         let out = render(&run);
-        let expected =
-            "skipped: 2 steps (depended on failed capture 'id') in \
+        let expected = "skipped: 2 steps (depended on failed capture 'id') in \
              tests/users.tarn.yaml::create_user";
         assert!(out.contains(expected));
     }

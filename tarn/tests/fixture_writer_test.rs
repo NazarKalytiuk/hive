@@ -219,7 +219,11 @@ fn retention_caps_history_to_configured_value() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|n| n != "latest-passed.json" && n != "_index.json" && !n.ends_with(".tmp"))
         .collect();
-    assert_eq!(entries.len(), 2, "retention=2 cap should yield 2 rolling entries, got {entries:?}");
+    assert_eq!(
+        entries.len(),
+        2,
+        "retention=2 cap should yield 2 rolling entries, got {entries:?}"
+    );
 }
 
 #[test]

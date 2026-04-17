@@ -17,12 +17,20 @@ use lsp_server::{ErrorCode, ResponseError};
 use lsp_types::ExecuteCommandParams;
 use serde_json::Value;
 
+use crate::debug_session::{
+    DEBUG_CONTINUE_COMMAND, DEBUG_RERUN_STEP_COMMAND, DEBUG_RESTART_COMMAND,
+    DEBUG_STEP_OVER_COMMAND, DEBUG_STOP_COMMAND, DEBUG_TEST_COMMAND, GET_CAPTURE_STATE_COMMAND,
+};
+use crate::diff::DIFF_LAST_PASSING_COMMAND;
 use crate::envelope;
 use crate::explain_failure::{workspace_explain_failure, EXPLAIN_FAILURE_COMMAND};
 use crate::fixtures::{
     workspace_clear_fixtures, workspace_get_fixture, CLEAR_FIXTURES_COMMAND, GET_FIXTURE_COMMAND,
 };
 use crate::jsonpath_eval::{dispatch_evaluate_jsonpath, EVALUATE_JSONPATH_COMMAND};
+use crate::run_commands::{
+    RUN_FILE_COMMAND, RUN_LAST_FAILURES_COMMAND, RUN_STEP_COMMAND, RUN_TEST_COMMAND,
+};
 use crate::server::ServerState;
 
 /// Full list of stable command ids — **source of truth**.
@@ -30,15 +38,20 @@ use crate::server::ServerState;
 /// Keep in sync with `docs/commands.json` (the generator test uses
 /// this list as the authoritative order).
 pub const ALL_COMMAND_IDS: &[&str] = &[
-    "tarn.runTest",
-    "tarn.runStep",
-    "tarn.runFile",
-    "tarn.debugTest",
-    "tarn.runLastFailures",
+    RUN_TEST_COMMAND,
+    RUN_STEP_COMMAND,
+    RUN_FILE_COMMAND,
+    DEBUG_TEST_COMMAND,
+    DEBUG_CONTINUE_COMMAND,
+    DEBUG_STEP_OVER_COMMAND,
+    DEBUG_RERUN_STEP_COMMAND,
+    DEBUG_RESTART_COMMAND,
+    DEBUG_STOP_COMMAND,
+    RUN_LAST_FAILURES_COMMAND,
     EXPLAIN_FAILURE_COMMAND,
-    "tarn.diffLastPassing",
+    DIFF_LAST_PASSING_COMMAND,
     EVALUATE_JSONPATH_COMMAND,
-    "tarn.getCaptureState",
+    GET_CAPTURE_STATE_COMMAND,
     "tarn.captureField",
     "tarn.scaffoldAssertFromResponse",
     "tarn.renameCapture",
@@ -59,18 +72,25 @@ pub fn dispatch(
         GET_FIXTURE_COMMAND => workspace_get_fixture(state, params),
         CLEAR_FIXTURES_COMMAND => workspace_clear_fixtures(state, params),
         EXPLAIN_FAILURE_COMMAND => workspace_explain_failure(state, params),
-        // NAZ-256 (test-runner integration) will flesh these in. We
-        // return a typed stub so LLM clients can detect the gap and
-        // fall back to running `tarn` on the command line rather
-        // than hitting `MethodNotFound` and thinking the LSP is
-        // broken.
-        "tarn.runTest"
-        | "tarn.runStep"
-        | "tarn.runFile"
-        | "tarn.debugTest"
-        | "tarn.runLastFailures"
-        | "tarn.diffLastPassing"
-        | "tarn.getCaptureState"
+        // NAZ-256 commands (run*, debug*, diff*, getCaptureState) are
+        // claimed by `dispatch_execute_command` in server.rs BEFORE
+        // reaching this fallback (they need a `NotificationSink` +
+        // `SessionRegistry` which this dispatcher doesn't have). When
+        // callers reach this path directly (e.g. unit tests), return
+        // the typed stub so the gap is visible as a concrete shape
+        // instead of a generic `MethodNotFound`.
+        RUN_TEST_COMMAND
+        | RUN_STEP_COMMAND
+        | RUN_FILE_COMMAND
+        | RUN_LAST_FAILURES_COMMAND
+        | DEBUG_TEST_COMMAND
+        | DEBUG_CONTINUE_COMMAND
+        | DEBUG_STEP_OVER_COMMAND
+        | DEBUG_RERUN_STEP_COMMAND
+        | DEBUG_RESTART_COMMAND
+        | DEBUG_STOP_COMMAND
+        | DIFF_LAST_PASSING_COMMAND
+        | GET_CAPTURE_STATE_COMMAND
         | "tarn.captureField"
         | "tarn.scaffoldAssertFromResponse"
         | "tarn.renameCapture" => envelope::wrap(serde_json::json!({

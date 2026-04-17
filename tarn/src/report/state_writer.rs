@@ -211,9 +211,7 @@ mod tests {
                         assertion_results: if passing_file {
                             vec![AssertionResult::pass("status", "200", "200")]
                         } else {
-                            vec![AssertionResult::fail(
-                                "status", "200", "500", "boom",
-                            )]
+                            vec![AssertionResult::fail("status", "200", "500", "boom")]
                         },
                         request_info: None,
                         response_info: None,
