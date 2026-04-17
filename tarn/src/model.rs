@@ -180,6 +180,23 @@ pub struct TestFile {
     /// Cookie handling mode: "auto" (default), "off", or "per-test"
     #[serde(default)]
     pub cookies: Option<CookieMode>,
+
+    /// When `true`, this file must never run concurrently with other work
+    /// under `--parallel`. Used for suites that share mutable state (DB
+    /// fixtures, global counters, singletons). The scheduler partitions
+    /// serial-only files onto a single worker so they run sequentially
+    /// after the parallel-safe set completes.
+    #[serde(default)]
+    pub serial_only: bool,
+
+    /// Optional resource group name. Files sharing the same group run on
+    /// the same worker (serialized within the group, parallelized across
+    /// groups). Useful for "all the postgres tests" or "all the S3 tests"
+    /// where a shared external resource forces serial ordering per
+    /// resource but allows resource groups to run in parallel with each
+    /// other.
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// File-level cookie handling mode.
@@ -225,6 +242,15 @@ pub struct TestGroup {
 
     #[serde(default)]
     pub steps: Vec<Step>,
+
+    /// When `true`, this named test must never run concurrently with other
+    /// work under `--parallel`. Since Tarn's parallelism unit is the file,
+    /// a single `serial_only` test effectively pins the containing file
+    /// to the serial bucket — this preserves the existing per-file
+    /// isolation invariant (setup/teardown, cookie jars, captures are
+    /// file-scoped).
+    #[serde(default)]
+    pub serial_only: bool,
 }
 
 /// A single test step: one HTTP request + optional capture + assertions.

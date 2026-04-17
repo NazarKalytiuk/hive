@@ -44,6 +44,114 @@ pub struct RunOptions {
 /// Name of the default cookie jar used when no `cookies: <name>` is set on a step.
 const DEFAULT_JAR_NAME: &str = "default";
 
+/// Scheduling metadata extracted from a `.tarn.yaml` file before the
+/// scheduler decides where the file belongs. Kept deliberately small so
+/// the scheduler can inspect every discovered file cheaply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchedulingMetadata {
+    /// The file's path (as reported to the user in results).
+    pub file: String,
+    /// Forced onto the serial worker when true, either because the file
+    /// sets `serial_only: true` at the top level or because any of its
+    /// named tests do. Individual-test pinning promotes the whole file
+    /// to serial since Tarn's parallelism unit is the file.
+    pub serial_only: bool,
+    /// Optional resource group name. Files sharing the same `group:`
+    /// string must land in the same parallel bucket so they run
+    /// sequentially relative to each other.
+    pub group: Option<String>,
+}
+
+impl SchedulingMetadata {
+    /// Build metadata directly from a parsed `TestFile`. Any named test
+    /// marked `serial_only: true` escalates the whole file to serial —
+    /// see docs on [`crate::model::TestGroup::serial_only`].
+    pub fn from_test_file(file: &str, test_file: &TestFile) -> Self {
+        let any_test_serial = test_file.tests.values().any(|t| t.serial_only);
+        Self {
+            file: file.to_string(),
+            serial_only: test_file.serial_only || any_test_serial,
+            group: test_file.group.clone(),
+        }
+    }
+}
+
+/// Output of the scheduler planning step.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SchedulePlan {
+    /// Buckets to run in parallel with each other. Files inside a
+    /// bucket run sequentially (to preserve `group:` ordering and keep
+    /// per-bucket shared-resource assumptions intact).
+    pub parallel_buckets: Vec<Vec<String>>,
+    /// Files that must run after every parallel bucket finishes, in
+    /// sequence, on a single worker. Ordering matches input discovery
+    /// order so reports stay deterministic.
+    pub serial: Vec<String>,
+}
+
+/// Plan how a flat list of files should be dispatched across `jobs`
+/// parallel workers under `--parallel`. Pure function — no I/O, no
+/// rayon — so it can be exhaustively unit-tested.
+///
+/// Rules (in order):
+///
+/// 1. Any file flagged `serial_only` (either file-level or because one
+///    of its named tests set `serial_only: true`) is pulled out of the
+///    parallel set and deferred to the serial bucket.
+/// 2. The remaining files are bucketed by their `group:` string. Files
+///    without a group get their own singleton bucket so they can run on
+///    any worker. Files sharing a group land in the same bucket so
+///    they run sequentially relative to each other.
+/// 3. Buckets are assigned across the available workers round-robin
+///    based on `jobs`. When `jobs` is 0 or 1 the plan collapses to a
+///    single parallel bucket (functionally sequential).
+///
+/// Within a bucket, file ordering matches the input slice so operators
+/// can still reason about side-effect ordering inside a resource group.
+pub fn plan_schedule(metadata: &[SchedulingMetadata], jobs: usize) -> SchedulePlan {
+    let worker_count = jobs.max(1);
+    let mut serial: Vec<String> = Vec::new();
+    let mut parallel_metadata: Vec<&SchedulingMetadata> = Vec::new();
+    for entry in metadata {
+        if entry.serial_only {
+            serial.push(entry.file.clone());
+        } else {
+            parallel_metadata.push(entry);
+        }
+    }
+
+    // Bucket parallel-safe files by group. Files without a group are
+    // given a unique synthetic key (their index) so every ungrouped file
+    // becomes its own bucket — this preserves the previous behaviour
+    // where every file could run on any worker. `IndexMap` preserves
+    // insertion order, which gives deterministic bucket ordering across
+    // runs with the same inputs.
+    let mut buckets: IndexMap<String, Vec<String>> = IndexMap::new();
+    for (idx, entry) in parallel_metadata.iter().enumerate() {
+        let key = match entry.group.as_deref() {
+            Some(name) if !name.is_empty() => format!("group:{}", name),
+            _ => format!("__ungrouped__:{}", idx),
+        };
+        buckets.entry(key).or_default().push(entry.file.clone());
+    }
+
+    // Distribute buckets across workers round-robin so a small number of
+    // groups does not starve the pool. `worker_buckets` collapses many
+    // logical groups into `worker_count` scheduling lanes that rayon can
+    // drive in parallel.
+    let mut worker_buckets: Vec<Vec<String>> = vec![Vec::new(); worker_count];
+    for (i, (_key, files)) in buckets.into_iter().enumerate() {
+        let slot = i % worker_count;
+        worker_buckets[slot].extend(files);
+    }
+    worker_buckets.retain(|b| !b.is_empty());
+
+    SchedulePlan {
+        parallel_buckets: worker_buckets,
+        serial,
+    }
+}
+
 /// Resolve the effective cookie mode for a file run. CLI override wins over
 /// the file's declared mode. `Off` always wins over per-test because "off"
 /// means no jar activity at all, and there is nothing to reset.
@@ -2868,24 +2976,18 @@ steps:
 
     #[test]
     fn is_truthy_rules_match_spec() {
-        // Central rule: empty / 0 / false / null / whitespace-only /
-        // unresolved placeholder → falsy; everything else truthy.
         for falsy in ["", "   ", "false", "FALSE", "0", "null", "Null"] {
             assert!(!is_truthy(falsy), "expected {:?} to be falsy", falsy);
         }
         for truthy in ["true", "1", "ok", " anything ", "00", "false-but-not"] {
             assert!(is_truthy(truthy), "expected {:?} to be truthy", truthy);
         }
-        // Unresolved `{{ capture.X }}` placeholders pass through
-        // interpolation unchanged and must read as falsy.
         assert!(!is_truthy("{{ capture.missing }}"));
         assert!(!is_truthy("{{env.unset}}"));
     }
 
     #[test]
     fn if_expression_truthy_runs_the_step() {
-        // Sanity: truthy expression means `evaluate_step_condition`
-        // returns None so the step proceeds.
         let step = build_step_with_condition(Some("{{ capture.request_uuid }}"), None);
         let mut captures = HashMap::new();
         captures.insert("request_uuid".into(), serde_json::json!("abc-123"));
@@ -2896,7 +2998,6 @@ steps:
 
     #[test]
     fn if_expression_falsy_unset_skips_the_step() {
-        // Unresolved `{{ capture.X }}` is falsy — no capture, no env.
         let step = build_step_with_condition(Some("{{ capture.request_uuid }}"), None);
         let result =
             evaluate_step_condition(&step, &HashMap::new(), &HashMap::new(), &HashSet::new())
@@ -2911,20 +3012,12 @@ steps:
 
     #[test]
     fn if_expression_falsy_optional_unset_skips_the_step() {
-        // Optional-unset captures interpolate to `{{ capture.X }}`
-        // (the literal placeholder remains) when referenced in an
-        // `if:`; `is_unresolved_placeholder` classifies those as
-        // falsy so users don't need to combine `default:` with `if:`.
         let step = build_step_with_condition(Some("{{ capture.maybe }}"), None);
         let mut optional_unset = HashSet::new();
         optional_unset.insert("maybe".to_string());
-        let result = evaluate_step_condition(
-            &step,
-            &HashMap::new(),
-            &HashMap::new(),
-            &optional_unset,
-        )
-        .expect("falsy optional-unset must produce a skip");
+        let result =
+            evaluate_step_condition(&step, &HashMap::new(), &HashMap::new(), &optional_unset)
+                .expect("falsy optional-unset must produce a skip");
         assert_eq!(
             result.error_category,
             Some(FailureCategory::SkippedByCondition)
@@ -2933,20 +3026,16 @@ steps:
 
     #[test]
     fn unless_is_the_inverse_of_if() {
-        // `unless: truthy` → skip, `unless: falsy` → run. Matches
-        // `if:` but flipped.
         let step = build_step_with_condition(None, Some("{{ capture.request_uuid }}"));
         let mut captures = HashMap::new();
         captures.insert("request_uuid".into(), serde_json::json!("abc-123"));
-        let skipped =
-            evaluate_step_condition(&step, &HashMap::new(), &captures, &HashSet::new())
-                .expect("truthy unless must skip");
+        let skipped = evaluate_step_condition(&step, &HashMap::new(), &captures, &HashSet::new())
+            .expect("truthy unless must skip");
         assert_eq!(
             skipped.error_category,
             Some(FailureCategory::SkippedByCondition)
         );
 
-        // Empty capture → unless evaluates falsy → run.
         assert!(
             evaluate_step_condition(&step, &HashMap::new(), &HashMap::new(), &HashSet::new())
                 .is_none()
@@ -2960,5 +3049,219 @@ steps:
             evaluate_step_condition(&step, &HashMap::new(), &HashMap::new(), &HashSet::new())
                 .is_none()
         );
+    }
+
+    // ---- NAZ-249 Scheduler: plan_schedule + SchedulingMetadata ----
+
+    fn meta(file: &str, serial_only: bool, group: Option<&str>) -> SchedulingMetadata {
+        SchedulingMetadata {
+            file: file.to_string(),
+            serial_only,
+            group: group.map(|g| g.to_string()),
+        }
+    }
+
+    #[test]
+    fn plan_schedule_partitions_serial_only_files_onto_serial_bucket() {
+        let metadata = vec![
+            meta("a.tarn.yaml", false, None),
+            meta("b.tarn.yaml", true, None),
+            meta("c.tarn.yaml", false, None),
+            meta("d.tarn.yaml", true, None),
+        ];
+
+        let plan = plan_schedule(&metadata, 3);
+
+        assert_eq!(plan.serial, vec!["b.tarn.yaml", "d.tarn.yaml"]);
+        assert_eq!(plan.parallel_buckets.len(), 2);
+        let parallel_files: BTreeSet<String> = plan
+            .parallel_buckets
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        assert_eq!(
+            parallel_files,
+            BTreeSet::from(["a.tarn.yaml".into(), "c.tarn.yaml".into()])
+        );
+    }
+
+    #[test]
+    fn plan_schedule_groups_same_group_onto_single_bucket() {
+        let metadata = vec![
+            meta("pg1.tarn.yaml", false, Some("pg")),
+            meta("other.tarn.yaml", false, None),
+            meta("pg2.tarn.yaml", false, Some("pg")),
+            meta("another.tarn.yaml", false, None),
+            meta("pg3.tarn.yaml", false, Some("pg")),
+        ];
+
+        let plan = plan_schedule(&metadata, 4);
+
+        assert!(plan.serial.is_empty());
+        let pg_bucket = plan
+            .parallel_buckets
+            .iter()
+            .find(|b| b.iter().any(|f| f == "pg1.tarn.yaml"))
+            .expect("pg bucket should exist");
+        assert_eq!(
+            pg_bucket,
+            &vec![
+                "pg1.tarn.yaml".to_string(),
+                "pg2.tarn.yaml".to_string(),
+                "pg3.tarn.yaml".to_string()
+            ]
+        );
+        assert!(!pg_bucket.iter().any(|f| f == "other.tarn.yaml"));
+        assert!(!pg_bucket.iter().any(|f| f == "another.tarn.yaml"));
+    }
+
+    #[test]
+    fn plan_schedule_separate_groups_parallelize_across_buckets() {
+        let metadata = vec![
+            meta("pg1.tarn.yaml", false, Some("pg")),
+            meta("pg2.tarn.yaml", false, Some("pg")),
+            meta("s3a.tarn.yaml", false, Some("s3")),
+            meta("s3b.tarn.yaml", false, Some("s3")),
+        ];
+
+        let plan = plan_schedule(&metadata, 2);
+        assert!(plan.serial.is_empty());
+
+        assert_eq!(plan.parallel_buckets.len(), 2);
+        for bucket in &plan.parallel_buckets {
+            let all_pg = bucket.iter().all(|f| f.starts_with("pg"));
+            let all_s3 = bucket.iter().all(|f| f.starts_with("s3"));
+            assert!(all_pg || all_s3, "bucket must not mix groups: {:?}", bucket);
+        }
+    }
+
+    #[test]
+    fn plan_schedule_single_worker_collapses_buckets() {
+        let metadata = vec![
+            meta("a.tarn.yaml", false, None),
+            meta("b.tarn.yaml", false, None),
+            meta("c.tarn.yaml", false, Some("pg")),
+            meta("d.tarn.yaml", false, Some("pg")),
+        ];
+
+        let plan = plan_schedule(&metadata, 1);
+        assert!(plan.serial.is_empty());
+        assert_eq!(plan.parallel_buckets.len(), 1);
+        assert_eq!(plan.parallel_buckets[0].len(), 4);
+    }
+
+    #[test]
+    fn plan_schedule_zero_jobs_is_treated_as_one() {
+        let metadata = vec![meta("a.tarn.yaml", false, None)];
+        let plan = plan_schedule(&metadata, 0);
+        assert_eq!(plan.parallel_buckets.len(), 1);
+        assert_eq!(plan.parallel_buckets[0], vec!["a.tarn.yaml".to_string()]);
+    }
+
+    #[test]
+    fn plan_schedule_empty_input_returns_empty_plan() {
+        let plan = plan_schedule(&[], 4);
+        assert!(plan.parallel_buckets.is_empty());
+        assert!(plan.serial.is_empty());
+    }
+
+    #[test]
+    fn plan_schedule_all_serial_only_leaves_parallel_empty() {
+        let metadata = vec![
+            meta("a.tarn.yaml", true, None),
+            meta("b.tarn.yaml", true, Some("pg")),
+        ];
+        let plan = plan_schedule(&metadata, 4);
+        assert!(plan.parallel_buckets.is_empty());
+        assert_eq!(plan.serial, vec!["a.tarn.yaml", "b.tarn.yaml"]);
+    }
+
+    #[test]
+    fn plan_schedule_serial_only_preserves_input_order() {
+        let metadata = vec![
+            meta("z.tarn.yaml", true, None),
+            meta("a.tarn.yaml", true, None),
+            meta("m.tarn.yaml", true, None),
+        ];
+        let plan = plan_schedule(&metadata, 2);
+        assert_eq!(
+            plan.serial,
+            vec!["z.tarn.yaml", "a.tarn.yaml", "m.tarn.yaml"]
+        );
+    }
+
+    #[test]
+    fn scheduling_metadata_from_test_file_detects_file_level_serial_only() {
+        let yaml = r#"
+name: Ser
+serial_only: true
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(md.serial_only);
+        assert_eq!(md.group, None);
+    }
+
+    #[test]
+    fn scheduling_metadata_escalates_when_any_test_is_serial_only() {
+        let yaml = r#"
+name: Escalate
+tests:
+  fast:
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: http://localhost
+  slow:
+    serial_only: true
+    steps:
+      - name: s
+        request:
+          method: GET
+          url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(md.serial_only);
+    }
+
+    #[test]
+    fn scheduling_metadata_reads_group() {
+        let yaml = r#"
+name: Grouped
+group: postgres
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(!md.serial_only);
+        assert_eq!(md.group.as_deref(), Some("postgres"));
+    }
+
+    #[test]
+    fn scheduling_metadata_defaults_when_unset() {
+        let yaml = r#"
+name: Default
+steps:
+  - name: s
+    request:
+      method: GET
+      url: http://localhost
+"#;
+        let tf: crate::model::TestFile = serde_yaml::from_str(yaml).unwrap();
+        let md = SchedulingMetadata::from_test_file("f.tarn.yaml", &tf);
+        assert!(!md.serial_only);
+        assert_eq!(md.group, None);
     }
 }

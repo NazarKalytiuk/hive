@@ -872,8 +872,9 @@ tarn completions <SHELL>           Generate shell completions
 | `--ndjson` | Stream machine-readable NDJSON events to stdout (for editor integrations, MCP, structured CI) |
 | `--dry-run` | Show interpolated requests without sending |
 | `-w, --watch` | Re-run on file changes |
-| `--parallel` | Run test files in parallel |
+| `--parallel` | Run test files in parallel (see [Parallel Execution](#parallel-execution)) |
 | `-j, --jobs <N>` | Number of parallel workers (default: CPU count) |
+| `--no-parallel-warning` | Suppress the `--parallel` isolation warning (use in CI after the suite is audited) |
 
 ### Examples
 
@@ -948,6 +949,28 @@ tarn fmt tests/auth.tarn.yaml --check            # CI-style formatting check
 ```
 
 Inline `vars` from `tarn.config.yaml` are redacted when the key matches `redaction.env` (case-insensitive), so `tarn env --json` never prints literal secrets. Environments are sorted alphabetically by name.
+
+### Parallel Execution
+
+`tarn run --parallel` dispatches test files across multiple rayon workers. The parallelism unit is the **file**: all setup, teardown, captures, and cookie jars stay file-scoped, but files may execute concurrently. That's unsafe when tests share mutable state (DB rows, singletons, filesystem fixtures, rate-limited upstreams). Tarn ships three isolation primitives to close the gap:
+
+- **`serial_only: true`** on a `TestFile` (top-level) or on an individual named test under `tests:` pins the file onto a single worker that runs sequentially after every parallel bucket completes. A single `serial_only` test escalates its whole file to the serial bucket so per-file isolation (setup/teardown, cookie jars) stays intact.
+- **`group: "postgres"`** on a `TestFile` buckets files by resource name. Files sharing a group run on the same worker (serialized within the group), while different groups run in parallel. Use this to serialize "all the postgres tests" without giving up concurrency across unrelated resources.
+- **`parallel_opt_in: true`** in `tarn.config.yaml` silences the startup warning once the suite has been audited. While this flag is absent (or set to `false`), running `tarn run --parallel` emits a one-line stderr warning: `warning: --parallel enabled without parallel_opt_in: true in tarn.config.yaml. Tests without serial_only may share state.` Pass `--no-parallel-warning` on the CLI to suppress it for one-off CI runs.
+
+```yaml
+# tarn.config.yaml
+parallel: true
+parallel_opt_in: true  # opts in once the suite has been audited
+
+# any .tarn.yaml that shares DB state
+name: Users CRUD
+serial_only: true
+
+# or bucket by resource so postgres tests serialize while S3 tests run in parallel
+name: Postgres integration
+group: postgres
+```
 
 ### Streaming Progress
 
@@ -1375,6 +1398,7 @@ env_file: "tarn.env.yaml"
 timeout: 10000
 retries: 0
 parallel: false
+parallel_opt_in: false  # set to `true` once tests have been audited for cross-file state sharing; silences the --parallel warning
 defaults:
   connect_timeout: 1000
   follow_redirects: true
@@ -1394,6 +1418,7 @@ Behavior:
 - `redaction` provides a project-wide default report sanitization policy
 - `environments` makes named `--env` profiles first-class and powers `tarn env`
 - `parallel: true` makes parallel file execution the default for `tarn run`
+- `parallel_opt_in: true` acknowledges the isolation tradeoff (see [Parallel Execution](#parallel-execution)) and silences the `--parallel` warning; pair it with `serial_only:` and `group:` markers on files that share mutable state
 
 ### File-level defaults
 
