@@ -701,10 +701,11 @@ export function mapMcpValidateToReport(payload: unknown): ValidateReport | undef
     const valid = f.valid === true;
     if (Array.isArray(f.errors)) {
       const errors = f.errors
-        .filter((e): e is { message?: string; line?: number; column?: number } =>
-          e !== null && typeof e === "object",
+        .filter(
+          (e: unknown): e is { message?: string; line?: number; column?: number } =>
+            e !== null && typeof e === "object",
         )
-        .map((e) => ({
+        .map((e: { message?: string; line?: number; column?: number }) => ({
           message: typeof e.message === "string" ? e.message : "",
           ...(typeof e.line === "number" && e.line >= 0 ? { line: e.line } : {}),
           ...(typeof e.column === "number" && e.column >= 0 ? { column: e.column } : {}),

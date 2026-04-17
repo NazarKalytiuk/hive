@@ -61,13 +61,8 @@ pub fn assert_body(
 
         match expected {
             // Operator map: "$.field": { type: string, contains: "sub", ... }
-            // Operator map: "$.field": { type: string, contains: "sub", ... }
-            serde_yaml::Value::Mapping(map) => {
-                if path_str != "$" || is_operator_map(map) {
-                    results.extend(assert_operator_map(path_str, &queried, body_bytes, map));
-                } else {
-                    results.push(assert_eq_value(path_str, &queried, &yaml_to_json(expected)));
-                }
+            serde_yaml::Value::Mapping(map) if path_str != "$" || is_operator_map(map) => {
+                results.extend(assert_operator_map(path_str, &queried, body_bytes, map));
             }
             _ => {
                 results.push(assert_eq_value(path_str, &queried, &yaml_to_json(expected)));

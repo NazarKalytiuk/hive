@@ -210,12 +210,20 @@ mod tests {
         let root = Path::new("/tmp/workspace");
         let file = root.join("tests/users.tarn.yaml");
         let dir = step_fixture_dir(root, &file, "create user", 2);
-        let display = dir.to_string_lossy().into_owned();
         assert!(
-            display.contains(".tarn/fixtures/"),
-            "expected .tarn/fixtures/ path, got {display}"
+            dir.components()
+                .any(|c| c.as_os_str() == std::ffi::OsStr::new(".tarn"))
+                && dir
+                    .components()
+                    .any(|c| c.as_os_str() == std::ffi::OsStr::new("fixtures")),
+            "expected .tarn/fixtures path, got {}",
+            dir.display()
         );
-        assert!(display.ends_with("/create-user/2"));
+        assert!(
+            dir.ends_with(Path::new("create-user/2")),
+            "expected to end with create-user/2, got {}",
+            dir.display()
+        );
     }
 
     #[test]
@@ -223,8 +231,10 @@ mod tests {
         let root = Path::new("/tmp/workspace");
         let file = root.join("tests/users.tarn.yaml");
         let latest = latest_passed_path(root, &file, "create user", 0);
-        assert!(latest
-            .to_string_lossy()
-            .ends_with("/create-user/0/latest-passed.json"));
+        assert!(
+            latest.ends_with(Path::new("create-user/0/latest-passed.json")),
+            "expected to end with create-user/0/latest-passed.json, got {}",
+            latest.display()
+        );
     }
 }

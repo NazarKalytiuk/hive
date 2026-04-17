@@ -138,6 +138,30 @@ export function __clearShownInformationMessages(): void {
   shownInformationMessages.length = 0;
 }
 
+interface FakeOutputChannel {
+  name: string;
+  append(value: string): void;
+  appendLine(value: string): void;
+  clear(): void;
+  show(preserveFocus?: boolean): void;
+  hide(): void;
+  dispose(): void;
+  replace(value: string): void;
+}
+
+function createFakeOutputChannel(name: string): FakeOutputChannel {
+  return {
+    name,
+    append: () => {},
+    appendLine: () => {},
+    clear: () => {},
+    show: () => {},
+    hide: () => {},
+    dispose: () => {},
+    replace: () => {},
+  };
+}
+
 export const window = {
   async showWarningMessage(
     _message: string,
@@ -157,6 +181,9 @@ export const window = {
     ..._items: string[]
   ): Promise<string | undefined> {
     return undefined;
+  },
+  createOutputChannel(name: string): FakeOutputChannel {
+    return createFakeOutputChannel(name);
   },
 };
 
@@ -198,3 +225,5 @@ export default {
   window,
   l10n,
 };
+
+export type { FakeOutputChannel };
