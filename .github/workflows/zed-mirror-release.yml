@@ -97,7 +97,7 @@ jobs:
             exit 1
           fi
 
-      - name: Mirror editors/zed → NazarKalytiuk/zed-tarn
+      - name: "Mirror editors/zed to NazarKalytiuk/zed-tarn"
         shell: bash
         env:
           TAG: ${{ steps.tag.outputs.tag }}
