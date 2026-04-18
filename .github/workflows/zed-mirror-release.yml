@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # PAT with `contents: write` on NazarKalytiuk/zed-tarn. Store under
-      # repo Settings → Secrets → Actions. A deploy key on the mirror
+      # repo Settings -> Secrets -> Actions. A deploy key on the mirror
       # repo is an equivalent alternative; this workflow assumes PAT.
       ZED_TARN_DEPLOY_TOKEN: ${{ secrets.ZED_TARN_DEPLOY_TOKEN }}
 
@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "$ZED_TARN_DEPLOY_TOKEN" ]; then
-            echo "::error::ZED_TARN_DEPLOY_TOKEN secret is not set. Configure it under repo Settings → Secrets → Actions."
+            echo "::error::ZED_TARN_DEPLOY_TOKEN secret is not set. Configure it under repo Settings -> Secrets -> Actions."
             exit 1
           fi
 
@@ -131,7 +131,7 @@ jobs:
 Mirrored from NazarKalytiuk/hive@${GITHUB_SHA} (${TAG})."
           fi
 
-          # Tag with plain `vX.Y.Z` on the mirror side — zed-industries/extensions
+          # Tag with plain `vX.Y.Z` on the mirror side - zed-industries/extensions
           # pins the submodule by commit SHA, but a clean semver tag on the
           # mirror is the user-visible version.
           MIRROR_TAG="v${VERSION}"
