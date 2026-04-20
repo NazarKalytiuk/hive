@@ -402,7 +402,27 @@ pub fn capture_completions(captures: &[VisibleCapture]) -> Vec<CompletionItem> {
 /// so a single doc-site examples block applies to both editors.
 pub fn builtin_completions() -> Vec<CompletionItem> {
     vec![
-        builtin_item("uuid", "uuid", "$uuid", "Generate a UUID v4.", false),
+        builtin_item(
+            "uuid",
+            "uuid",
+            "$uuid",
+            "Generate a UUID v4 (alias for $uuid_v4).",
+            false,
+        ),
+        builtin_item(
+            "uuid_v4",
+            "uuid_v4",
+            "$uuid_v4",
+            "Generate a random UUID v4.",
+            false,
+        ),
+        builtin_item(
+            "uuid_v7",
+            "uuid_v7",
+            "$uuid_v7",
+            "Generate a time-ordered UUID v7.",
+            false,
+        ),
         builtin_item(
             "timestamp",
             "timestamp",
@@ -1196,14 +1216,37 @@ mod tests {
     // -------- builtin_completions ----------
 
     #[test]
-    fn builtin_completions_emit_five_function_items() {
+    fn builtin_completions_emit_all_function_items() {
         let items = builtin_completions();
-        assert_eq!(items.len(), 5);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        for expected in [
+            "uuid",
+            "uuid_v4",
+            "uuid_v7",
+            "timestamp",
+            "now_iso",
+            "random_hex",
+            "random_int",
+        ] {
+            assert!(
+                labels.contains(&expected),
+                "missing `{expected}` in {labels:?}"
+            );
+        }
         for item in &items {
             assert_eq!(item.kind, Some(CompletionItemKind::FUNCTION));
             assert!(item.insert_text.is_some());
             assert!(item.detail.is_some());
         }
+    }
+
+    #[test]
+    fn builtin_completions_uuid_v7_is_plain_text() {
+        let items = builtin_completions();
+        let v7 = items.iter().find(|i| i.label == "uuid_v7").unwrap();
+        assert_eq!(v7.insert_text.as_deref(), Some("uuid_v7"));
+        assert_eq!(v7.insert_text_format, Some(InsertTextFormat::PLAIN_TEXT));
+        assert_eq!(v7.detail.as_deref(), Some("$uuid_v7"));
     }
 
     #[test]

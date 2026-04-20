@@ -692,7 +692,17 @@
         },
         "is_uuid": {
           "type": "boolean",
-          "description": "Assert value is a valid UUID",
+          "description": "Assert value is a valid UUID (any version)",
+          "const": true
+        },
+        "is_uuid_v4": {
+          "type": "boolean",
+          "description": "Assert value is a valid UUID v4 (random)",
+          "const": true
+        },
+        "is_uuid_v7": {
+          "type": "boolean",
+          "description": "Assert value is a valid UUID v7 (time-ordered)",
           "const": true
         },
         "is_date": {

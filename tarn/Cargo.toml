@@ -28,7 +28,7 @@ serde_json_path = "0.7"
 regex = "1"
 colored = "3"
 similar = "2"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 rand = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"

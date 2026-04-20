@@ -288,7 +288,9 @@ All string values support template interpolation:
 - `{{ env.name }}` — environment variable
 - `{{ capture.name }}` — captured value from previous step
 - `{{ params.name }}` — parameter from include `with:` block
-- `{{ $uuid }}` — UUID v4
+- `{{ $uuid }}` — UUID v4 (alias for `$uuid_v4`)
+- `{{ $uuid_v4 }}` — random UUID v4
+- `{{ $uuid_v7 }}` — time-ordered UUID v7 (Unix-ms prefix)
 - `{{ $timestamp }}` — Unix epoch seconds
 - `{{ $now_iso }}` — ISO 8601 datetime
 - `{{ $random_hex(N) }}` — random hex string

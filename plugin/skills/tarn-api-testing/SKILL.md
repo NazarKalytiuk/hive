@@ -319,7 +319,9 @@ Multiple operators on the same JSONPath combine with AND logic.
 
 Use in any string field:
 
-- `{{ $uuid }}` — UUID v4
+- `{{ $uuid }}` — UUID v4 (alias for `$uuid_v4`)
+- `{{ $uuid_v4 }}` — random UUID v4
+- `{{ $uuid_v7 }}` — time-ordered UUID v7 (Unix-ms prefix)
 - `{{ $timestamp }}` — Unix epoch seconds
 - `{{ $now_iso }}` — ISO 8601 datetime
 - `{{ $random_hex(8) }}` — random hex string of length N

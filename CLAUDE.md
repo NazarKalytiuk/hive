@@ -71,7 +71,7 @@ Key modules in `src/`:
 - **cookie.rs** - Automatic cookie jar: captures Set-Cookie, sends Cookie on subsequent requests
 - **assert/** - Assertion modules: status, headers, body (JSONPath), duration, types
 - **report/** - Output formatters: human, json, junit, tap, html, curl
-- **builtin.rs** - Built-in functions: `$uuid`, `$random_hex(n)`, `$random_int(min,max)`, `$timestamp`, `$now_iso`
+- **builtin.rs** - Built-in functions: `$uuid` (alias for `$uuid_v4`), `$uuid_v4`, `$uuid_v7`, `$random_hex(n)`, `$random_int(min,max)`, `$timestamp`, `$now_iso`
 - **config.rs** - Optional `tarn.config.yaml` parsing
 - **main.rs** - CLI entry point using clap (derive)
 

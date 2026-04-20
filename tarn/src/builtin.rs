@@ -6,8 +6,12 @@ use uuid::Uuid;
 pub fn evaluate(expr: &str) -> Option<String> {
     let expr = expr.trim();
 
-    if expr == "$uuid" {
+    if expr == "$uuid" || expr == "$uuid_v4" {
         return Some(Uuid::new_v4().to_string());
+    }
+
+    if expr == "$uuid_v7" {
+        return Some(Uuid::now_v7().to_string());
     }
 
     if expr == "$timestamp" {
@@ -155,8 +159,36 @@ mod tests {
     }
 
     #[test]
+    fn uuid_v4_generates_v4() {
+        let result = evaluate("$uuid_v4").unwrap();
+        let parsed = Uuid::parse_str(&result).unwrap();
+        assert_eq!(parsed.get_version_num(), 4);
+    }
+
+    #[test]
+    fn uuid_v7_generates_v7() {
+        let result = evaluate("$uuid_v7").unwrap();
+        let parsed = Uuid::parse_str(&result).unwrap();
+        assert_eq!(parsed.get_version_num(), 7);
+    }
+
+    #[test]
+    fn uuid_v7_is_monotonic_like() {
+        // Two consecutive v7 values should differ and be time-ordered.
+        let a = evaluate("$uuid_v7").unwrap();
+        let b = evaluate("$uuid_v7").unwrap();
+        assert_ne!(a, b);
+        assert!(
+            b.as_str() >= a.as_str(),
+            "v7 should be time-ordered: {a} vs {b}"
+        );
+    }
+
+    #[test]
     fn whitespace_handling() {
         assert!(evaluate("  $uuid  ").is_some());
         assert!(evaluate(" $timestamp ").is_some());
+        assert!(evaluate("  $uuid_v4  ").is_some());
+        assert!(evaluate(" $uuid_v7 ").is_some());
     }
 }

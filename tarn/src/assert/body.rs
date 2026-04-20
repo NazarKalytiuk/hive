@@ -21,6 +21,8 @@ pub(crate) const ASSERTION_OPERATORS: &[&str] = &[
     "ends_with",
     "matches",
     "is_uuid",
+    "is_uuid_v4",
+    "is_uuid_v7",
     "is_date",
     "is_ipv4",
     "is_ipv6",
@@ -404,6 +406,28 @@ fn assert_operator_map(
                     actual_val,
                     is_uuid_string,
                     "valid UUID",
+                ));
+            }
+            "is_uuid_v4" => {
+                results.push(format_check_result(
+                    &label,
+                    path,
+                    "is_uuid_v4",
+                    val.as_bool().unwrap_or(true),
+                    actual_val,
+                    is_uuid_v4_string,
+                    "valid UUID v4",
+                ));
+            }
+            "is_uuid_v7" => {
+                results.push(format_check_result(
+                    &label,
+                    path,
+                    "is_uuid_v7",
+                    val.as_bool().unwrap_or(true),
+                    actual_val,
+                    is_uuid_v7_string,
+                    "valid UUID v7",
                 ));
             }
             "is_date" => {
@@ -1096,6 +1120,18 @@ fn is_uuid_string(value: &str) -> bool {
     Uuid::parse_str(value).is_ok()
 }
 
+fn is_uuid_v4_string(value: &str) -> bool {
+    Uuid::parse_str(value)
+        .map(|u| u.get_version_num() == 4)
+        .unwrap_or(false)
+}
+
+fn is_uuid_v7_string(value: &str) -> bool {
+    Uuid::parse_str(value)
+        .map(|u| u.get_version_num() == 7)
+        .unwrap_or(false)
+}
+
 fn is_date_string(value: &str) -> bool {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
         || DateTime::parse_from_rfc3339(value).is_ok()
@@ -1499,6 +1535,58 @@ mod tests {
         let results = run(r#"{"id": "not-a-uuid"}"#, r#""$.id": { is_uuid: true }"#);
         assert!(!results[0].passed);
         assert!(results[0].message.contains("valid UUID"));
+    }
+
+    #[test]
+    fn is_uuid_v4_pass() {
+        // Version nibble (13th hex char) is 4.
+        let results = run(
+            r#"{"id": "550e8400-e29b-41d4-a716-446655440000"}"#,
+            r#""$.id": { is_uuid_v4: true }"#,
+        );
+        assert!(results[0].passed);
+    }
+
+    #[test]
+    fn is_uuid_v4_fail_on_v7() {
+        // Valid UUID but version 7.
+        let results = run(
+            r#"{"id": "018f3b1c-3d2a-7abc-8def-0123456789ab"}"#,
+            r#""$.id": { is_uuid_v4: true }"#,
+        );
+        assert!(!results[0].passed);
+        assert!(results[0].message.contains("valid UUID v4"));
+    }
+
+    #[test]
+    fn is_uuid_v4_fail_on_garbage() {
+        let results = run(r#"{"id": "not-a-uuid"}"#, r#""$.id": { is_uuid_v4: true }"#);
+        assert!(!results[0].passed);
+    }
+
+    #[test]
+    fn is_uuid_v7_pass() {
+        let results = run(
+            r#"{"id": "018f3b1c-3d2a-7abc-8def-0123456789ab"}"#,
+            r#""$.id": { is_uuid_v7: true }"#,
+        );
+        assert!(results[0].passed);
+    }
+
+    #[test]
+    fn is_uuid_v7_fail_on_v4() {
+        let results = run(
+            r#"{"id": "550e8400-e29b-41d4-a716-446655440000"}"#,
+            r#""$.id": { is_uuid_v7: true }"#,
+        );
+        assert!(!results[0].passed);
+        assert!(results[0].message.contains("valid UUID v7"));
+    }
+
+    #[test]
+    fn is_uuid_v7_fail_on_garbage() {
+        let results = run(r#"{"id": "not-a-uuid"}"#, r#""$.id": { is_uuid_v7: true }"#);
+        assert!(!results[0].passed);
     }
 
     #[test]

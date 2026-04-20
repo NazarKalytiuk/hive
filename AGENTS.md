@@ -69,7 +69,9 @@ Multiple operators combine with AND: `{ type: string, contains: "@", not_empty: 
 
 ## Built-in Functions
 
-- `{{ $uuid }}` — UUID v4
+- `{{ $uuid }}` — UUID v4 (alias for `$uuid_v4`)
+- `{{ $uuid_v4 }}` — Random UUID v4
+- `{{ $uuid_v7 }}` — Time-ordered UUID v7 (Unix-ms prefix)
 - `{{ $timestamp }}` — Unix timestamp
 - `{{ $now_iso }}` — ISO 8601 datetime
 - `{{ $random_hex(8) }}` — Random hex string

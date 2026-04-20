@@ -70,7 +70,18 @@ pub const BUILTIN_DOCS: &[BuiltinDoc] = &[
     BuiltinDoc {
         name: "uuid",
         signature: "$uuid",
+        doc: "Generate a random UUID v4 (alias for `$uuid_v4`).",
+    },
+    BuiltinDoc {
+        name: "uuid_v4",
+        signature: "$uuid_v4",
         doc: "Generate a random UUID v4 (36 characters, `8-4-4-4-12` format).",
+    },
+    BuiltinDoc {
+        name: "uuid_v7",
+        signature: "$uuid_v7",
+        doc:
+            "Generate a time-ordered UUID v7 (Unix-ms timestamp prefix, sortable by creation time).",
     },
     BuiltinDoc {
         name: "timestamp",

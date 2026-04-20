@@ -126,7 +126,9 @@ Multiple operators on the same JSONPath combine with AND logic.
 
 | Operator | Example | Description |
 |----------|---------|-------------|
-| `is_uuid` | `{ is_uuid: true }` | Valid UUID |
+| `is_uuid` | `{ is_uuid: true }` | Valid UUID (any version) |
+| `is_uuid_v4` | `{ is_uuid_v4: true }` | Valid UUID v4 (random) |
+| `is_uuid_v7` | `{ is_uuid_v7: true }` | Valid UUID v7 (time-ordered) |
 | `is_date` | `{ is_date: true }` | Valid date or datetime string |
 | `is_ipv4` | `{ is_ipv4: true }` | Valid IPv4 address |
 | `is_ipv6` | `{ is_ipv6: true }` | Valid IPv6 address |

@@ -24,7 +24,19 @@ export const BUILTIN_FUNCTIONS: ReadonlyArray<{
     name: "$uuid",
     insertText: "uuid",
     signature: "$uuid",
+    doc: "Random UUID v4 (alias for `$uuid_v4`).",
+  },
+  {
+    name: "$uuid_v4",
+    insertText: "uuid_v4",
+    signature: "$uuid_v4",
     doc: "Random UUID v4.",
+  },
+  {
+    name: "$uuid_v7",
+    insertText: "uuid_v7",
+    signature: "$uuid_v7",
+    doc: "Time-ordered UUID v7 (Unix-ms timestamp prefix).",
   },
   {
     name: "$timestamp",

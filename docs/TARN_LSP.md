@@ -113,7 +113,7 @@ steps:
 | -------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **Environment reference**  | `{{ env.base_url }}`       | Effective value (via `tarn::env::resolve_env_with_sources`), the source layer (inline, default file, named, local, CLI), the source file path when applicable, the active environment name, and a `Redacted: yes/no` flag driven by the test file's `redaction.env:` block. |
 | **Capture reference**      | `{{ capture.token }}`      | The declaring step (name + index + section — setup / flat steps / named test / teardown), the capture source (JSONPath, header, cookie, status, URL, whole body, or regex), and a distinct "out of scope" branch when the identifier is declared elsewhere in the file but not visible from the cursor. |
-| **Built-in function**      | `{{ $uuid }}`              | The canonical call signature and a one-sentence docstring for each of `$uuid`, `$timestamp`, `$now_iso`, `$random_hex(n)`, and `$random_int(min, max)`. Unknown names get a friendly "not a recognized Tarn built-in" hint listing every supported function. |
+| **Built-in function**      | `{{ $uuid }}`              | The canonical call signature and a one-sentence docstring for each of `$uuid`, `$uuid_v4`, `$uuid_v7`, `$timestamp`, `$now_iso`, `$random_hex(n)`, and `$random_int(min, max)`. Unknown names get a friendly "not a recognized Tarn built-in" hint listing every supported function. |
 | **Top-level schema key**   | `status`, `body`, `env`, … | The `description` field from `schemas/v1/testfile.json` (local `$ref` chains resolved), cached in a `OnceLock` so the schema is parsed exactly once per server process. |
 
 Example — hovering over `env.base_url` in the URL below shows the effective value, source, and environment:
@@ -136,7 +136,7 @@ steps:
 | -------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------- |
 | **Inside `{{ env.<prefix> }}`**        | `.` after `env`          | Every key from `tarn::env::resolve_env_with_sources`, each carrying its resolved value as `detail`.                    | `Variable`  |
 | **Inside `{{ capture.<prefix> }}`**    | `.` after `capture`      | Every capture declared by a strictly earlier step visible from the cursor.                                             | `Variable`  |
-| **Inside `{{ $<prefix> }}`**           | `$` after `{{`           | The five Tarn built-ins (`$uuid`, `$timestamp`, `$now_iso`, `$random_hex`, `$random_int`), the last two as snippets.   | `Function`  |
+| **Inside `{{ $<prefix> }}`**           | `$` after `{{`           | Every Tarn built-in (`$uuid`, `$uuid_v4`, `$uuid_v7`, `$timestamp`, `$now_iso`, `$random_hex`, `$random_int`), the last two as snippets. | `Function`  |
 | **Blank YAML mapping-key line**        | newline / manual trigger | Schema-valid keys for the cursor's scope — root, test group, or step.                                                  | `Property`  |
 | **Nested blank line inside a schema-valid parent** (new in L3.5) | newline / manual trigger | Schema-valid child keys for the cursor's YAML path — e.g. `method`/`url`/`headers`/`body` under `request:`, `eq`/`gt`/`matches`/`length` under `assert.body."$.id":`, `until`/`interval`/`max_attempts` under `poll:`, `header`/`cookie`/`jsonpath`/`regex` under `capture.<name>:`. | `Property` |
 
