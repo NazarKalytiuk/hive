@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
+
+### Runner + CLI (tarn)
+
+- **UUID v4/v7 awareness (NAZ-366).** New body assertions `is_uuid_v4`
+  and `is_uuid_v7` sit alongside the existing `is_uuid` (which still
+  matches any version). Matching built-ins `$uuid_v4` and `$uuid_v7`
+  complement the existing `$uuid` (now an alias for `$uuid_v4`), so
+  tests can both generate and verify version-specific UUIDs.
+- **Basic faker surface (NAZ-398).** New EN-locale interpolation
+  built-ins for realistic payloads: `$email`, `$first_name`,
+  `$last_name`, `$name`, `$username`, `$phone`, `$word`, `$words(n)`,
+  `$sentence`, `$slug`, `$alpha(n)`, `$alnum(n)`,
+  `$choice(a, b, …)`, `$bool`, `$ipv4`, `$ipv6`.
+- **Reproducible runs via seeded RNG (NAZ-398).** Set
+  `TARN_FAKER_SEED=<u64>` or `faker.seed: <u64>` in `tarn.config.yaml`
+  to pin every RNG-backed built-in — including `$uuid`, `$uuid_v4`,
+  `$uuid_v7`, `$random_hex`, `$random_int`, and the new faker
+  generators — so the same test file produces byte-identical payloads
+  across processes. Wall-clock values (`$timestamp`, `$now_iso`, and
+  the timestamp prefix of `$uuid_v7`) stay real-time; only the RNG
+  path is frozen. The environment variable wins over the config field
+  when both are set.
+
+### Editor integrations
+
+- **tarn-lsp + VS Code extension.** Hover and completion surface every
+  new built-in and every new assertion, including snippet placeholders
+  for the parameterized forms (`$words(n)`, `$alpha(n)`, `$alnum(n)`,
+  `$choice(...)`). JSON schema (`schemas/v1/testfile.json`) now
+  documents `is_uuid_v4` / `is_uuid_v7`.
+
 ## 0.8.0 — Optional captures, conditional steps, LLM/compact output, fixture store, debug surface, parallel safety, and VS Code MCP backend
 
 ### Runner + CLI (tarn)

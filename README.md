@@ -489,11 +489,40 @@ request:
 ### Built-in Functions
 
 ```yaml
-"{{ $uuid }}"                    # UUID v4
+# UUIDs
+"{{ $uuid }}"                    # UUID v4 (alias for $uuid_v4)
+"{{ $uuid_v4 }}"                 # random UUID v4
+"{{ $uuid_v7 }}"                 # time-ordered UUID v7 (Unix-ms prefix)
+
+# Random primitives
 "{{ $random_hex(8) }}"           # 8-char hex string
 "{{ $random_int(1, 100) }}"      # random integer in range
+
+# Wall-clock
 "{{ $timestamp }}"               # unix timestamp
 "{{ $now_iso }}"                 # ISO 8601 datetime
+
+# Faker (EN locale)
+"{{ $email }}"                   # random email
+"{{ $first_name }}" "{{ $last_name }}" "{{ $name }}" "{{ $username }}"
+"{{ $phone }}"                   # random phone number
+"{{ $word }}" "{{ $words(3) }}" "{{ $sentence }}" "{{ $slug }}"
+"{{ $alpha(8) }}"                # n lowercase letters
+"{{ $alnum(8) }}"                # n lowercase alphanumerics
+"{{ $choice(red, green, blue) }}"
+"{{ $bool }}"                    # "true" or "false"
+"{{ $ipv4 }}" "{{ $ipv6 }}"
+```
+
+**Reproducible runs.** Set `TARN_FAKER_SEED=<u64>` (or `faker.seed: <u64>` in `tarn.config.yaml`) to freeze every RNG-backed built-in for the process. Wall-clock values (`$timestamp`, `$now_iso`, the timestamp prefix of `$uuid_v7`) stay real-time.
+
+### UUID Version Assertions
+
+```yaml
+body:
+  "$.id":        { is_uuid: true }    # any UUID version
+  "$.legacy_id": { is_uuid_v4: true } # must be random v4
+  "$.event_id":  { is_uuid_v7: true } # must be time-ordered v7
 ```
 
 ## Cookies
@@ -1626,7 +1655,8 @@ Pipeline: **parse YAML &rarr; resolve env &rarr; interpolate &rarr; execute HTTP
 | `capture.rs` | JSONPath + header extraction |
 | `cookie.rs` | Automatic cookie jar |
 | `config.rs` | `tarn.config.yaml` parsing |
-| `builtin.rs` | Built-in functions (`$uuid`, `$timestamp`, etc.) |
+| `builtin.rs` | Built-in functions (`$uuid`, `$uuid_v7`, `$email`, `$name`, `$timestamp`, etc.) |
+| `faker.rs` | Seedable RNG source for built-ins (`TARN_FAKER_SEED` / `faker.seed`) |
 | `update.rs` | Self-update mechanism |
 | `assert/` | Status, body, headers, duration |
 | `report/` | Human, JSON, JUnit, TAP, HTML |

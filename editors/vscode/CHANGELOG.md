@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — Coordinated release with Tarn 0.9.0 (UUID v4/v7 + faker built-ins)
+
+- Hover and completion surface the new runtime built-ins added in
+  Tarn 0.9.0: `$uuid_v4`, `$uuid_v7`, plus the EN-locale faker corpus
+  (`$email`, `$first_name`, `$last_name`, `$name`, `$username`,
+  `$phone`, `$word`, `$words(n)`, `$sentence`, `$slug`, `$alpha(n)`,
+  `$alnum(n)`, `$choice(a, b, …)`, `$bool`, `$ipv4`, `$ipv6`).
+  Parameterized forms are emitted as snippets with placeholders.
+- `$uuid` is now documented as an alias for `$uuid_v4`.
+- Hover hint inside empty `{{ }}` lists the expanded built-in surface.
+- Tracks Tarn 0.9.0 minimum version.
+
 ## 0.6.1 — Coordinated release with Tarn 0.6.1 (Dockerfile hotfix)
 
 Version-only bump to stay in lockstep with the Tarn 0.6.1 hotfix
