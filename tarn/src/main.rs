@@ -2422,6 +2422,10 @@ fn load_project_context(start_dir: &Path) -> Result<ProjectContext, TarnError> {
     };
     let root_dir = config::find_project_root(&search_root).unwrap_or(search_root);
     let config = config::load_config(&root_dir)?;
+    // Freeze the faker RNG seed for this process before any
+    // interpolation runs. `TARN_FAKER_SEED` wins over the config
+    // field; both are optional (see NAZ-398).
+    tarn::faker::init_seed_from_sources(config.faker.as_ref().and_then(|f| f.seed));
     Ok(ProjectContext { root_dir, config })
 }
 

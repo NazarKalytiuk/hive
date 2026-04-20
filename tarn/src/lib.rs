@@ -6,6 +6,7 @@ pub mod config;
 pub mod cookie;
 pub mod env;
 pub mod error;
+pub mod faker;
 pub mod fix_plan;
 pub mod fixtures;
 pub mod format;

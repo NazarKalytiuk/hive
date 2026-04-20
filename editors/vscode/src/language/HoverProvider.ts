@@ -78,7 +78,7 @@ export class TarnHoverProvider implements vscode.HoverProvider {
     md.appendMarkdown(
       "- " +
         vscode.l10n.t(
-          "`{{ $uuid }}` — built-in function (also `$uuid_v4`, `$uuid_v7`, `$timestamp`, `$now_iso`, `$random_hex(n)`, `$random_int(min, max)`)",
+          "`{{ $uuid }}` — built-in function (also `$uuid_v4`, `$uuid_v7`, `$timestamp`, `$now_iso`, `$random_hex(n)`, `$random_int(min, max)`, faker generators `$email`, `$name`, `$word`, `$slug`, `$choice(...)`, …)",
         ) +
         "\n",
     );

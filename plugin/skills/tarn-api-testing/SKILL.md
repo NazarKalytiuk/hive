@@ -327,6 +327,17 @@ Use in any string field:
 - `{{ $random_hex(8) }}` — random hex string of length N
 - `{{ $random_int(1, 100) }}` — random integer in range
 
+### Faker (EN locale)
+
+- `{{ $email }}`, `{{ $first_name }}`, `{{ $last_name }}`, `{{ $name }}`, `{{ $username }}`, `{{ $phone }}`
+- `{{ $word }}`, `{{ $words(3) }}`, `{{ $sentence }}`, `{{ $slug }}`
+- `{{ $alpha(8) }}`, `{{ $alnum(8) }}`, `{{ $choice(a, b, c) }}`, `{{ $bool }}`
+- `{{ $ipv4 }}`, `{{ $ipv6 }}`
+
+### Reproducible runs
+
+Set `TARN_FAKER_SEED=<u64>` or `tarn.config.yaml: faker.seed: <u64>` to freeze every RNG-backed built-in for the process. The environment variable wins. Wall-clock generators (`$timestamp`, `$now_iso`, and the timestamp prefix of `$uuid_v7`) stay real-time — seeding only pins randomness.
+
 ## Formatting
 
 Tarn ships `tarn fmt`, a canonical `.tarn.yaml` formatter.

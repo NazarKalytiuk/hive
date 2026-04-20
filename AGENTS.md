@@ -76,6 +76,8 @@ Multiple operators combine with AND: `{ type: string, contains: "@", not_empty: 
 - `{{ $now_iso }}` — ISO 8601 datetime
 - `{{ $random_hex(8) }}` — Random hex string
 - `{{ $random_int(1, 100) }}` — Random integer
+- Faker (EN locale): `{{ $email }}`, `{{ $first_name }}`, `{{ $last_name }}`, `{{ $name }}`, `{{ $username }}`, `{{ $phone }}`, `{{ $word }}`, `{{ $words(3) }}`, `{{ $sentence }}`, `{{ $slug }}`, `{{ $alpha(8) }}`, `{{ $alnum(8) }}`, `{{ $choice(a, b, c) }}`, `{{ $bool }}`, `{{ $ipv4 }}`, `{{ $ipv6 }}`
+- Determinism: set `TARN_FAKER_SEED=<u64>` (wins) or `tarn.config.yaml: faker.seed: <u64>` to freeze every RNG-backed built-in for the process. Wall-clock values (`$timestamp`, `$now_iso`, the v7 timestamp prefix) stay real-time.
 
 ## Environment Variables
 

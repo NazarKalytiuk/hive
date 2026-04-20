@@ -105,6 +105,25 @@ pub struct TarnConfig {
     /// records an explicit "not yet opted in" signal.
     #[serde(default, alias = "parallel-opt-in")]
     pub parallel_opt_in: Option<bool>,
+
+    /// Faker/RNG configuration. Setting `faker.seed` makes every
+    /// randomness-backed built-in (`$uuid`, `$uuid_v4`, `$random_hex`,
+    /// `$random_int`, the faker generators added in NAZ-398, etc.)
+    /// deterministic for the process. The environment variable
+    /// `TARN_FAKER_SEED` wins over this field when both are set.
+    /// Wall-clock generators (`$timestamp`, `$now_iso`, the timestamp
+    /// portion of `$uuid_v7`) remain wall-clock — seeding only affects
+    /// the RNG portion.
+    #[serde(default)]
+    pub faker: Option<FakerConfig>,
+}
+
+/// Faker configuration from `tarn.config.yaml`.
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct FakerConfig {
+    /// Optional 64-bit seed that makes randomness-backed built-ins
+    /// deterministic. `TARN_FAKER_SEED` overrides this value.
+    pub seed: Option<u64>,
 }
 
 fn default_test_dir() -> String {
@@ -138,6 +157,7 @@ impl Default for TarnConfig {
             insecure: false,
             fail_fast_within_test: false,
             parallel_opt_in: None,
+            faker: None,
         }
     }
 }
@@ -351,6 +371,7 @@ mod tests {
             insecure: true,
             fail_fast_within_test: false,
             parallel_opt_in: None,
+            faker: None,
         };
 
         let transport = config.http_transport();
@@ -384,6 +405,7 @@ mod tests {
             insecure: false,
             fail_fast_within_test: false,
             parallel_opt_in: None,
+            faker: None,
         }
         .normalized();
 

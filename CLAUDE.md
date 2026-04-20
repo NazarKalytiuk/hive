@@ -71,7 +71,8 @@ Key modules in `src/`:
 - **cookie.rs** - Automatic cookie jar: captures Set-Cookie, sends Cookie on subsequent requests
 - **assert/** - Assertion modules: status, headers, body (JSONPath), duration, types
 - **report/** - Output formatters: human, json, junit, tap, html, curl
-- **builtin.rs** - Built-in functions: `$uuid` (alias for `$uuid_v4`), `$uuid_v4`, `$uuid_v7`, `$random_hex(n)`, `$random_int(min,max)`, `$timestamp`, `$now_iso`
+- **builtin.rs** - Built-in functions: `$uuid` (alias for `$uuid_v4`), `$uuid_v4`, `$uuid_v7`, `$random_hex(n)`, `$random_int(min,max)`, `$timestamp`, `$now_iso`, plus the faker corpus (`$email`, `$first_name`, `$last_name`, `$name`, `$username`, `$phone`, `$word`, `$words(n)`, `$sentence`, `$slug`, `$alpha(n)`, `$alnum(n)`, `$choice(a, b, …)`, `$bool`, `$ipv4`, `$ipv6`). Seedable via `TARN_FAKER_SEED` or `tarn.config.yaml: faker.seed`.
+- **faker.rs** - Process-wide seed source routed through `with_rng(...)`. Tests use `faker::reset_for_test(Some(seed))` for per-thread determinism.
 - **config.rs** - Optional `tarn.config.yaml` parsing
 - **main.rs** - CLI entry point using clap (derive)
 

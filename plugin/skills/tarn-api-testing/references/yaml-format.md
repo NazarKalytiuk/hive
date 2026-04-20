@@ -295,6 +295,8 @@ All string values support template interpolation:
 - `{{ $now_iso }}` — ISO 8601 datetime
 - `{{ $random_hex(N) }}` — random hex string
 - `{{ $random_int(min, max) }}` — random integer
+- Faker (EN): `{{ $email }}`, `{{ $first_name }}`, `{{ $last_name }}`, `{{ $name }}`, `{{ $username }}`, `{{ $phone }}`, `{{ $word }}`, `{{ $words(n) }}`, `{{ $sentence }}`, `{{ $slug }}`, `{{ $alpha(n) }}`, `{{ $alnum(n) }}`, `{{ $choice(a, b, ...) }}`, `{{ $bool }}`, `{{ $ipv4 }}`, `{{ $ipv6 }}`
+- Seed for reproducible runs: `TARN_FAKER_SEED=<u64>` (env wins) or `tarn.config.yaml: faker.seed: <u64>`. Wall-clock values stay real-time.
 
 ## Schema Validation
 

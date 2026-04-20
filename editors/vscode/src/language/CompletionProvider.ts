@@ -62,6 +62,102 @@ export const BUILTIN_FUNCTIONS: ReadonlyArray<{
     signature: "$random_int(min, max)",
     doc: "Random integer in `[min, max]` inclusive.",
   },
+  {
+    name: "$email",
+    insertText: "email",
+    signature: "$email",
+    doc: "Random email address (EN locale).",
+  },
+  {
+    name: "$first_name",
+    insertText: "first_name",
+    signature: "$first_name",
+    doc: "Random first name (EN locale).",
+  },
+  {
+    name: "$last_name",
+    insertText: "last_name",
+    signature: "$last_name",
+    doc: "Random last name (EN locale).",
+  },
+  {
+    name: "$name",
+    insertText: "name",
+    signature: "$name",
+    doc: "Random full name (EN locale).",
+  },
+  {
+    name: "$username",
+    insertText: "username",
+    signature: "$username",
+    doc: "Random slug-safe username.",
+  },
+  {
+    name: "$phone",
+    insertText: "phone",
+    signature: "$phone",
+    doc: "Random phone number.",
+  },
+  {
+    name: "$word",
+    insertText: "word",
+    signature: "$word",
+    doc: "Random lorem word.",
+  },
+  {
+    name: "$words",
+    insertText: "words(${1:3})",
+    signature: "$words(n)",
+    doc: "`n` space-separated lorem words.",
+  },
+  {
+    name: "$sentence",
+    insertText: "sentence",
+    signature: "$sentence",
+    doc: "Random lorem sentence.",
+  },
+  {
+    name: "$slug",
+    insertText: "slug",
+    signature: "$slug",
+    doc: "Hyphen-joined lowercase slug.",
+  },
+  {
+    name: "$alpha",
+    insertText: "alpha(${1:8})",
+    signature: "$alpha(n)",
+    doc: "`n` lowercase ASCII letters.",
+  },
+  {
+    name: "$alnum",
+    insertText: "alnum(${1:8})",
+    signature: "$alnum(n)",
+    doc: "`n` lowercase alphanumerics.",
+  },
+  {
+    name: "$choice",
+    insertText: "choice(${1:a}, ${2:b})",
+    signature: "$choice(a, b, …)",
+    doc: "Pick one of the comma-separated arguments.",
+  },
+  {
+    name: "$bool",
+    insertText: "bool",
+    signature: "$bool",
+    doc: "Random `\"true\"` or `\"false\"`.",
+  },
+  {
+    name: "$ipv4",
+    insertText: "ipv4",
+    signature: "$ipv4",
+    doc: "Random IPv4 address.",
+  },
+  {
+    name: "$ipv6",
+    insertText: "ipv6",
+    signature: "$ipv6",
+    doc: "Random IPv6 address.",
+  },
 ];
 
 /**

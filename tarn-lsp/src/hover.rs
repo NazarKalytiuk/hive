@@ -61,7 +61,7 @@ pub struct BuiltinDoc {
     pub doc: &'static str,
 }
 
-/// The five built-in functions supported by `tarn::builtin::evaluate`.
+/// Every built-in function supported by `tarn::builtin::evaluate`.
 ///
 /// Keeping the list colocated with the hover provider (rather than moving
 /// it into `tarn::builtin`) lets us ship user-facing docstrings without
@@ -103,6 +103,86 @@ pub const BUILTIN_DOCS: &[BuiltinDoc] = &[
         name: "random_int",
         signature: "$random_int(min, max)",
         doc: "Generate a random integer in the inclusive range `[min, max]`.",
+    },
+    BuiltinDoc {
+        name: "email",
+        signature: "$email",
+        doc: "Generate a syntactically valid random email address (EN locale).",
+    },
+    BuiltinDoc {
+        name: "first_name",
+        signature: "$first_name",
+        doc: "Generate a random first name (EN locale).",
+    },
+    BuiltinDoc {
+        name: "last_name",
+        signature: "$last_name",
+        doc: "Generate a random last name (EN locale).",
+    },
+    BuiltinDoc {
+        name: "name",
+        signature: "$name",
+        doc: "Generate a random full name (EN locale).",
+    },
+    BuiltinDoc {
+        name: "username",
+        signature: "$username",
+        doc: "Generate a slug-safe random username.",
+    },
+    BuiltinDoc {
+        name: "phone",
+        signature: "$phone",
+        doc: "Generate a random phone number (EN locale formatting).",
+    },
+    BuiltinDoc {
+        name: "word",
+        signature: "$word",
+        doc: "Generate a single random lorem word.",
+    },
+    BuiltinDoc {
+        name: "words",
+        signature: "$words(n)",
+        doc: "Generate `n` space-separated lorem words.",
+    },
+    BuiltinDoc {
+        name: "sentence",
+        signature: "$sentence",
+        doc: "Generate a random lorem sentence of 4–10 words.",
+    },
+    BuiltinDoc {
+        name: "slug",
+        signature: "$slug",
+        doc: "Generate a hyphen-joined, lowercase URL-safe slug.",
+    },
+    BuiltinDoc {
+        name: "alpha",
+        signature: "$alpha(n)",
+        doc: "Generate `n` lowercase ASCII letters.",
+    },
+    BuiltinDoc {
+        name: "alnum",
+        signature: "$alnum(n)",
+        doc: "Generate `n` lowercase alphanumeric characters.",
+    },
+    BuiltinDoc {
+        name: "choice",
+        signature: "$choice(a, b, c, …)",
+        doc: "Pick one of the comma-separated arguments at random.",
+    },
+    BuiltinDoc {
+        name: "bool",
+        signature: "$bool",
+        doc: "Generate `\"true\"` or `\"false\"` at random.",
+    },
+    BuiltinDoc {
+        name: "ipv4",
+        signature: "$ipv4",
+        doc: "Generate a random IPv4 address.",
+    },
+    BuiltinDoc {
+        name: "ipv6",
+        signature: "$ipv6",
+        doc: "Generate a random IPv6 address.",
     },
 ];
 

@@ -631,6 +631,58 @@ steps:
 }
 
 #[test]
+fn tarn_faker_seed_makes_interpolation_byte_identical_across_processes() {
+    // Two invocations of the tarn binary with the same TARN_FAKER_SEED
+    // should produce the exact same interpolated URLs. The test
+    // deliberately uses a dead-letter host so the step fails fast —
+    // the JSON report then exposes `request.url` for the failed step,
+    // which is where we read the interpolated faker value back out.
+    let dir = TempDir::new().unwrap();
+
+    let test_file = write_test_file(
+        &dir,
+        "faker-seed.tarn.yaml",
+        r#"
+name: Faker seed determinism
+steps:
+  - name: faker interpolated URL
+    request:
+      method: GET
+      url: "http://127.0.0.1:1/{{ $email }}/{{ $uuid_v4 }}/{{ $random_int(1, 1000000) }}/{{ $slug }}/{{ $choice(red, green, blue) }}"
+    assert:
+      status: 200
+"#,
+    );
+
+    let capture_url = |seed: &str| -> String {
+        let output = tarn()
+            .args(["run", &test_file, "--format", "json"])
+            .env("TARN_FAKER_SEED", seed)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3));
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        json["files"][0]["tests"][0]["steps"][0]["request"]["url"]
+            .as_str()
+            .expect("failed step should carry request.url")
+            .to_owned()
+    };
+
+    let run_a = capture_url("42");
+    let run_b = capture_url("42");
+    assert_eq!(
+        run_a, run_b,
+        "same seed must produce byte-identical interpolated URLs"
+    );
+
+    let run_c = capture_url("999");
+    assert_ne!(
+        run_a, run_c,
+        "different seeds should normally produce different URLs"
+    );
+}
+
+#[test]
 fn capture_and_chaining_works() {
     let server = DemoServer::start();
     let dir = TempDir::new().unwrap();
