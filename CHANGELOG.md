@@ -148,6 +148,26 @@
     per-rule unit tests; the orchestrator runs all rules, merges and
     sorts findings by `(line, rule_id)`, and hands the result to the
     CLI for rendering.
+  - **Streaming run lifecycle events to `events.jsonl` (NAZ-413).**
+    Every `tarn run` now also writes an append-only NDJSON stream to
+    `.tarn/runs/<run_id>/events.jsonl`, mirrored to `.tarn/events.jsonl`
+    as a convenience pointer. Each line is one event; consumers tail
+    the file to react to failures as they happen rather than waiting
+    for `report.json` to land. The envelope is stable and versioned
+    (`schema_version: 1`, plus `run_id`, UTC `ts`, monotonic 0-based
+    `seq`), and every event carries `file_id` / `test_id` (8-hex
+    truncation of SHA-256) so lines correlate with `failures.json`
+    entries and the full report after the fact. Emitted kinds:
+    `run_started`, `file_started`, `file_completed`, `test_started`,
+    `test_completed`, `step_started`, `step_completed`,
+    `capture_failure`, `polling_timeout`, `run_completed`. Bodies and
+    headers are intentionally absent — the stream is a correlation
+    spine, not a payload transport. Each write flushes so an early
+    crash still produces a correct line-bounded prefix; parallel
+    workers serialize through one mutex, with `seq` providing the
+    total order readers should sort by. `--no-last-run-json`
+    suppresses both the archive file and the pointer, matching
+    existing transient-run semantics.
   - **Response-shape drift detection with candidate fix paths
     (NAZ-415).** A body-assertion or capture JSONPath miss on a JSON
     object response now runs a pure tail-segment heuristic that

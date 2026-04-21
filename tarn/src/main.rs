@@ -1518,6 +1518,39 @@ fn execute_run(
         .as_ref()
         .map(|p| p.as_ref() as &(dyn ProgressReporter + Send + Sync));
 
+    // NAZ-413: open the append-only events stream under the run
+    // directory, if artifact persistence is on. `--no-last-run-json`
+    // leaves `state_context.run_directory` at `None`, which
+    // short-circuits both the stream and the `.tarn/events.jsonl`
+    // pointer for a fully transient run.
+    let events_stream = state_context
+        .run_directory
+        .as_ref()
+        .and_then(|dir| {
+            let path = dir.join("events.jsonl");
+            match tarn::report::event_stream::EventStream::new(
+                path,
+                state_context.run_id.clone().unwrap_or_default(),
+            ) {
+                Ok(s) => Some(std::sync::Arc::new(s)),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to open events.jsonl under {}: {}. Event stream disabled for this run.",
+                        dir.display(),
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
+    if let Some(ref ev) = events_stream {
+        let run_args: Vec<String> = std::env::args().collect();
+        ev.emit_run_started(files, parallel, &run_args);
+    }
+
+    let events_ref = events_stream.as_ref();
+
     let file_results = if parallel {
         run_files_parallel(
             files,
@@ -1528,6 +1561,7 @@ fn execute_run(
             run_opts,
             jobs,
             progress_ref,
+            events_ref,
             extra_redact_headers,
         )
     } else {
@@ -1540,6 +1574,7 @@ fn execute_run(
             run_opts,
             cookie_jar_path,
             progress_ref,
+            events_ref,
             extra_redact_headers,
         )
     };
@@ -1577,13 +1612,85 @@ fn execute_run(
         eprintln!("Error: {}", e);
         // Still flush `state.json` so the LLM can observe the
         // failed run even when report emission blew up.
+        emit_run_completed_event(events_ref, &run_result, 3);
         write_state_sidecar(&run_result, started_at, 3, state_context);
+        mirror_events_stream_to_pointer(events_ref, state_context);
         return 3;
     }
 
     let exit_code = run_result_exit_code(&run_result);
+    emit_run_completed_event(events_ref, &run_result, exit_code);
     write_state_sidecar(&run_result, started_at, exit_code, state_context);
+    mirror_events_stream_to_pointer(events_ref, state_context);
     exit_code
+}
+
+/// Emit the terminal `run_completed` envelope with aggregate counts.
+/// Called in both the happy and error paths of `execute_run` so the
+/// stream always has a last line, making it trivial for readers to
+/// know the run is over.
+fn emit_run_completed_event(
+    events: Option<&std::sync::Arc<tarn::report::event_stream::EventStream>>,
+    run_result: &RunResult,
+    exit_code: i32,
+) {
+    let Some(ev) = events else { return };
+    let total_files = run_result.total_files();
+    let failed_files = run_result.file_results.iter().filter(|f| !f.passed).count();
+    let total_tests: usize = run_result
+        .file_results
+        .iter()
+        .map(|f| f.test_results.len())
+        .sum();
+    let failed_tests: usize = run_result
+        .file_results
+        .iter()
+        .flat_map(|f| f.test_results.iter())
+        .filter(|t| !t.passed)
+        .count();
+    let total_steps = run_result.total_steps();
+    let failed_steps = run_result.failed_steps();
+    ev.emit_run_completed(tarn::report::event_stream::RunOutcome {
+        passed: run_result.passed(),
+        exit_code,
+        duration_ms: run_result.duration_ms,
+        files: total_files,
+        tests: total_tests,
+        steps: total_steps,
+        failed_files,
+        failed_tests,
+        failed_steps,
+    });
+}
+
+/// Copy the per-run `events.jsonl` to the `.tarn/events.jsonl`
+/// convenience pointer. Mirrors the pattern NAZ-400 and NAZ-401 use for
+/// `last-run.json` / `summary.json` / `failures.json`: the run
+/// directory is the authoritative home, the pointer is a best-effort
+/// convenience for tooling that only ever tails the latest run.
+fn mirror_events_stream_to_pointer(
+    events: Option<&std::sync::Arc<tarn::report::event_stream::EventStream>>,
+    state_context: &StateContext,
+) {
+    let Some(ev) = events else { return };
+    if !state_context.emit_pointer_artifacts {
+        return;
+    }
+    let src = ev.path().to_path_buf();
+    let pointer = state_context
+        .workspace_root
+        .join(".tarn")
+        .join("events.jsonl");
+    if src == pointer {
+        return;
+    }
+    if let Err(e) = tarn::report::run_dir::copy_to_pointer(&src, &pointer) {
+        eprintln!(
+            "Warning: failed to update events pointer at {}: {}",
+            pointer.display(),
+            e
+        );
+    }
 }
 
 /// Non-test-result metadata `execute_run` needs to produce a
@@ -2591,6 +2698,7 @@ fn run_files_sequential(
     run_opts: &runner::RunOptions,
     cookie_jar_path: Option<&str>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+    events: Option<&std::sync::Arc<tarn::report::event_stream::EventStream>>,
     extra_redact_headers: &[String],
 ) -> Result<Vec<tarn::assert::types::FileResult>, (i32, String)> {
     let mut results = Vec::new();
@@ -2613,7 +2721,10 @@ fn run_files_sequential(
         };
         let resolved_env = resolve_env_for_file(&test_file, path, env_name, cli_vars)
             .map_err(|e| (e.exit_code(), e.to_string()))?;
-        let result = runner::run_file_with_cookie_jars(
+        let observers = runner::RunObservers::new()
+            .with_progress(progress)
+            .with_events(events);
+        let result = runner::run_file_with_observers(
             &test_file,
             file_path,
             &resolved_env,
@@ -2621,7 +2732,7 @@ fn run_files_sequential(
             selectors,
             &file_run_opts,
             &mut cookie_jars,
-            progress,
+            &observers,
         )
         .map_err(|e| (e.exit_code(), e.to_string()))?;
         results.push(result);
@@ -2645,6 +2756,7 @@ fn run_files_parallel(
     run_opts: &runner::RunOptions,
     jobs: Option<usize>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+    events: Option<&std::sync::Arc<tarn::report::event_stream::EventStream>>,
     extra_redact_headers: &[String],
 ) -> Result<Vec<tarn::assert::types::FileResult>, (i32, String)> {
     use rayon::prelude::*;
@@ -2708,6 +2820,7 @@ fn run_files_parallel(
                     run_opts,
                     extra_redact_headers,
                     progress,
+                    events,
                 )?);
             }
             Ok::<_, (i32, String)>(bucket_results)
@@ -2738,6 +2851,7 @@ fn run_files_parallel(
             run_opts,
             extra_redact_headers,
             progress,
+            events,
         )?);
     }
 
@@ -2764,6 +2878,7 @@ fn execute_one_file(
     run_opts: &runner::RunOptions,
     extra_redact_headers: &[String],
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
+    events: Option<&std::sync::Arc<tarn::report::event_stream::EventStream>>,
 ) -> Result<tarn::assert::types::FileResult, (i32, String)> {
     let path = Path::new(file_path);
     let mut test_file = test_file.clone();
@@ -2778,7 +2893,15 @@ fn execute_one_file(
     let resolved_env = resolve_env_for_file(&test_file, path, env_name, cli_vars)
         .map_err(|e| (e.exit_code(), e.to_string()))?;
     let mut local_jars = std::collections::HashMap::new();
-    let result = runner::run_file_with_cookie_jars(
+    // In parallel mode the progress reporter only fires on
+    // `file_finished` (see `HumanProgress::Parallel`). The events
+    // stream, by contrast, wants the full lifecycle so reader agents
+    // can correlate every step back to its file — wire it through the
+    // full observer path. Progress is intentionally left out of the
+    // inner run so the parallel reporter's per-file atomic flush still
+    // works via the explicit call below.
+    let observers = runner::RunObservers::new().with_events(events);
+    let result = runner::run_file_with_observers(
         &test_file,
         file_path,
         &resolved_env,
@@ -2786,7 +2909,7 @@ fn execute_one_file(
         selectors,
         &file_run_opts,
         &mut local_jars,
-        None,
+        &observers,
     )
     .map_err(|e| (e.exit_code(), e.to_string()))?;
     if let Some(p) = progress {

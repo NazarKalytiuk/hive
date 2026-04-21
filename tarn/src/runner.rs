@@ -13,6 +13,7 @@ use crate::model::{
     StepCookies, TestFile,
 };
 use crate::parser;
+use crate::report::event_stream::EventStream;
 use crate::report::fixture_writer::{self, FixtureWriteConfig};
 use crate::report::progress::{ProgressReporter, ReportContext};
 use crate::scripting;
@@ -21,6 +22,7 @@ use base64::Engine;
 use indexmap::IndexMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Options controlling how tests are run.
@@ -77,6 +79,41 @@ impl Default for RunOptions {
 
 /// Name of the default cookie jar used when no `cookies: <name>` is set on a step.
 const DEFAULT_JAR_NAME: &str = "default";
+
+/// Observers the runner fires as a file / test / step lifecycle
+/// progresses. Both fields are optional so callers can mix and match
+/// (e.g. CI wants NDJSON stdout + events.jsonl on disk; a plain local
+/// run wants human progress and no events; watch-mode reruns might
+/// want neither). Grouped into one struct so adding a new observer in
+/// the future does not require yet another parameter on every call
+/// site.
+#[derive(Default, Clone)]
+pub struct RunObservers<'a> {
+    pub progress: Option<&'a (dyn ProgressReporter + Send + Sync)>,
+    pub events: Option<&'a Arc<EventStream>>,
+}
+
+impl<'a> RunObservers<'a> {
+    pub fn new() -> Self {
+        Self {
+            progress: None,
+            events: None,
+        }
+    }
+
+    pub fn with_progress(
+        mut self,
+        progress: Option<&'a (dyn ProgressReporter + Send + Sync)>,
+    ) -> Self {
+        self.progress = progress;
+        self
+    }
+
+    pub fn with_events(mut self, events: Option<&'a Arc<EventStream>>) -> Self {
+        self.events = events;
+        self
+    }
+}
 
 /// Location metadata used by the fixture writer so every step knows
 /// which `(file, test)` directory to persist under. Setup / teardown
@@ -287,9 +324,9 @@ pub fn run_file(
 
 /// Run a single test file with an externally managed cookie jar set.
 ///
-/// When `selectors` is non-empty, only tests and steps matching at least
-/// one selector run. Setup and teardown always run for a file that has
-/// any matching work, so captures and cleanup behave consistently.
+/// Thin wrapper over [`run_file_with_observers`] that carries only a
+/// progress reporter, preserved for call sites that do not need the
+/// `events.jsonl` stream (watch mode, library consumers, legacy tests).
 #[allow(clippy::too_many_arguments)]
 pub fn run_file_with_cookie_jars(
     test_file: &TestFile,
@@ -301,6 +338,40 @@ pub fn run_file_with_cookie_jars(
     cookie_jars: &mut HashMap<String, CookieJar>,
     progress: Option<&(dyn ProgressReporter + Send + Sync)>,
 ) -> Result<FileResult, TarnError> {
+    let observers = RunObservers::new().with_progress(progress);
+    run_file_with_observers(
+        test_file,
+        file_path,
+        env,
+        tag_filter,
+        selectors,
+        opts,
+        cookie_jars,
+        &observers,
+    )
+}
+
+/// Run a single test file with an externally managed cookie jar set and
+/// a combined [`RunObservers`] bundle (progress reporter + events.jsonl
+/// stream). The runner fires both observers at matching lifecycle
+/// points; either may be absent.
+///
+/// When `selectors` is non-empty, only tests and steps matching at least
+/// one selector run. Setup and teardown always run for a file that has
+/// any matching work, so captures and cleanup behave consistently.
+#[allow(clippy::too_many_arguments)]
+pub fn run_file_with_observers(
+    test_file: &TestFile,
+    file_path: &str,
+    env: &HashMap<String, String>,
+    tag_filter: &[String],
+    selectors: &[Selector],
+    opts: &RunOptions,
+    cookie_jars: &mut HashMap<String, CookieJar>,
+    observers: &RunObservers<'_>,
+) -> Result<FileResult, TarnError> {
+    let progress = observers.progress;
+    let events = observers.events;
     let start = Instant::now();
     let client = http::HttpClient::new(&opts.http)?;
     let redaction = test_file.redaction.clone().unwrap_or_default();
@@ -368,6 +439,9 @@ pub fn run_file_with_cookie_jars(
     if let Some(p) = progress {
         p.file_started(file_path, &test_file.name);
     }
+    if let Some(ev) = events {
+        ev.emit_file_started(file_path);
+    }
 
     // Run setup steps
     let setup_results = run_steps(
@@ -397,6 +471,20 @@ pub fn run_file_with_cookie_jars(
             redacted_values: &snapshot,
         };
         p.setup_finished(&setup_results, &ctx);
+    }
+    if let Some(ev) = events {
+        // Setup steps are reported under the synthetic `__setup__`
+        // test label so consumers can correlate them back to the file
+        // without inventing a test name. Every real test has its own
+        // `test_started` / `test_completed` pair; the synthetic labels
+        // carry no such pair.
+        emit_step_events(
+            ev,
+            file_path,
+            fixtures::SETUP_TEST_SLUG,
+            &test_file.setup,
+            &setup_results,
+        );
     }
 
     let mut test_results = Vec::new();
@@ -446,6 +534,21 @@ pub fn run_file_with_cookie_jars(
                     redacted_values: &snapshot,
                 };
                 p.test_finished(&test_result, &ctx);
+            }
+            if let Some(ev) = events {
+                // Flat-format files are modeled as a single synthetic test
+                // whose name equals the file's own name. test_started is
+                // fired just before step events so event order matches
+                // ordinary named-test runs.
+                ev.emit_test_started(file_path, &test_result.name);
+                emit_step_events(
+                    ev,
+                    file_path,
+                    &test_result.name,
+                    &selected_steps,
+                    &test_result.step_results,
+                );
+                ev.emit_test_completed(file_path, &test_result);
             }
             test_results.push(test_result);
         }
@@ -517,6 +620,17 @@ pub fn run_file_with_cookie_jars(
                 };
                 p.test_finished(&test_result, &ctx);
             }
+            if let Some(ev) = events {
+                ev.emit_test_started(file_path, &test_result.name);
+                emit_step_events(
+                    ev,
+                    file_path,
+                    &test_result.name,
+                    &selected_steps,
+                    &test_result.step_results,
+                );
+                ev.emit_test_completed(file_path, &test_result);
+            }
             test_results.push(test_result);
         }
     }
@@ -549,6 +663,15 @@ pub fn run_file_with_cookie_jars(
         };
         p.teardown_finished(&teardown_results, &ctx);
     }
+    if let Some(ev) = events {
+        emit_step_events(
+            ev,
+            file_path,
+            fixtures::TEARDOWN_TEST_SLUG,
+            &test_file.teardown,
+            &teardown_results,
+        );
+    }
 
     let all_passed = !setup_failed
         && test_results.iter().all(|t| t.passed)
@@ -569,8 +692,164 @@ pub fn run_file_with_cookie_jars(
     if let Some(p) = progress {
         p.file_finished(&file_result);
     }
+    if let Some(ev) = events {
+        ev.emit_file_completed(&file_result);
+    }
 
     Ok(file_result)
+}
+
+/// Fire `step_started` + `step_completed` events for a sequence of
+/// steps, plus synthetic `capture_failure` / `polling_timeout` events
+/// derived from the step's `error_category`. Called with the original
+/// `Step` slice so the URL and method can be recovered even for steps
+/// that never made it past template interpolation (`request_info` is
+/// absent on cascade skips and unresolved templates).
+fn emit_step_events(
+    events: &Arc<EventStream>,
+    file_path: &str,
+    test_name: &str,
+    steps: &[Step],
+    results: &[StepResult],
+) {
+    for (index, result) in results.iter().enumerate() {
+        let (method, url) = match &result.request_info {
+            Some(info) => (info.method.clone(), info.url.clone()),
+            None => {
+                // Fall back to the raw, un-interpolated model. Keeps
+                // the event populated for cascade-skipped steps so a
+                // reader can still see where in the file the skip sat.
+                let fallback = steps.get(index);
+                (
+                    fallback
+                        .map(|s| s.request.method.clone())
+                        .unwrap_or_default(),
+                    fallback.map(|s| s.request.url.clone()).unwrap_or_default(),
+                )
+            }
+        };
+        events.emit_step_started(file_path, test_name, index, &result.name, &method, &url);
+
+        // Synthesize derived events from the step's classification.
+        // These fire *before* step_completed so a reader sees the
+        // diagnostic-rich event first, then the terminal status line —
+        // matching how `failures.json` carries the same information.
+        if let Some(category) = result.error_category {
+            match category {
+                FailureCategory::CaptureError | FailureCategory::SkippedDueToFailedCapture => {
+                    let (message, missing) = capture_failure_details(result, steps.get(index));
+                    events.emit_capture_failure(
+                        file_path,
+                        test_name,
+                        index,
+                        &result.name,
+                        &message,
+                        &missing,
+                    );
+                }
+                FailureCategory::Timeout => {
+                    if is_poll_timeout(result) {
+                        let (attempts, last_status) = poll_metadata(result);
+                        events.emit_polling_timeout(
+                            crate::report::event_stream::StepCoords {
+                                file: file_path,
+                                test: test_name,
+                                step: &result.name,
+                                step_index: index,
+                            },
+                            crate::report::event_stream::PollingTimeoutInfo {
+                                elapsed_ms: result.duration_ms,
+                                attempts,
+                                last_status,
+                            },
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        events.emit_step_completed(file_path, test_name, index, result);
+    }
+}
+
+/// Extract the primary human-readable message and the list of missing
+/// capture names for a step whose `error_category` signals a capture
+/// failure or a cascade skip caused by an upstream capture failure.
+fn capture_failure_details(result: &StepResult, step: Option<&Step>) -> (String, Vec<String>) {
+    let message = result
+        .assertion_results
+        .iter()
+        .find(|a| !a.passed)
+        .map(|a| a.message.clone())
+        .unwrap_or_default();
+    let missing: Vec<String> = match step {
+        // On an actual `CaptureError`, the missing names are the
+        // capture keys declared on the step that we could not record.
+        Some(s) if matches!(result.error_category, Some(FailureCategory::CaptureError)) => s
+            .capture
+            .keys()
+            .filter(|k| !result.captures_set.iter().any(|set| set == *k))
+            .cloned()
+            .collect(),
+        // On a cascade skip, the assertion's `actual` field holds the
+        // upstream name the runner already classified as missing;
+        // surface it so the event still carries the correlation key.
+        _ => result
+            .assertion_results
+            .iter()
+            .find(|a| !a.passed)
+            .and_then(|a| parse_cascade_missing_names(&a.actual))
+            .unwrap_or_default(),
+    };
+    (message, missing)
+}
+
+/// Parse the runner's cascade-skip `actual` string, which lists the
+/// upstream capture names like `"user_id, email"`. Returns `None` when
+/// the string is empty or unparseable so the caller can fall back.
+fn parse_cascade_missing_names(actual: &str) -> Option<Vec<String>> {
+    let trimmed = actual.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = trimmed
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if names.is_empty() {
+        None
+    } else {
+        Some(names)
+    }
+}
+
+/// A step's `Timeout` category covers both polling timeouts (at least
+/// one assertion is `"poll"`) and transport-level request timeouts.
+/// Only the former maps onto the `polling_timeout` event.
+fn is_poll_timeout(result: &StepResult) -> bool {
+    result
+        .assertion_results
+        .iter()
+        .any(|a| a.assertion == "poll")
+}
+
+/// Recover the attempt count and last observed response status for a
+/// polling timeout. The runner stamps both into the poll assertion's
+/// `actual` field in NAZ-339 as part of the structured timeout
+/// diagnostic, but they are not otherwise exposed on `StepResult`; this
+/// helper gives a best-effort extraction that never fails the event
+/// pipeline — unrecognised shapes yield `(0, None)` so the event still
+/// fires, just with weaker metadata.
+fn poll_metadata(result: &StepResult) -> (u32, Option<u16>) {
+    let last_status = result.response_status;
+    let attempts = result
+        .assertion_results
+        .iter()
+        .filter(|a| a.assertion == "poll")
+        .count() as u32;
+    (attempts.max(1), last_status)
 }
 
 /// Return the subset of steps matching the active selectors. Without

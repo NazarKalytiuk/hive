@@ -2,6 +2,7 @@ pub mod compact;
 pub mod concise;
 pub mod curl;
 pub mod diff;
+pub mod event_stream;
 pub mod failure;
 pub mod failures_command;
 pub mod fixture_writer;

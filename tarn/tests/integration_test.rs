@@ -7026,3 +7026,277 @@ tests:
         .expect("drift group present");
     assert_eq!(drift_group["occurrences"], 2);
 }
+
+// -----------------------------------------------------------------
+// NAZ-413: events.jsonl streaming artifact
+// -----------------------------------------------------------------
+
+/// Load every event line from the given events.jsonl.
+fn parse_events(path: &std::path::Path) -> Vec<serde_json::Value> {
+    let raw = fs::read_to_string(path).unwrap();
+    raw.lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            serde_json::from_str::<serde_json::Value>(l)
+                .unwrap_or_else(|e| panic!("bad events.jsonl line {l:?}: {e}"))
+        })
+        .collect()
+}
+
+fn events_kinds(events: &[serde_json::Value]) -> Vec<String> {
+    events
+        .iter()
+        .map(|e| e["event"].as_str().unwrap_or("").to_string())
+        .collect()
+}
+
+/// Write a two-file suite with a healthy and a failing test so every
+/// lifecycle event kind can fire at least once.
+fn write_events_suite(dir: &TempDir, base_url: &str) -> (String, String) {
+    let a = write_test_file(
+        dir,
+        "events-a.tarn.yaml",
+        &format!(
+            r#"
+name: Events A
+tests:
+  happy:
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+"#,
+            base = base_url
+        ),
+    );
+    let b = write_test_file(
+        dir,
+        "events-b.tarn.yaml",
+        &format!(
+            r#"
+name: Events B
+tests:
+  sad:
+    steps:
+      - name: boom
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 500
+"#,
+            base = base_url
+        ),
+    );
+    (a, b)
+}
+
+/// `.tarn/runs/<run_id>/events.jsonl` must exist, start with a
+/// `run_started` envelope, end with `run_completed`, and cover every
+/// intermediate lifecycle kind. This is the headline acceptance
+/// criterion from NAZ-413: a consumer can reconstruct progress by
+/// tailing the file line-by-line.
+#[test]
+fn events_jsonl_contains_full_lifecycle_under_run_directory() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let (a, b) = write_events_suite(&dir, &server.base_url());
+
+    // `tarn run` takes a single path (file or directory). Point at
+    // the tempdir so both .tarn.yaml files in the suite are discovered.
+    let _ = (&a, &b);
+    let suite_dir = dir.path().display().to_string();
+    let output = tarn()
+        .args(["run", &suite_dir])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+
+    let events_path = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&run_id)
+        .join("events.jsonl");
+    assert!(events_path.is_file(), "{} missing", events_path.display());
+    let events = parse_events(&events_path);
+    assert!(events.len() >= 2, "stream too short: {events:?}");
+
+    let kinds = events_kinds(&events);
+    assert_eq!(kinds.first().unwrap(), "run_started");
+    assert_eq!(kinds.last().unwrap(), "run_completed");
+
+    for required in [
+        "file_started",
+        "file_completed",
+        "test_started",
+        "test_completed",
+        "step_started",
+        "step_completed",
+    ] {
+        assert!(
+            kinds.iter().any(|k| k == required),
+            "missing '{required}' in {kinds:?}"
+        );
+    }
+
+    // seq must be monotonic 0..N
+    for (i, ev) in events.iter().enumerate() {
+        assert_eq!(ev["seq"], i as u64, "seq drift at index {i}");
+    }
+
+    // every line must carry the same run_id.
+    for ev in &events {
+        assert_eq!(
+            ev["run_id"], run_id,
+            "every event must stamp the shared run_id"
+        );
+        assert_eq!(ev["schema_version"], 1);
+    }
+}
+
+/// The `.tarn/events.jsonl` pointer must be a byte-for-byte copy of the
+/// per-run archive — same invariant `.tarn/last-run.json` holds for
+/// `report.json` in NAZ-400.
+#[test]
+fn events_jsonl_pointer_mirrors_run_directory_bytes() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let (a, _b) = write_events_suite(&dir, &server.base_url());
+
+    let output = tarn()
+        .args(["run", &a])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+
+    let archive = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&run_id)
+        .join("events.jsonl");
+    let pointer = dir.path().join(".tarn").join("events.jsonl");
+
+    assert!(archive.is_file());
+    assert!(pointer.is_file());
+    let a_bytes = fs::read(&archive).unwrap();
+    let p_bytes = fs::read(&pointer).unwrap();
+    assert_eq!(
+        a_bytes, p_bytes,
+        "events.jsonl pointer must mirror the archive byte for byte"
+    );
+}
+
+/// `--no-last-run-json` must suppress both the per-run `events.jsonl`
+/// and the workspace pointer: the user asked for a transient run.
+#[test]
+fn no_last_run_json_suppresses_events_jsonl_everywhere() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_passing_fixture(&dir, "events-transient.tarn.yaml", &server.base_url());
+
+    let output = tarn()
+        .args(["run", &test_file, "--no-last-run-json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    assert!(
+        !dir.path().join(".tarn").join("events.jsonl").exists(),
+        "pointer must stay suppressed under --no-last-run-json"
+    );
+    let runs_root = dir.path().join(".tarn").join("runs");
+    if runs_root.exists() {
+        let entries: Vec<_> = fs::read_dir(&runs_root).unwrap().collect();
+        assert!(
+            entries.is_empty(),
+            "runs dir must stay empty under --no-last-run-json"
+        );
+    }
+}
+
+/// A step whose declared capture cannot be extracted must produce a
+/// `capture_failure` event, and it must be written *before* the
+/// `step_completed` for that step so a reader reacting line-by-line
+/// sees the diagnostic prior to the terminal status line. This is
+/// exactly the "react to failures early" behavior the ticket scopes.
+#[test]
+fn capture_failure_event_precedes_step_completed_for_same_step() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "events-capture.tarn.yaml",
+        &format!(
+            r#"
+name: Events capture
+tests:
+  grab:
+    steps:
+      - name: missing capture
+        request:
+          method: GET
+          url: "{base}/health"
+        capture:
+          wont_exist: "$.nope.nothing.here"
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+
+    let events_path = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&run_id)
+        .join("events.jsonl");
+    let events = parse_events(&events_path);
+
+    let capture_pos = events
+        .iter()
+        .position(|e| e["event"] == "capture_failure")
+        .expect("expected a capture_failure event");
+    let step_completed_pos = events
+        .iter()
+        .position(|e| e["event"] == "step_completed" && e["step"] == "missing capture")
+        .expect("expected a step_completed for the capturing step");
+
+    assert!(
+        capture_pos < step_completed_pos,
+        "capture_failure must precede step_completed for the same step"
+    );
+
+    // Correlation: both events carry the same file_id and test_id.
+    assert_eq!(
+        events[capture_pos]["file_id"],
+        events[step_completed_pos]["file_id"]
+    );
+    assert_eq!(
+        events[capture_pos]["test_id"],
+        events[step_completed_pos]["test_id"]
+    );
+    let missing = events[capture_pos]["missing"]
+        .as_array()
+        .expect("missing is an array");
+    assert!(
+        missing.iter().any(|v| v == "wont_exist"),
+        "capture_failure.missing must list the unresolved name: {missing:?}"
+    );
+}
