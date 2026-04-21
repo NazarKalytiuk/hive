@@ -64,6 +64,18 @@ When `cwd` is not set, a missing `tarn.config.yaml` is still tolerated (the serv
 6. Edit the test or the application code.
 7. Rerun until `summary.status` is `PASSED`.
 
+### Failures-first loop over MCP
+
+The same failures-first discipline documented for the CLI applies when driving Tarn through MCP. The MCP tool surface (`tarn_run` + `tarn_fix_plan`) hands back the same per-run artifacts (`summary.json`, `failures.json`, `report.json`) under `.tarn/runs/<run_id>/`, so after an MCP-driven `tarn_run` you should:
+
+1. Read `failures.json` (or call `tarn_fix_plan` which already operates on the failing subset) — **do not parse the full `report.json` unless the failures-level artifacts are insufficient.**
+2. For one specific failing step, drop to the CLI equivalent (`tarn inspect last FILE::TEST::STEP --format json`) or read the step's record straight out of `report.json` — there is no dedicated MCP tool for drill-down yet, so the CLI is the canonical path.
+3. Patch the YAML (via the MCP client's file edit path) or the application.
+4. Replay only the failing subset with `tarn rerun --failed` at the CLI (again, no MCP wrapper yet — the MCP surface is intentionally minimal).
+5. Call `tarn diff prev last` at the CLI to confirm the root cause is `fixed` with no `new` failures.
+
+See [`docs/AI_WORKFLOW_DEMO.md`](./AI_WORKFLOW_DEMO.md) and the Tarn skill's **Failures-First Loop** section ([`plugin/skills/tarn-api-testing/SKILL.md`](../plugin/skills/tarn-api-testing/SKILL.md)) for the canonical CLI sequence.
+
 > **Editor consumers:** `tarn_fix_plan` is backed by the same `tarn::fix_plan` library surface that powers `tarn-lsp`'s `CodeActionKind::QUICKFIX` **Apply fix** code action (NAZ-305, L3.4). The MCP tool uses the report-driven path for prioritised advice; the LSP uses the diagnostic-driven path for structured edits that clients apply with one click. See [`docs/TARN_LSP.md`](./TARN_LSP.md#apply-fix-quickfix--new-in-l34) for the LSP-side contract.
 
 ## Fields That Matter Most

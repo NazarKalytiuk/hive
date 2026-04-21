@@ -86,6 +86,28 @@ tarn run --parallel                    # run files in parallel
 tarn list --tag smoke                  # inspect matching tests without running them
 ```
 
+## Debugging a failed run
+
+Default to the **failures-first loop** — it keeps agents and humans off the megabyte-scale full report until they actually need it:
+
+```bash
+tarn validate <path>                  # syntax/config before running
+tarn run <path>                       # writes .tarn/runs/<run_id>/
+tarn failures                         # root-cause groups; cascades collapsed
+tarn inspect last FILE::TEST::STEP    # full context for ONE failure
+# patch tests or application code
+tarn rerun --failed                   # replay only the failing (file, test) pairs
+tarn diff prev last                   # confirm fixed / new / persistent
+```
+
+`tarn failures` reads `.tarn/failures.json` (or `--run <id>` for a specific archive), groups failures by root-cause fingerprint, and collapses `skipped_due_to_failed_capture` cascades into their upstream entry — so one failing step with five downstream skips surfaces as one entry with `cascades: 5`, not six.
+
+`tarn inspect` supports run-id aliases `last` / `latest` / `@latest` and `prev`. The target `FILE[::TEST[::STEP]]` drills into one record without parsing the full `report.json`.
+
+`tarn rerun --failed` re-executes only the failing `(file, test)` pairs and produces a fresh archive, stamping `rerun_source` onto the new report. `tarn diff prev last` buckets failure fingerprints into `new` / `fixed` / `persistent` so you can confirm a patch without re-reading the full report.
+
+Reach for `.tarn/runs/<run_id>/report.json` only when `failures` + `inspect` cannot answer the question. See [`plugin/skills/tarn-api-testing/SKILL.md`](./plugin/skills/tarn-api-testing/SKILL.md) (Failures-First Loop) and [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md) (Response-shape drift) for the canonical agent-facing guidance, including a worked example of a mutation endpoint whose response shape changed from `{"uuid": "..."}` to `{"request": {"uuid": "..."}}` and the `$.uuid` → `$.request.uuid` fix.
+
 ## Hello World
 
 Want a fully local demo path from this repo?
@@ -101,6 +123,7 @@ There are more local scenarios in `examples/demo-server/` for redirects, cookies
 ## Table of Contents
 
 - [Docs Index](#docs-index)
+- [Debugging a failed run](#debugging-a-failed-run)
 - [Test File Format](#test-file-format)
 - [Assertions](#assertions)
 - [Variables](#variables)

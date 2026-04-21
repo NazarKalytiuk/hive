@@ -73,7 +73,12 @@ This index lists the canonical repository markdown after the roadmap cleanup.
 ### Workflow and Operations
 
 - `docs/MCP_WORKFLOW.md`
+  - MCP tool surface (`tarn_list`, `tarn_validate`, `tarn_run`, `tarn_fix_plan`) and the failures-first loop for MCP-driven debugging
 - `docs/AI_WORKFLOW_DEMO.md`
+  - walkthrough of `validate → run → failures → inspect → rerun --failed → diff` with a worked example
+- `docs/TROUBLESHOOTING.md`
+  - response-shape drift pattern (reopen-request incident) and the `failures` + `inspect` + `rerun --failed` recovery loop
+  - route ordering trap and other common failure categories
 - `docs/CONFORMANCE.md`
 - `docs/RELEASE_VERIFICATION.md`
 - `editors/vscode/README.md`

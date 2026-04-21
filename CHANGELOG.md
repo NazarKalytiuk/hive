@@ -80,6 +80,24 @@
     subcommands support `--format human|json` with a stable JSON
     envelope (`schema_version` 1). Exit codes: 0 on success, 2 on
     unknown run id / missing artifact / parse error.
+  - **Failures-first debugging workflow in docs + skill (NAZ-408,
+    docs-only).** The `tarn-api-testing` skill, README, AI workflow
+    demo, troubleshooting guide, docs index, and MCP workflow doc now
+    lead with the canonical failures-first loop
+    (`validate → run → failures → inspect last FILE::TEST::STEP →
+    patch → rerun --failed → diff prev last`) and deprecate
+    full-`report.json` parsing to a last-resort path. Agents are
+    explicitly instructed never to slurp `report.json` when
+    `failures.json` suffices, never to open cascade skips
+    (`skipped_due_to_failed_capture`) individually, and to rule out
+    response-shape drift before blaming business logic. A
+    reusable "reopen-request" incident walkthrough (mutation response
+    changed from `{"uuid": "..."}` to `{"request": {"uuid": "..."}}`
+    → capture path needs to move from `$.uuid` to `$.request.uuid` +
+    envelope type assertion) lands in `docs/TROUBLESHOOTING.md` and
+    the skill. Mutation-response vs read-response conventions are
+    documented so tests default to asserting the envelope on `POST`/
+    `PUT`/`PATCH` responses.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

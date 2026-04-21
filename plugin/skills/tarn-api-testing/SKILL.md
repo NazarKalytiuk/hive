@@ -8,18 +8,55 @@ description: |
 
 Tarn is a CLI-first API testing tool. Tests are declarative YAML files (`.tarn.yaml`). Results are structured JSON designed for AI agent consumption. Single binary, zero runtime dependencies.
 
-## Core Workflow
+## Core Workflow — Failures-First Loop
 
-The primary loop when working with Tarn:
+**This is the canonical sequence.** Default to it for every debugging task. Do not reach for the full JSON report until steps 3–6 have failed to answer the question.
 
-1. **Write** a `.tarn.yaml` test file
-2. **Validate** syntax: `tarn validate tests/file.tarn.yaml`
-3. **Run** tests: `tarn run tests/file.tarn.yaml --format json`
-4. **Inspect** failures: check `failure_category`, then `assertions.failures`, then `request`/`response`
-5. **Fix** the YAML or the application code
-6. **Rerun** until `summary.status` is `"PASSED"`
+```
+1. tarn validate <path>                  # syntax/config before running
+2. tarn run <path>                       # produces .tarn/runs/<run_id>/
+3. tarn failures                         # root-cause groups; cascades collapsed
+4. tarn inspect last FILE::TEST::STEP    # full context for ONE failure
+5. Patch tests or application code
+6. tarn rerun --failed                   # reruns only the failing subset
+7. tarn diff prev last                   # confirm fixed / new / persistent
+8. Full report.json only when 3–6 are insufficient
+```
 
-Always validate before running. Always use `--format json` when parsing results programmatically.
+### Agent rules (read before doing anything else)
+
+- **Never slurp `report.json` if `failures.json` is sufficient.** `failures.json` is a 1–50 KB file with one entry per failing step. `report.json` is often megabytes. `tarn failures` is the correct entry point, not `cat .tarn/last-run.json | jq ...`.
+- **Never parse the full run JSON when a summary + inspect will answer the question.** `tarn inspect last FILE::TEST::STEP` opens one step's request/response/assertion block directly. Use it instead of grepping the whole report.
+- **Never blame business logic before confirming the response shape didn't drift.** See the "Response-shape drift" section below — most `assertion_failed` + `skipped_due_to_failed_capture` clusters are a single upstream capture path that no longer matches the new response body.
+- **Cascade skips (`skipped_due_to_failed_capture`) are suppressed noise.** Fix the root cause first. `tarn failures` already collapses them into `└─ cascades: N skipped`. Do NOT open each cascade skip individually; they will all resolve when the upstream step is fixed.
+- Always `tarn validate` before `tarn run`. Always use `--format json` (or `llm`) when parsing results programmatically.
+
+### Failures-first commands
+
+```bash
+tarn failures                         # group latest run's failures by root cause, collapse cascades
+tarn failures --format json           # structured root-cause groups for programmatic consumption
+tarn failures --include-cascades      # expand the cascade list (only when you actually need it)
+tarn failures --run <run_id>          # triage a specific historical archive
+tarn inspect last                     # run-level summary of the latest archive
+tarn inspect last tests/users.tarn.yaml::create-user::1   # one failing step, full context
+tarn inspect last --format json --filter-category assertion_failed
+tarn rerun --failed                   # rerun only failing (file, test) pairs from the latest run
+tarn rerun --failed --run <run_id>    # rerun failures from a specific archive
+tarn diff prev last                   # see which failures were fixed / added / persistent
+tarn diff prev last --format json --filter-category assertion_failed
+```
+
+Aliases for run ids: `last`, `latest`, `@latest` (most recent archive), `prev` (the one before latest).
+
+### Deep-inspection flow (only when failures-first is insufficient)
+
+Reach for the full JSON report ONLY when you genuinely need something `failures` + `inspect` can't surface — e.g. a cross-step captures map, a passed-step response body, or a bespoke grep against every executed request. Otherwise the small artifacts are always preferred:
+
+- `.tarn/runs/<run_id>/summary.json` — run id, timings, exit code, failed-file list
+- `.tarn/runs/<run_id>/failures.json` — one entry per failing step with coordinates, category, message, request method/url, response status, ~500-char redacted body excerpt
+- `.tarn/runs/<run_id>/report.json` — full structured report (megabytes; last resort)
+- `.tarn/summary.json` / `.tarn/failures.json` — pointers to the latest run's artifacts
 
 ## Commands
 
@@ -60,7 +97,15 @@ tarn fmt                              # reformat all .tarn.yaml files in place
 tarn fmt tests/users.tarn.yaml        # reformat a specific file
 tarn fmt --check                      # CI mode: exit 1 if any file needs formatting
 tarn list                             # list all tests and steps (dry run)
+tarn failures                         # group latest run's failures by root cause (see Failures-First Loop)
+tarn failures --run <id> --format json
+tarn rerun --failed                   # rerun just the failing (file, test) pairs
+tarn inspect last                     # run-level summary of the latest archive
+tarn inspect last FILE::TEST::STEP    # drill into one failing step
+tarn diff prev last                   # diff two runs' failure sets (fixed/new/persistent)
 ```
+
+`failures`, `rerun --failed`, `inspect`, and `diff` all read the per-run archives under `.tarn/runs/<run_id>/` introduced in NAZ-400/401. They are the preferred failure-triage entry points. See the **Failures-First Loop** section near the top of this file.
 
 ### Output formats for agents vs humans
 
@@ -381,16 +426,79 @@ See `references/json-output.md` for the full schema.
 | `skipped_due_to_failed_capture` | Downstream step skipped because a capture it needed failed earlier | Fix the root cause; skips are suppressed noise, not new failures |
 | `skipped_by_condition` | Step-level `if:` / `unless:` evaluated to skip | Intentional; `passed: true`, never flips exit code |
 
-### Diagnosis Loop
+### Diagnosis Loop (structured report, step level)
+
+Use this when you already have a single failing step open (e.g. via `tarn inspect last FILE::TEST::STEP --format json`):
 
 ```
-1. Check summary.status — if PASSED, done
-2. Find failed step → read failure_category
-3. If assertion_failed → read assertions.failures[].expected vs actual
-4. If connection_error → check request.url for unresolved {{ }} templates
-5. If capture_error → check previous step's response shape
-6. Fix YAML or application → rerun
+1. Read failure_category first — it tells you which branch below applies
+2. If assertion_failed       → read assertions.failures[].expected vs actual
+3. If connection_error       → check request.url for unresolved {{ }} templates
+4. If timeout                → check server state / increase step timeout
+5. If capture_error          → check previous step's response shape (see "Response-shape drift")
+6. If unresolved_template    → check env chain or upstream capture
+7. If skipped_due_to_failed_capture → IGNORE; fix the root cause grouped by `tarn failures`
+8. Fix YAML or application → tarn rerun --failed → tarn diff prev last
 ```
+
+### Response-shape drift (check this before blaming business logic)
+
+**Symptom.** One step fails with a status-mismatch or capture error. Several downstream steps in the same test are marked `skipped_due_to_failed_capture`. `tarn failures` collapses them into one root-cause group plus `└─ cascades: N skipped`.
+
+**Why it usually happens.** The endpoint's response shape changed. The old capture JSONPath no longer matches. Every downstream step that needed the captured value is now unreachable.
+
+**Worked example — the reopen-request incident.** A create/reopen endpoint used to return:
+
+```json
+{ "uuid": "e4f2…", "status": "pending" }
+```
+
+and the test captured `user_id: "$.uuid"`. The endpoint now returns an envelope:
+
+```json
+{ "request": { "uuid": "e4f2…" }, "stageStatus": "pending" }
+```
+
+`$.uuid` no longer matches. The step's own status/body assertions fail (or its capture fails); every downstream `GET /requests/{{ capture.user_id }}` step skips with `skipped_due_to_failed_capture`.
+
+**Recovery loop.**
+
+1. `tarn failures --format json` — read the one root-cause group. Cascade count tells you how many steps will unblock once the root cause is fixed.
+2. `tarn inspect last FILE::TEST::STEP --format json` — open the failing step. Read `response.body_excerpt` (or the full `response` block) and identify the new shape.
+3. Find the field in the new response. For the example above: `$.request.uuid` instead of `$.uuid`.
+4. Patch the capture path **and** add a body-type assertion as a guard rail so the next drift is caught at the failing step, not at the downstream cascade.
+
+Before:
+
+```yaml
+capture:
+  user_id: "$.uuid"
+assert:
+  status: 201
+```
+
+After:
+
+```yaml
+capture:
+  user_id: "$.request.uuid"
+assert:
+  status: 201
+  body:
+    "$.request": { type: object }
+    "$.request.uuid": { type: string, not_empty: true }
+```
+
+5. `tarn rerun --failed` — replay only the failing `(file, test)` pair; don't rerun the whole suite.
+6. `tarn diff prev last --format json` — confirm the root cause moved to `fixed` and that no `new` failures appeared. `persistent` items need another pass.
+
+### Mutation vs read-response patterns
+
+Shape drift is disproportionately common on mutation endpoints. Use these defaults:
+
+- **Mutation endpoints (`POST`/`PUT`/`PATCH`)** often return an envelope distinct from the read shape — e.g. `{"request": {...}, "meta": {...}}` vs the read endpoint's `{"uuid": "..."}`. Assert the envelope explicitly with a type assertion and capture from the wrapped path (`$.request.uuid`, not `$.uuid`). Do NOT reuse a read-shape capture on a mutation response.
+- **Read endpoints (`GET /resource/:id`)** typically return the resource directly and drift less, but paginated/list endpoints wrap in `{"items": [...], "page": N}` and must never be flattened — capture from `$.items[0].id`, not `$[0].id`.
+- **When authoring a new capture**, do a one-shot `GET /resource/:id` (or, for mutations, a live `POST` with `--dry-run: false` and `debug: true` on the step) and copy the minimal JSONPath from the *observed* body. Never capture from memory.
 
 ## Exit Codes
 
@@ -593,15 +701,19 @@ assert:
 
 ## Troubleshooting
 
-**"Unresolved template" in URL** — The `{{ env.x }}` or `{{ capture.x }}` was not resolved. Check that the env var exists in the resolution chain or that the previous capture step passed.
+Always start at `tarn failures` — it groups by root cause, collapses cascade skips, and points at a single failing step. Only after that does it make sense to inspect a specific step.
+
+**"Unresolved template" in URL** — The `{{ env.x }}` or `{{ capture.x }}` was not resolved. Check that the env var exists in the resolution chain or that the previous capture step passed. If the cascade count is non-zero, fix the upstream capture first, then `tarn rerun --failed`.
 
 **"Connection refused"** — The target server is not running. Start it before running tests.
 
-**"Capture extraction failed"** — The JSONPath does not match the actual response body. Run the step with `--format json`, inspect `response.body`, and fix the JSONPath.
+**"Capture extraction failed"** — The JSONPath does not match the actual response body. See "Response-shape drift" above. Open the failing step with `tarn inspect last FILE::TEST::STEP --format json`, read `response.body_excerpt`, and fix the JSONPath against the *observed* body, not from memory.
 
 **"Parse error"** — Invalid YAML syntax. Run `tarn validate` to see the exact error location.
 
 **Tests pass individually but fail together** — Steps share captures within a test group. Check for capture name collisions or ordering issues.
+
+**A lot of downstream steps are skipped** — That's `skipped_due_to_failed_capture` fanning out from one upstream failure. Do NOT open each skipped step. Run `tarn failures` and fix the single root-cause group at the top.
 
 ## File Organization
 
