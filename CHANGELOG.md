@@ -34,6 +34,31 @@
     emitted unconditionally (passing runs still produce
     `failures: []`) so tooling can key off stable filenames, and both
     are suppressed under `--no-last-run-json`.
+  - **`tarn rerun --failed` reruns only the failing subset (NAZ-403).**
+    New subcommand that reads `failures.json` from a prior run and
+    executes just the `(file, test)` pairs that failed. `--failed`
+    is required (so `tarn rerun` never silently becomes a full run);
+    `--run <run_id>` selects a specific historical archive under
+    `.tarn/runs/<id>/failures.json`, otherwise the workspace-level
+    latest-run pointer at `.tarn/failures.json` is used. Granularity
+    is test-level (a failing `FILE::TEST` becomes one selector);
+    setup/teardown failures escalate to a whole-file rerun because
+    their fixtures feed every test in the file. User-supplied
+    `--select` / `--test-filter` compose with the rerun selection
+    (union), so additional narrowing still works. The command prints
+    `rerun: selected N tests from run <id>:` followed by a bullet
+    list of `FILE::TEST` labels (truncated at 20 with `…and M more`)
+    on stderr before dispatching to the runner. The rerun produces a
+    fresh run artifact set — its own `run_id`, `report.json`,
+    `summary.json`, `failures.json`, `state.json`, and refreshed
+    `last-run.json` pointer — and stamps the source provenance onto
+    both `report.json` and `summary.json` under a new `rerun_source`
+    field (`{run_id, source_path, selected_count}`) so automation can
+    chain reruns. A source run with no failures exits 0 with
+    `rerun: no failing tests to rerun` and does not create an empty
+    archive. Source lookup is anchored at the current workspace root;
+    `cd` into the project before invoking the command if you have
+    moved away.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

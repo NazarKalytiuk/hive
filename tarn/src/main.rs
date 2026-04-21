@@ -420,6 +420,171 @@ enum Commands {
         #[arg(long = "no-color")]
         no_color: bool,
     },
+
+    /// Rerun the failing subset of a prior run (NAZ-403).
+    ///
+    /// Reads `failures.json` from a previous `tarn run` and executes only
+    /// the `(file, test)` pairs that failed. Setup/teardown failures
+    /// escalate to a whole-file rerun. Use `--run <id>` to target a
+    /// specific historical archive under `.tarn/runs/<id>/`; omit it to
+    /// use the latest-run pointer at `.tarn/failures.json`.
+    ///
+    /// The rerun produces a fresh run artifact set (its own `run_id`,
+    /// `report.json`, `summary.json`, `failures.json`, `state.json`, and
+    /// `last-run.json` pointer). Source provenance is stamped onto the
+    /// new report via `rerun_source` so automation can chain reruns.
+    ///
+    /// Source lookup is anchored at the current workspace root. If you
+    /// `cd`-ed away from the project that produced the archive, pass the
+    /// project root via the shell (`cd <dir>` or `tarn -C <dir>` once
+    /// that flag exists) before invoking `tarn rerun`; the command does
+    /// not chase `state.json.working_directory` from the source run.
+    Rerun {
+        /// Read the failing subset from the source run. Required — `tarn rerun`
+        /// on its own would be indistinguishable from a full run, so we refuse
+        /// the command without an explicit opt-in.
+        #[arg(long)]
+        failed: bool,
+
+        /// Run id whose `failures.json` should seed the rerun. Without
+        /// this flag the workspace-level pointer at `.tarn/failures.json`
+        /// is used (equivalent to "rerun the latest run's failures").
+        #[arg(long)]
+        run: Option<String>,
+
+        /// Output format target(s) — same grammar as `tarn run`.
+        #[arg(long, value_delimiter = ',')]
+        format: Vec<String>,
+
+        /// JSON report mode: verbose (default) or compact.
+        #[arg(long = "json-mode", default_value = "verbose")]
+        json_mode: String,
+
+        /// Filter by tag (comma-separated, AND logic).
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Additional selector entries unioned with the rerun selection.
+        #[arg(long = "select", value_name = "FILE[::TEST[::STEP]]")]
+        select: Vec<String>,
+
+        /// Further narrow the rerun to a single named test.
+        #[arg(long = "test-filter", value_name = "NAME")]
+        test_filter: Option<String>,
+
+        /// Further narrow the rerun to a single step.
+        #[arg(long = "step-filter", value_name = "INDEX|NAME")]
+        step_filter: Option<String>,
+
+        /// Override environment variables (key=value).
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
+
+        /// Environment name (loads tarn.env.{name}.yaml).
+        #[arg(long = "env")]
+        env_name: Option<String>,
+
+        /// Print full request/response for every step.
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Include response body, response headers, and captures in the
+        /// report for every step.
+        #[arg(long = "verbose-responses")]
+        verbose_responses: bool,
+
+        /// Maximum response body size (bytes) embedded in the report.
+        #[arg(long = "max-body", value_name = "BYTES", default_value_t = tarn::runner::DEFAULT_MAX_BODY_BYTES)]
+        max_body: usize,
+
+        /// Show only failed tests and steps in the output.
+        #[arg(long = "only-failed", alias = "only-fails")]
+        only_failed: bool,
+
+        /// Disable streaming progress output.
+        #[arg(long = "no-progress")]
+        no_progress: bool,
+
+        /// Stream NDJSON events to stdout for machine-readable progress.
+        #[arg(long = "ndjson", conflicts_with = "no_progress")]
+        ndjson: bool,
+
+        /// Show interpolated requests without sending them.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Run test files in parallel.
+        #[arg(long)]
+        parallel: bool,
+
+        /// Number of parallel workers (default: number of CPUs).
+        #[arg(short, long)]
+        jobs: Option<usize>,
+
+        /// Suppress the `--parallel` isolation warning.
+        #[arg(long = "no-parallel-warning")]
+        no_parallel_warning: bool,
+
+        /// Load and persist cookie jars to a JSON file.
+        #[arg(long = "cookie-jar")]
+        cookie_jar: Option<String>,
+
+        /// Reset the default cookie jar between named tests in each file.
+        #[arg(long = "cookie-jar-per-test")]
+        cookie_jar_per_test: bool,
+
+        /// Explicit proxy URL for HTTP/HTTPS requests.
+        #[arg(long)]
+        proxy: Option<String>,
+
+        /// Hosts that should bypass the configured proxy.
+        #[arg(long = "no-proxy")]
+        no_proxy: Option<String>,
+
+        /// Additional PEM CA bundle to trust.
+        #[arg(long)]
+        cacert: Option<String>,
+
+        /// Client certificate PEM file.
+        #[arg(long)]
+        cert: Option<String>,
+
+        /// Client private key PEM file.
+        #[arg(long)]
+        key: Option<String>,
+
+        /// Disable TLS certificate and hostname verification.
+        #[arg(long)]
+        insecure: bool,
+
+        /// Force HTTP/1.1.
+        #[arg(long = "http1.1", conflicts_with = "http2")]
+        http1_1: bool,
+
+        /// Force HTTP/2.
+        #[arg(long, conflicts_with = "http1_1")]
+        http2: bool,
+
+        /// Additional header name to redact in reports.
+        #[arg(long = "redact-header", value_name = "NAME")]
+        redact_header: Vec<String>,
+
+        /// Override the path for the always-on JSON artifact.
+        #[arg(long = "report-json", value_name = "PATH")]
+        report_json: Option<PathBuf>,
+
+        /// Skip writing the always-on JSON artifact.
+        #[arg(long = "no-last-run-json")]
+        no_last_run_json: bool,
+
+        /// Skip writing per-step fixtures.
+        #[arg(long = "no-fixtures")]
+        no_fixtures: bool,
+
+        /// Override the rolling-history retention cap for per-step fixtures.
+        #[arg(long = "fixture-retention", value_name = "N", default_value_t = tarn::fixtures::DEFAULT_RETENTION)]
+        fixture_retention: usize,
+    },
 }
 
 fn main() {
@@ -501,6 +666,7 @@ fn main() {
             no_last_run_json,
             no_fixtures,
             fixture_retention,
+            None,
         ),
         Commands::Bench {
             path,
@@ -582,6 +748,80 @@ fn main() {
             include_cascades,
             no_color,
         } => failures_command(run.as_deref(), &format, include_cascades, no_color),
+        Commands::Rerun {
+            failed,
+            run,
+            format,
+            json_mode,
+            tag,
+            select,
+            test_filter,
+            step_filter,
+            vars,
+            env_name,
+            verbose,
+            verbose_responses,
+            max_body,
+            only_failed,
+            no_progress,
+            ndjson,
+            dry_run,
+            parallel,
+            jobs,
+            no_parallel_warning,
+            cookie_jar,
+            cookie_jar_per_test,
+            proxy,
+            no_proxy,
+            cacert,
+            cert,
+            key,
+            insecure,
+            http1_1,
+            http2,
+            redact_header,
+            report_json,
+            no_last_run_json,
+            no_fixtures,
+            fixture_retention,
+        } => rerun_command(
+            failed,
+            run.as_deref(),
+            &format,
+            &json_mode,
+            &vars,
+            env_name.as_deref(),
+            tag.as_deref(),
+            &select,
+            test_filter.as_deref(),
+            step_filter.as_deref(),
+            verbose,
+            verbose_responses,
+            max_body,
+            only_failed,
+            no_progress,
+            ndjson,
+            dry_run,
+            parallel,
+            jobs,
+            no_parallel_warning,
+            cookie_jar.as_deref(),
+            cookie_jar_per_test,
+            HttpTransportConfig {
+                proxy,
+                no_proxy,
+                cacert,
+                cert,
+                key,
+                insecure,
+                http_version: cli_http_version(http1_1, http2),
+            },
+            &redact_header,
+            report_json.as_deref(),
+            no_last_run_json,
+            no_fixtures,
+            fixture_retention,
+        ),
     };
 
     process::exit(exit_code);
@@ -618,6 +858,7 @@ fn run_command(
     no_last_run_json: bool,
     no_fixtures: bool,
     fixture_retention: usize,
+    rerun_selection: Option<tarn::report::rerun::RerunSelection>,
 ) -> i32 {
     let project =
         match load_project_context(path.as_deref().map(Path::new).unwrap_or(Path::new("."))) {
@@ -649,6 +890,12 @@ fn run_command(
             }
         };
         selectors.push(synth);
+    }
+    // NAZ-403: union rerun-derived selectors with anything the user passed
+    // on the command line so `--failed` and `--select`/`--test-filter`
+    // compose instead of clobbering each other.
+    if let Some(selection) = rerun_selection.as_ref() {
+        selectors.extend(selection.selectors());
     }
     // Pick a TTY-aware default when `--format` was omitted: humans on
     // a terminal expect the colored `human` report; everyone piping to
@@ -718,14 +965,27 @@ fn run_command(
         }
     };
 
-    let discovery_report = match resolve_files_with_report(path, no_default_excludes) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            return e.exit_code();
+    // NAZ-403: a rerun bypasses workspace discovery — the files list is
+    // derived from the source `failures.json`. That keeps rerun runs
+    // narrow (no incidental execution of files that never failed) and
+    // sidesteps the discovery warnings (duplicate tree, exclusion summary)
+    // which are meaningless for a targeted rerun.
+    let discovery_report = if rerun_selection.is_some() {
+        None
+    } else {
+        match resolve_files_with_report(path, no_default_excludes) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return e.exit_code();
+            }
         }
     };
-    let files = discovery_report.files.clone();
+    let files: Vec<String> = match (&rerun_selection, &discovery_report) {
+        (Some(sel), _) => sel.files(),
+        (None, Some(report)) => report.files.clone(),
+        (None, None) => unreachable!("either rerun_selection or discovery_report is Some"),
+    };
 
     if files.is_empty() {
         eprintln!("No test files found");
@@ -741,8 +1001,10 @@ fn run_command(
             .iter()
             .any(|t| matches!(t.format, OutputFormat::Human) && t.path.is_none());
     if emits_human_stdout {
-        if let Some(summary) = format_discovery_summary(&discovery_report, no_default_excludes) {
-            println!("{}", summary);
+        if let Some(report) = discovery_report.as_ref() {
+            if let Some(summary) = format_discovery_summary(report, no_default_excludes) {
+                println!("{}", summary);
+            }
         }
     }
 
@@ -819,6 +1081,12 @@ fn run_command(
     let working_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let env_label = env_name.map(|s| s.to_string());
 
+    // NAZ-403: captured once so both the closure (for StateContext) and
+    // any artifact writer can stamp the provenance without passing an
+    // extra argument through every call site.
+    let rerun_source_for_state: Option<tarn::report::rerun::RerunSource> =
+        rerun_selection.as_ref().map(|sel| sel.source.clone());
+
     // Build the run closure (used by both normal and watch mode)
     let last_run_pointer_clone = last_run_pointer_path.clone();
     let run_args_clone = run_args.clone();
@@ -871,6 +1139,7 @@ fn run_command(
             run_id: Some(run_id.clone()),
             run_directory: run_directory.clone(),
             emit_pointer_artifacts: persist_artifacts,
+            rerun_source: rerun_source_for_state.clone(),
         };
 
         let exit = execute_run(
@@ -1119,6 +1388,7 @@ fn execute_run(
         render_opts,
         streamed_human_to_stdout,
         suppress_stdout_outputs,
+        state_context.rerun_source.as_ref(),
     ) {
         eprintln!("Error: {}", e);
         // Still flush `state.json` so the LLM can observe the
@@ -1158,6 +1428,10 @@ struct StateContext {
     /// (`summary.json`, `failures.json`) may be written. False under
     /// `--no-last-run-json`, which asks for a fully transient run.
     emit_pointer_artifacts: bool,
+    /// NAZ-403: stamped into `summary.json` and the top-level JSON
+    /// report when the run was produced by `tarn rerun`. `None` for
+    /// ordinary `tarn run` invocations.
+    rerun_source: Option<tarn::report::rerun::RerunSource>,
 }
 
 /// Persist `.tarn/state.json`, `.tarn/summary.json`, and
@@ -1193,6 +1467,7 @@ fn write_state_sidecar(
         ended_at,
         exit_code,
         ctx.run_id.clone(),
+        ctx.rerun_source.clone(),
     );
 
     // NAZ-400: write the per-run immutable copy first, then refresh
@@ -1422,6 +1697,182 @@ fn failures_command(
     }
 }
 
+/// `tarn rerun --failed [--run <id>]` — resolve the failing subset of a
+/// prior run into an in-memory selection, announce it on stderr, then
+/// delegate to `run_command` so the actual execution path, artifact
+/// writers, state.json emission, and last-run pointer update all stay
+/// identical to a normal `tarn run`.
+///
+/// Exit codes:
+/// - 0 when the source run had no failures (nothing to rerun — we do not
+///   create an empty run artifact)
+/// - 2 when `--failed` is missing, the source archive is missing or
+///   malformed, or an invalid `--run <id>` is passed
+/// - otherwise whatever the underlying run produces (0 pass, 1 fail,
+///   3 runtime error)
+#[allow(clippy::too_many_arguments)]
+fn rerun_command(
+    failed: bool,
+    run: Option<&str>,
+    format_specs: &[String],
+    json_mode: &str,
+    vars: &[String],
+    env_name: Option<&str>,
+    tag: Option<&str>,
+    select: &[String],
+    test_filter: Option<&str>,
+    step_filter: Option<&str>,
+    verbose: bool,
+    verbose_responses: bool,
+    max_body: usize,
+    only_failed: bool,
+    no_progress: bool,
+    ndjson: bool,
+    dry_run: bool,
+    parallel: bool,
+    jobs: Option<usize>,
+    no_parallel_warning: bool,
+    cookie_jar_path: Option<&str>,
+    cookie_jar_per_test: bool,
+    cli_http_transport: HttpTransportConfig,
+    extra_redact_headers: &[String],
+    report_json_path: Option<&Path>,
+    no_last_run_json: bool,
+    no_fixtures: bool,
+    fixture_retention: usize,
+) -> i32 {
+    if !failed {
+        eprintln!(
+            "Error: `tarn rerun` requires `--failed` so it never silently becomes a full run. \
+             Pass `tarn rerun --failed` (optionally with `--run <run_id>`)."
+        );
+        return 2;
+    }
+
+    let source = match resolve_rerun_source(run) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+
+    let selection = match tarn::report::rerun::load_selection(&source) {
+        Ok(sel) => sel,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return 2;
+        }
+    };
+
+    if selection.targets.is_empty() {
+        eprintln!(
+            "rerun: no failing tests to rerun (source: {})",
+            source.display_path()
+        );
+        return 0;
+    }
+
+    announce_rerun_selection(&selection, &source);
+
+    run_command(
+        None,
+        format_specs,
+        json_mode,
+        vars,
+        env_name,
+        tag,
+        select,
+        test_filter,
+        step_filter,
+        verbose,
+        verbose_responses,
+        max_body,
+        only_failed,
+        no_progress,
+        ndjson,
+        dry_run,
+        // Rerun does not support `--watch`: rerun reads a frozen source
+        // archive, and a watch loop on a frozen selection would invoke
+        // the same subset forever. Users who want to watch while iterating
+        // should use `tarn run --watch`.
+        false,
+        parallel,
+        jobs,
+        no_parallel_warning,
+        cookie_jar_path,
+        cookie_jar_per_test,
+        cli_http_transport,
+        extra_redact_headers,
+        // Discovery is bypassed inside `run_command` when
+        // `rerun_selection` is `Some`, so the `no_default_excludes` flag
+        // has no effect. Hard-coded to false for clarity.
+        false,
+        report_json_path,
+        no_last_run_json,
+        no_fixtures,
+        fixture_retention,
+        Some(selection),
+    )
+}
+
+/// Resolve `--run <id>` (optional) to the archive path under the current
+/// workspace root. Mirrors the lookup `failures_command` does; the two
+/// commands must agree on where the artifact lives.
+fn resolve_rerun_source(run: Option<&str>) -> Result<tarn::report::rerun::RerunSourcePath, i32> {
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("Error: failed to resolve current directory: {}", e);
+            return Err(2);
+        }
+    };
+    let workspace_root = config::find_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let path = match run {
+        Some(id) => tarn::report::run_dir::run_directory(&workspace_root, id).join("failures.json"),
+        None => workspace_root.join(".tarn").join("failures.json"),
+    };
+    Ok(match run {
+        Some(id) => tarn::report::rerun::RerunSourcePath::Archive {
+            run_id: id.to_string(),
+            path,
+        },
+        None => tarn::report::rerun::RerunSourcePath::LatestPointer(path),
+    })
+}
+
+/// Print the selection to stderr so the user can confirm what will run
+/// before any HTTP traffic happens. Truncated at 20 entries with a
+/// trailing "…and M more" to keep terminal scrollback manageable.
+fn announce_rerun_selection(
+    selection: &tarn::report::rerun::RerunSelection,
+    source: &tarn::report::rerun::RerunSourcePath,
+) {
+    const MAX_ENTRIES: usize = 20;
+    let source_label = match source {
+        tarn::report::rerun::RerunSourcePath::Archive { run_id, .. } => run_id.clone(),
+        tarn::report::rerun::RerunSourcePath::LatestPointer(_) => selection
+            .source
+            .run_id
+            .clone()
+            .unwrap_or_else(|| "latest".to_string()),
+    };
+    eprintln!(
+        "rerun: selected {} test{} from run {}:",
+        selection.targets.len(),
+        if selection.targets.len() == 1 {
+            ""
+        } else {
+            "s"
+        },
+        source_label
+    );
+    let total = selection.targets.len();
+    for target in selection.targets.iter().take(MAX_ENTRIES) {
+        eprintln!("  - {}", target.label());
+    }
+    if total > MAX_ENTRIES {
+        eprintln!("  …and {} more", total - MAX_ENTRIES);
+    }
+}
+
 fn parse_output_targets(specs: &[String]) -> Result<Vec<OutputTarget>, String> {
     let targets = specs
         .iter()
@@ -1449,6 +1900,7 @@ fn emit_run_outputs(
     render_opts: RenderOptions,
     streamed_human_to_stdout: bool,
     suppress_stdout_outputs: bool,
+    rerun_source: Option<&tarn::report::rerun::RerunSource>,
 ) -> Result<(), String> {
     for target in output_targets {
         if suppress_stdout_outputs && target.writes_to_stdout() && target.path.is_none() {
@@ -1458,9 +1910,12 @@ fn emit_run_outputs(
             && target.writes_to_stdout()
             && target.path.is_none();
         let output = match target.format {
-            OutputFormat::Json => {
-                tarn::report::json::render_with_options(run_result, json_output_mode, render_opts)
-            }
+            OutputFormat::Json => tarn::report::json::render_with_rerun_source(
+                run_result,
+                json_output_mode,
+                render_opts,
+                rerun_source,
+            ),
             OutputFormat::Human if is_stdout_human && streamed_human_to_stdout => {
                 tarn::report::human::render_summary(run_result)
             }
@@ -3320,6 +3775,7 @@ steps:
             RenderOptions::default(),
             false,
             false,
+            None,
         )
         .unwrap();
 

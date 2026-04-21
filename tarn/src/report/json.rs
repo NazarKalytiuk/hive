@@ -4,6 +4,7 @@ use crate::model::Location;
 use crate::report::redaction::{
     redact_headers, sanitize_assertion, sanitize_json, sanitize_string,
 };
+use crate::report::rerun::RerunSource;
 use crate::report::RenderOptions;
 use serde_json::{json, Value};
 use std::str::FromStr;
@@ -51,6 +52,28 @@ pub fn render_with_options(
     mode: JsonOutputMode,
     opts: RenderOptions,
 ) -> String {
+    render_full(result, mode, opts, None)
+}
+
+/// Render with all rendering options and an optional `rerun_source`
+/// (NAZ-403) stamped onto the top-level document. Regular runs pass
+/// `None` and the field is omitted, so the artifact stays byte-identical
+/// to prior versions for consumers that never look at it.
+pub fn render_with_rerun_source(
+    result: &RunResult,
+    mode: JsonOutputMode,
+    opts: RenderOptions,
+    rerun_source: Option<&RerunSource>,
+) -> String {
+    render_full(result, mode, opts, rerun_source)
+}
+
+fn render_full(
+    result: &RunResult,
+    mode: JsonOutputMode,
+    opts: RenderOptions,
+    rerun_source: Option<&RerunSource>,
+) -> String {
     let files_json: Vec<Value> = result
         .file_results
         .iter()
@@ -58,7 +81,7 @@ pub fn render_with_options(
         .map(|file| render_file(file, mode, opts))
         .collect();
 
-    let output = json!({
+    let mut output = json!({
         "schema_version": 1,
         "version": "1",
         "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -75,6 +98,15 @@ pub fn render_with_options(
             "status": if result.passed() { "PASSED" } else { "FAILED" },
         }
     });
+
+    if let Some(src) = rerun_source {
+        if let Some(obj) = output.as_object_mut() {
+            obj.insert(
+                "rerun_source".to_string(),
+                serde_json::to_value(src).expect("RerunSource serializes into a JSON object"),
+            );
+        }
+    }
 
     serde_json::to_string_pretty(&output).unwrap()
 }

@@ -22,6 +22,7 @@ use crate::assert::types::{FailureCategory, FileResult, RunResult, StepResult};
 use crate::fixtures::{SETUP_TEST_SLUG, TEARDOWN_TEST_SLUG};
 use crate::model::RedactionConfig;
 use crate::report::redaction::{sanitize_json, sanitize_string};
+use crate::report::rerun::RerunSource;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -46,6 +47,11 @@ pub struct SummaryDoc {
     pub totals: Counts,
     pub failed: Counts,
     pub failed_files: Vec<String>,
+    /// NAZ-403: populated when the run was produced by `tarn rerun`.
+    /// Omitted from the serialized form on normal runs to keep the
+    /// artifact byte-identical to prior versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_source: Option<RerunSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,12 +106,17 @@ pub struct RootCauseRef {
 }
 
 /// Build the summary + failures documents from a finished run.
+///
+/// `rerun_source` is stamped into the [`SummaryDoc`] when the run was
+/// produced by `tarn rerun`; regular runs pass `None` and the field is
+/// omitted from the serialized artifact.
 pub fn build_summary_and_failures(
     result: &RunResult,
     started_at: DateTime<Utc>,
     ended_at: DateTime<Utc>,
     exit_code: i32,
     run_id: Option<String>,
+    rerun_source: Option<RerunSource>,
 ) -> (SummaryDoc, FailuresDoc) {
     let mut totals = Counts {
         files: result.file_results.len(),
@@ -173,6 +184,7 @@ pub fn build_summary_and_failures(
         totals,
         failed,
         failed_files,
+        rerun_source,
     };
 
     let failures_doc = FailuresDoc {
@@ -450,7 +462,7 @@ mod tests {
             duration_ms: 1,
         };
         let (summary, failures) =
-            build_summary_and_failures(&run, Utc::now(), Utc::now(), 0, Some("rid".into()));
+            build_summary_and_failures(&run, Utc::now(), Utc::now(), 0, Some("rid".into()), None);
         assert_eq!(summary.totals.files, 1);
         assert_eq!(summary.totals.tests, 1);
         assert_eq!(summary.totals.steps, 1);
@@ -473,7 +485,7 @@ mod tests {
             duration_ms: 1,
         };
         let (summary, failures) =
-            build_summary_and_failures(&run, Utc::now(), Utc::now(), 1, Some("rid".into()));
+            build_summary_and_failures(&run, Utc::now(), Utc::now(), 1, Some("rid".into()), None);
         assert_eq!(summary.totals.steps, 2);
         assert_eq!(summary.failed.steps, 1);
         assert_eq!(summary.failed.tests, 1);
@@ -537,7 +549,7 @@ mod tests {
             duration_ms: 1,
         };
         let (summary, failures_doc) =
-            build_summary_and_failures(&run, Utc::now(), Utc::now(), 0, Some("rid".into()));
+            build_summary_and_failures(&run, Utc::now(), Utc::now(), 0, Some("rid".into()), None);
         let s_path = write_summary_to_dir(tmp.path(), &summary).unwrap();
         let f_path = write_failures_to_dir(tmp.path(), &failures_doc).unwrap();
         assert!(s_path.is_file());
@@ -591,7 +603,7 @@ mod tests {
             duration_ms: 0,
         };
         let (_, failures_doc) =
-            build_summary_and_failures(&run, Utc::now(), Utc::now(), 1, Some("rid".into()));
+            build_summary_and_failures(&run, Utc::now(), Utc::now(), 1, Some("rid".into()), None);
         let delete_failure = failures_doc
             .failures
             .iter()

@@ -5612,3 +5612,361 @@ steps:
         blocked_names
     );
 }
+
+// ============================================================================
+// NAZ-403: tarn rerun — rerun the failing subset of a prior run
+// ============================================================================
+
+/// Read the "status" string (PASSED / FAILED) out of a `.tarn/last-run.json`
+/// report so tests can assert on the rerun's shape without pulling in the
+/// full `RunResult` deserializer.
+fn read_last_run_report(dir: &std::path::Path) -> serde_json::Value {
+    let path = dir.join(".tarn").join("last-run.json");
+    let raw =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+    serde_json::from_slice(&raw).unwrap()
+}
+
+/// Count failing tests in `.tarn/runs/<run_id>/report.json`.
+fn count_executed_tests(report: &serde_json::Value) -> usize {
+    report["files"]
+        .as_array()
+        .map(|files| {
+            files
+                .iter()
+                .map(|f| f["tests"].as_array().map(|t| t.len()).unwrap_or(0))
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+/// Running `tarn rerun --failed` after a mixed pass/fail run reruns only
+/// the failing test, announces the selection on stderr, stamps the
+/// source run id onto `rerun_source`, and produces a fresh run archive.
+#[test]
+fn rerun_failed_only_reruns_failing_tests_from_latest_run() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    // Mixed suite: one passing, one failing test in the same file. The
+    // rerun must pick up only the failing one.
+    let test_file = write_test_file(
+        &dir,
+        "mixed.tarn.yaml",
+        &format!(
+            r#"
+name: Mixed suite
+env:
+  base_url: "{base}"
+tests:
+  happy:
+    steps:
+      - name: health ok
+        request:
+          method: GET
+          url: "{{{{ env.base_url }}}}/health"
+        assert:
+          status: 200
+  sad:
+    steps:
+      - name: health bad
+        request:
+          method: GET
+          url: "{{{{ env.base_url }}}}/health"
+        assert:
+          status: 418
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let first = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(first.status.code(), Some(1));
+    let first_stderr = String::from_utf8_lossy(&first.stderr).to_string();
+    let first_run_id = run_id_from_stderr(&first_stderr);
+
+    let rerun = tarn()
+        .args(["rerun", "--failed"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(rerun.status.code(), Some(1));
+    let rerun_stderr = String::from_utf8_lossy(&rerun.stderr).to_string();
+
+    assert!(
+        rerun_stderr.contains("rerun: selected 1 test from run"),
+        "expected announcement header, got: {}",
+        rerun_stderr
+    );
+    assert!(
+        rerun_stderr.contains("::sad"),
+        "expected `::sad` in selection bullet list, got: {}",
+        rerun_stderr
+    );
+    assert!(
+        !rerun_stderr.contains("::happy"),
+        "passing test must not be in the rerun selection: {}",
+        rerun_stderr
+    );
+
+    let new_run_id = run_id_from_stderr(&rerun_stderr);
+    assert_ne!(new_run_id, first_run_id, "rerun must mint a fresh run_id");
+
+    // Original archive is preserved.
+    assert!(
+        dir.path()
+            .join(".tarn")
+            .join("runs")
+            .join(&first_run_id)
+            .is_dir(),
+        "original run archive must persist across rerun"
+    );
+
+    // New archive exists and only executed the failing test.
+    let new_report_path = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&new_run_id)
+        .join("report.json");
+    assert!(new_report_path.is_file());
+    let new_report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&new_report_path).unwrap()).unwrap();
+    assert_eq!(
+        count_executed_tests(&new_report),
+        1,
+        "rerun must execute exactly one test, got: {}",
+        new_report
+    );
+
+    // rerun_source provenance is stamped onto the report.
+    let rerun_src = &new_report["rerun_source"];
+    assert_eq!(rerun_src["run_id"].as_str(), Some(first_run_id.as_str()));
+    assert_eq!(rerun_src["selected_count"], 1);
+    assert!(rerun_src["source_path"]
+        .as_str()
+        .unwrap()
+        .ends_with(".tarn/failures.json"));
+
+    // summary.json also gets the source stamp.
+    let summary_path = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&new_run_id)
+        .join("summary.json");
+    let summary: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&summary_path).unwrap()).unwrap();
+    assert_eq!(summary["rerun_source"]["run_id"], first_run_id);
+
+    // Pointer at `.tarn/last-run.json` is refreshed to the rerun.
+    let pointer = read_last_run_report(dir.path());
+    assert_eq!(pointer["run_id"].as_str(), Some(new_run_id.as_str()));
+    assert_eq!(pointer["rerun_source"]["run_id"], first_run_id);
+}
+
+/// `tarn rerun --failed --run <id>` loads the specified archive instead
+/// of the latest pointer, which lets the user replay an older run after
+/// a subsequent run has overwritten the pointer.
+#[test]
+fn rerun_failed_with_explicit_run_id_uses_archive() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let failing = write_test_file(
+        &dir,
+        "failing.tarn.yaml",
+        &format!(
+            r#"
+name: Failing
+steps:
+  - name: boom
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 599
+"#,
+            base = server.base_url()
+        ),
+    );
+    let passing = write_test_file(
+        &dir,
+        "passing.tarn.yaml",
+        &format!(
+            r#"
+name: Passing
+steps:
+  - name: ok
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    // Run the failing suite first, then the passing one. The latest
+    // pointer now points at a clean run, but the failing run's archive
+    // must still be reachable via `--run <id>`.
+    let first = tarn()
+        .args(["run", &failing])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(first.status.code(), Some(1));
+    let failing_run_id = run_id_from_stderr(&String::from_utf8_lossy(&first.stderr));
+
+    let second = tarn()
+        .args(["run", &passing])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(second.status.code(), Some(0));
+
+    let rerun = tarn()
+        .args(["rerun", "--failed", "--run", &failing_run_id])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(rerun.status.code(), Some(1));
+    let rerun_stderr = String::from_utf8_lossy(&rerun.stderr).to_string();
+    assert!(
+        rerun_stderr.contains(&format!("from run {}", failing_run_id)),
+        "expected explicit run id in announcement, got: {}",
+        rerun_stderr
+    );
+
+    let new_run_id = run_id_from_stderr(&rerun_stderr);
+    let new_report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            dir.path()
+                .join(".tarn")
+                .join("runs")
+                .join(&new_run_id)
+                .join("report.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(new_report["rerun_source"]["run_id"], failing_run_id);
+    assert!(new_report["rerun_source"]["source_path"]
+        .as_str()
+        .unwrap()
+        .contains(&format!(".tarn/runs/{}/failures.json", failing_run_id)));
+}
+
+/// An unknown `--run <id>` must exit 2 with a clear error, not silently
+/// fall back to the latest run (which could produce surprising reruns).
+#[test]
+fn rerun_with_unknown_run_id_exits_two() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join(".tarn")).unwrap();
+    std::fs::write(dir.path().join("tarn.config.yaml"), "").unwrap();
+
+    let output = tarn()
+        .args(["rerun", "--failed", "--run", "does-not-exist"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does-not-exist") || stderr.contains("failures.json"),
+        "error should reference the missing archive: {}",
+        stderr
+    );
+}
+
+/// A source run where every test passed has no failing subset to rerun.
+/// The command must exit 0 and MUST NOT create an empty run artifact,
+/// so `.tarn/runs/` remains a faithful record of "runs that did work."
+#[test]
+fn rerun_on_clean_source_exits_zero_without_new_artifacts() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "clean.tarn.yaml",
+        &format!(
+            r#"
+name: Clean
+steps:
+  - name: ok
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let first = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(first.status.code(), Some(0));
+
+    let runs_dir = dir.path().join(".tarn").join("runs");
+    let runs_before: Vec<_> = std::fs::read_dir(&runs_dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|d| d.file_name()))
+        .collect();
+    assert_eq!(runs_before.len(), 1, "exactly one archive after first run");
+
+    let rerun = tarn()
+        .args(["rerun", "--failed"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(rerun.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&rerun.stderr);
+    assert!(
+        stderr.contains("no failing tests to rerun"),
+        "expected the 'no failures to rerun' message, got: {}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("run id:"),
+        "must not create a new run archive: {}",
+        stderr
+    );
+
+    let runs_after: Vec<_> = std::fs::read_dir(&runs_dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|d| d.file_name()))
+        .collect();
+    assert_eq!(
+        runs_after, runs_before,
+        "`.tarn/runs/` must be unchanged when there is nothing to rerun"
+    );
+}
+
+/// `tarn rerun` without `--failed` is an error: we refuse to silently
+/// run the full suite because the subcommand's name implies a subset.
+#[test]
+fn rerun_without_failed_flag_exits_two() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join(".tarn")).unwrap();
+    std::fs::write(dir.path().join("tarn.config.yaml"), "").unwrap();
+
+    let output = tarn()
+        .args(["rerun"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--failed"),
+        "error must hint at the required flag: {}",
+        stderr
+    );
+}

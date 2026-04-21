@@ -11,6 +11,7 @@ pub mod junit;
 pub mod llm;
 pub mod progress;
 pub mod redaction;
+pub mod rerun;
 pub mod run_dir;
 pub mod state_writer;
 pub mod summary;
