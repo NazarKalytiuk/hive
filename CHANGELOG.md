@@ -2,37 +2,374 @@
 
 ## Unreleased
 
-### Runner + CLI (tarn)
+## 0.10.0 — Agent Loop: artifact-oriented runs, root-cause-first diagnostics, MCP parity (NAZ-400..416)
 
-- **High-level MCP APIs for the agent inner loop (NAZ-416, affects
-  `tarn-mcp`).** Five new tools wrap the prior library work so an agent
-  can drive impact → scaffold → run → inspect → fix without shell
-  fallbacks: `tarn_impact` (wraps `tarn::impact::analyze` with the same
-  JSON shape `tarn impact --format json` emits, plus a structured
-  error for missing inputs that carries a hint), `tarn_scaffold`
-  (wraps `tarn::scaffold::generate` for all four input modes
-  openapi/curl/explicit/recorded, optionally writing the rendered YAML
-  to disk with an overwrite guard), `tarn_run_agent` (convenience
-  surface over `tarn_run` with `report_mode: agent` pre-selected and
-  the full selector grammar — `test_filter`, `step_filter`, `select`,
-  `tag` — exposed), `tarn_last_root_causes` (failures-first read that
-  returns only the fingerprinted groups from NAZ-402, no cascade noise),
-  and `tarn_pack_context` (wraps NAZ-414's remediation bundle with both
-  JSON and markdown render targets and the `max_chars` truncation
-  budget). `tarn_rerun_failed` now echoes the caller's `env_name`/
-  `vars` and the selection slice the runner executed so an agent can
-  confirm its own intent without re-parsing. Every new response carries
-  `schema_version: 1` — the same version the underlying CLI artifacts
-  already emit so a consumer reading both surfaces sees consistent
-  versioning. Four new error codes in the reserved `-32050..-32099`
-  window (`ERR_IMPACT_INVALID_INPUT`, `ERR_IMPACT_PARSE_FAILED`,
-  `ERR_SCAFFOLD_INVALID_INPUT`, `ERR_SCAFFOLD_FAILED`,
-  `ERR_PACK_CONTEXT_INVALID_INPUT`) keep domain errors structured
-  instead of stringified. The golden `tools-list.json.golden` is
-  refreshed with descriptions ending in `equivalent to: tarn …` so
-  agents can cross-check behaviour against the CLI.
-- **MCP parity with the CLI plus artifact-oriented APIs (NAZ-407, affects
-  `tarn-mcp`).** The MCP server now writes every run's artifacts under
+Ships the Agent Loop epic (NAZ-409): every `tarn run` now persists an
+immutable archive under `.tarn/runs/<run_id>/` with `report.json`,
+`summary.json`, `failures.json`, `state.json`, and a streaming
+`events.jsonl` so a failed run is triagable from disk without replay.
+Diagnostics lead with root-cause-first fingerprinting plus
+response-shape drift detection that proposes replacement JSONPaths,
+and cascade fallout collapses under its upstream root cause instead
+of inflating failure counts. Nine new CLI surfaces land in this
+release — `tarn failures`, `tarn rerun --failed`, `tarn inspect`,
+`tarn diff`, `tarn report`, `tarn lint`, `tarn impact`,
+`tarn scaffold`, `tarn pack-context`, plus `tarn run --agent` — and
+`tarn-mcp` reaches full CLI parity through artifact-oriented tools so
+an agent can drive the whole impact → scaffold → run → inspect → fix
+loop without shell fallbacks.
+
+### Runner + CLI (`tarn`, unless marked otherwise)
+
+Bullets below cover the `tarn` crate unless explicitly flagged
+otherwise. Two bullets (NAZ-407, NAZ-416) affect `tarn-mcp`; NAZ-408
+is docs-only.
+
+#### Artifact & reporting pipeline (NAZ-400, NAZ-401, NAZ-403, NAZ-404, NAZ-405)
+
+- **Immutable per-run artifact directories (NAZ-400).** Every `tarn run`
+  now writes its JSON report and `state.json` into
+  `.tarn/runs/<run_id>/`, where `<run_id>` is a stable identifier of
+  the form `YYYYmmdd-HHMMSS-xxxxxx` (6 hex chars of random suffix to
+  break same-second ties). A second run no longer destroys the
+  previous run's debugging context — the archive is append-only and
+  compares cleanly between runs. The existing `.tarn/last-run.json`
+  and `.tarn/state.json` paths are preserved as pointers to the most
+  recent run so tooling that already reads them keeps working. The
+  CLI announces `run id:` and `run artifacts:` on stderr at the end
+  of every run; both files embed the same `run_id` so automation can
+  correlate archives without string-matching on paths.
+  `--no-last-run-json` now suppresses both the pointer and the
+  per-run directory (the transient-run behavior it already
+  advertised).
+- **Triage artifacts `summary.json` and `failures.json` (NAZ-401).**
+  Every run now also writes a condensed `summary.json` (run id,
+  timings, exit code, total/failed counts, list of failed files) and
+  a `failures.json` (one entry per failing step with file/test/step
+  coordinates, failure category, message, request method/url,
+  response status, a ~500-char redacted body excerpt, and — when
+  trivially derivable — a `root_cause` pointer for cascade skips).
+  Both land next to `report.json` under `.tarn/runs/<run_id>/` and
+  are mirrored to `.tarn/summary.json` / `.tarn/failures.json` as
+  discoverability pointers. A failed run can now be triaged from
+  `failures.json` alone, without parsing the full report; the full
+  report stays available for deep inspection. Both artifacts are
+  emitted unconditionally (passing runs still produce
+  `failures: []`) so tooling can key off stable filenames, and both
+  are suppressed under `--no-last-run-json`.
+- **`tarn rerun --failed` reruns only the failing subset (NAZ-403).**
+  New subcommand that reads `failures.json` from a prior run and
+  executes just the `(file, test)` pairs that failed. `--failed`
+  is required (so `tarn rerun` never silently becomes a full run);
+  `--run <run_id>` selects a specific historical archive under
+  `.tarn/runs/<id>/failures.json`, otherwise the workspace-level
+  latest-run pointer at `.tarn/failures.json` is used. Granularity
+  is test-level (a failing `FILE::TEST` becomes one selector);
+  setup/teardown failures escalate to a whole-file rerun because
+  their fixtures feed every test in the file. User-supplied
+  `--select` / `--test-filter` compose with the rerun selection
+  (union), so additional narrowing still works. The command prints
+  `rerun: selected N tests from run <id>:` followed by a bullet
+  list of `FILE::TEST` labels (truncated at 20 with `…and M more`)
+  on stderr before dispatching to the runner. The rerun produces a
+  fresh run artifact set — its own `run_id`, `report.json`,
+  `summary.json`, `failures.json`, `state.json`, and refreshed
+  `last-run.json` pointer — and stamps the source provenance onto
+  both `report.json` and `summary.json` under a new `rerun_source`
+  field (`{run_id, source_path, selected_count}`) so automation can
+  chain reruns. A source run with no failures exits 0 with
+  `rerun: no failing tests to rerun` and does not create an empty
+  archive. Source lookup is anchored at the current workspace root;
+  `cd` into the project before invoking the command if you have
+  moved away.
+- **Built-in concise report subcommand `tarn report` (NAZ-404).**
+  New CLI subcommand that re-renders a prior run's persisted
+  `summary.json` + `failures.json` without re-running the tests,
+  replacing external helper scripts (such as `parse-results.py`) in
+  the common local-debugging loop. `tarn report` reads the
+  workspace-level pointers at `.tarn/summary.json` /
+  `.tarn/failures.json` by default; `--run <run_id>` (with the same
+  `last` / `latest` / `@latest` / `prev` / bare-id aliases supported
+  by `tarn inspect` and `tarn diff`) opens any historical archive
+  under `.tarn/runs/<run_id>/`. `--format concise` (the default)
+  prints a one-line verdict header followed — on failing runs — by
+  up to 10 root-cause groups (reusing the NAZ-402 fingerprinting so
+  cascade fallout collapses into `└─ cascades: N skipped` rather
+  than inflating the group count), with a trailing
+  `…and N more groups (run \`tarn failures\` for full list)` when
+  the run has more. `--format json` emits a stable envelope
+  (`schema_version: 1`) with totals, failed counts, and a
+  `groups_truncated` / `groups_total` pair so agents can paginate or
+  fall back to `tarn failures`. Color output is honored on a TTY and
+  suppressed automatically on a pipe (plus `--no-color` for explicit
+  override), mirroring the llm renderer. Exit codes: 0 when the
+  loaded `failures.json` is empty, 1 when it has any failure, 2 on
+  missing / malformed artifacts or an unknown `--run <id>`.
+- **`tarn inspect` and `tarn diff` for run drill-down and comparison
+  (NAZ-405).** `tarn inspect <run_id> [target]` loads
+  `.tarn/runs/<run_id>/report.json` and renders a run / file /
+  test / step view depending on the `FILE[::TEST[::STEP]]` address
+  passed — so opening a single failing step no longer needs `jq`
+  against the full report. Run id aliases `last` / `latest` /
+  `@latest` / `prev` are supported (`prev` resolves to the archive
+  immediately before the latest). The run-level view accepts
+  `--filter-category <cat>` to narrow the listed failed files to
+  those carrying a failure in the given category; pass
+  `--fail-on-failure` to exit 1 when the inspected entity is
+  failing. `tarn diff <run_a> <run_b>` loads both runs'
+  `summary.json` and `failures.json`, computes the totals delta,
+  and classifies failure fingerprints (reusing the grouping
+  machinery from `tarn failures`) into `new` (only in B), `fixed`
+  (only in A), and `persistent` (both). `--file`, `--test`, and
+  `--filter-category` compose additively against the root-cause
+  coordinates so diffs can be scoped to a single suite. Both
+  subcommands support `--format human|json` with a stable JSON
+  envelope (`schema_version` 1). Exit codes: 0 on success, 2 on
+  unknown run id / missing artifact / parse error.
+
+#### Diagnostics & agent loop (NAZ-402, NAZ-412, NAZ-413, NAZ-414, NAZ-415)
+
+- **`tarn failures` groups failures by root cause and suppresses
+  cascades (NAZ-402).** New top-level subcommand that loads a prior
+  run's `failures.json` (defaulting to `.tarn/failures.json`, or the
+  archive at `.tarn/runs/<id>/failures.json` with `--run`) and groups
+  entries by a stable fingerprint. Status mismatches key off expected
+  vs actual plus method and a UUID/digit-normalized URL path; body
+  JSONPath misses split between `missing` and `value_mismatch`;
+  connection/timeout errors key off host + coarse kind; unknown shapes
+  fall back to a deterministic `unclassified` bucket. Cascade
+  categories (`skipped_due_to_failed_capture`, `skipped_due_to_fail_fast`)
+  are never fingerprinted — they attach as `blocked_steps` to the
+  group they came from (via the `root_cause` pointer NAZ-401 writes,
+  or a same-test fallback), so repeated fallout no longer dilutes the
+  signal. Renders human-readable output by default (with
+  `--include-cascades` to expand the blocked list) and a stable JSON
+  envelope with `--format json`; exit code 0 on a clean archive, 1
+  when failures exist, 2 on load/parse errors. The fingerprinter is
+  exposed as a library (`tarn::report::failures_command`) so
+  `tarn report`, `tarn diff`, `tarn run --agent`, and the MCP
+  `tarn_last_root_causes` tool all group failures the same way.
+- **Streaming run lifecycle events to `events.jsonl` (NAZ-413).**
+  Every `tarn run` now also writes an append-only NDJSON stream to
+  `.tarn/runs/<run_id>/events.jsonl`, mirrored to `.tarn/events.jsonl`
+  as a convenience pointer. Each line is one event; consumers tail
+  the file to react to failures as they happen rather than waiting
+  for `report.json` to land. The envelope is stable and versioned
+  (`schema_version: 1`, plus `run_id`, UTC `ts`, monotonic 0-based
+  `seq`), and every event carries `file_id` / `test_id` (8-hex
+  truncation of SHA-256) so lines correlate with `failures.json`
+  entries and the full report after the fact. Emitted kinds:
+  `run_started`, `file_started`, `file_completed`, `test_started`,
+  `test_completed`, `step_started`, `step_completed`,
+  `capture_failure`, `polling_timeout`, `run_completed`. Bodies and
+  headers are intentionally absent — the stream is a correlation
+  spine, not a payload transport. Each write flushes so an early
+  crash still produces a correct line-bounded prefix; parallel
+  workers serialize through one mutex, with `seq` providing the
+  total order readers should sort by. `--no-last-run-json`
+  suppresses both the archive file and the pointer, matching
+  existing transient-run semantics.
+- **Response-shape drift detection with candidate fix paths
+  (NAZ-415).** A body-assertion or capture JSONPath miss on a JSON
+  object response now runs a pure tail-segment heuristic that
+  proposes replacement paths: `$.uuid` missing on
+  `{"request": {"uuid": "…"}}` suggests `$.request.uuid` at high
+  confidence, `$.data.items[0].id` on `{"items":[…]}` suggests
+  `$.items[0].id` at medium confidence. When at least one candidate
+  is high confidence the failure is reclassified from
+  `assertion_failed` / `capture_error` to a new
+  `response_shape_mismatch` category; lower-confidence drift keeps
+  the original category but still carries the observed shape and
+  candidates on a new `response_shape_mismatch` field of each
+  `failures.json` entry. `tarn failures` groups drift by
+  `shape_drift:<expected_path>:<observed_keys_hash>` so one
+  contract change surfaces as a single group across every file
+  that hit it, and cascade fallout of drift still points its
+  `root_cause` back at the drift step so agents can trace blocked
+  skips to the real cause.
+- **Agent-oriented compact run payload `tarn run --agent` (NAZ-412).**
+  New flag on `tarn run` that emits a single `AgentReport` JSON
+  object on stdout — run id, pass/fail status, exit code, totals,
+  root-cause-first failure groups (reusing the NAZ-402 fingerprinter
+  so `tarn failures` and the agent payload agree), per-cause
+  request/response excerpts capped at 300 chars, the full NAZ-415
+  `response_shape_mismatch` hint, a `cascaded_steps` list that
+  folds downstream `skipped_due_to_failed_capture` noise under its
+  upstream root cause, and up to three machine-dispatchable
+  `next_actions` per cause (`replace_jsonpath` first when a
+  high-confidence drift candidate exists, always an `inspect_step`
+  command, plus `rerun_failed` when there are ≥2 causes and
+  `check_server_reachable` for network failures). Root causes are
+  capped at 10 with a `notes` entry pointing to `tarn failures`
+  for the full list. Stdout is the AgentReport only; normal
+  stdout-bound formatters are suppressed, progress is silenced, and
+  stderr still prints `run id:` and `run artifacts:` so humans
+  watching the run see progress. File-bound `--format` targets
+  compose; `--agent` refuses combination with `--ndjson`, `--watch`,
+  or another stdout-bound non-JSON format with exit code 2.
+  Payload is `schema_version: 1` so MCP / agent clients can depend
+  on the envelope.
+- **Minimum remediation bundles `tarn pack-context` (NAZ-414).**
+  New CLI subcommand that reads a run's persisted `summary.json` +
+  `failures.json` (and opportunistically `report.json` / `state.json`)
+  and emits a compact, deterministic payload carrying the same
+  small bundle of context an agent needs after a failed run: failed
+  YAML snippets (re-extracted from source with the parser's line
+  locations so the exact failing step block is surfaced verbatim
+  with two lines of leading context, capped at 40 lines), request
+  and response excerpts for only the failing steps, captures
+  lineage (produced by the failing step, `consumed_by` later steps
+  via `{{ capture.X }}` interpolation, `blocked` from cascade
+  assertions and shape-drift diagnoses), related same-test cascade
+  fallout, and a rerun command + selector per entry. `--failed`
+  (default), `--file`, and `--test` filters compose as AND and are
+  repeatable. `--run <id>` reads any historical archive (`last` /
+  `latest` / `@latest` / `prev` aliases honored); without it the
+  workspace-level pointers under `.tarn/` are used. `--format json`
+  (default) emits a stable envelope (`schema_version: 1`);
+  `--format markdown` renders the same data as headings + fenced
+  YAML + bullet lists. `--max-chars N` caps serialized output
+  (default 16000) and trims lowest-priority sections first
+  (markdown-only snippet stripping past entry 3 → drop
+  `consumed_by` past 3 per entry → drop `related_steps` past 3 per
+  entry → truncate response bodies → drop entries past the 10th)
+  with a trailing `notes` entry pointing to the full `report.json`
+  when anything was cut. Source files edited since the run degrade
+  gracefully with a `yaml_snippet_warning: "source changed since
+  run"` instead of blocking the whole command. Exit codes: 0 on
+  success, 2 on unknown run id / missing artifacts / parse error.
+
+#### CLI UX & workflows (NAZ-404, NAZ-406, NAZ-408)
+
+- **`tarn lint` with eight structural reliability rules (NAZ-406).**
+  New subcommand separate from `tarn validate` — validate answers
+  "will this parse?"; lint answers "will this test fall over next
+  month?". Ships eight rules with stable ids: TL001 (positional
+  capture on a shared list endpoint), TL002 (same-list capture
+  reused across tests in a file), TL003 (polling with a weak stop
+  condition — no body assertion, broad status shorthand), TL004
+  (mutation step asserts a body but no status), TL005 (shorthand
+  `"2xx"` status on a step whose name implies a specific code like
+  201/204), TL006 (capture from response body with no body
+  assertion to anchor shape drift), TL007 (duplicate named test
+  within a file — correctness error), and TL008 (hard-coded
+  absolute URL). Severity is bucketed into `error` (TL007),
+  `warning` (TL001..TL004), and `info` (TL005, TL006, TL008). CLI
+  supports `--format human|json`, `--severity error|warning|info`
+  (default `warning`), `--lint-allow-absolute-urls`, and
+  `--no-default-excludes` for discovery parity with `run`. JSON
+  output carries a stable `schema_version: 1` envelope with
+  `files_scanned` and an array of `findings` whose entries include
+  `rule_id`, `severity`, `file`, `line`, `column`, `step_path`
+  (`FILE::TEST::STEP` for jump-to-source), `message`, and `hint`.
+  Exit codes: 0 when no findings reach the threshold, 1 when
+  findings at or above threshold exist, 2 on I/O or parse error.
+  Each rule lives in its own `src/lint/tl00N_*.rs` module with
+  per-rule unit tests; the orchestrator runs all rules, merges and
+  sorts findings by `(line, rule_id)`, and hands the result to the
+  CLI for rendering.
+- **Failures-first debugging workflow in docs + skill (NAZ-408,
+  docs-only).** The `tarn-api-testing` skill, README, AI workflow
+  demo, troubleshooting guide, docs index, and MCP workflow doc now
+  lead with the canonical failures-first loop
+  (`validate → run → failures → inspect last FILE::TEST::STEP →
+  patch → rerun --failed → diff prev last`) and deprecate
+  full-`report.json` parsing to a last-resort path. Agents are
+  explicitly instructed never to slurp `report.json` when
+  `failures.json` suffices, never to open cascade skips
+  (`skipped_due_to_failed_capture`) individually, and to rule out
+  response-shape drift before blaming business logic. A
+  reusable "reopen-request" incident walkthrough (mutation response
+  changed from `{"uuid": "..."}` to `{"request": {"uuid": "..."}}`
+  → capture path needs to move from `$.uuid` to `$.request.uuid` +
+  envelope type assertion) lands in `docs/TROUBLESHOOTING.md` and
+  the skill. Mutation-response vs read-response conventions are
+  documented so tests default to asserting the envelope on `POST`/
+  `PUT`/`PATCH` responses.
+
+#### Code generation & test discovery (NAZ-410, NAZ-411)
+
+- **`tarn impact` maps changes to test targets (NAZ-410).** New CLI
+  subcommand that answers "what should I run next for this change?"
+  without executing any tests. Accepts four additive input flavors:
+  `--diff` (reads `git diff --name-only HEAD` in the CWD), `--files
+  PATH[,…]`, `--endpoints METHOD:PATH[,…]` (e.g.
+  `GET:/users/:id,POST:/users`), and `--openapi-ops ID[,…]`. At
+  least one source is required (exit 2 otherwise). Matching is a
+  ranked sum of boring per-signal heuristics — URL method+path
+  equality after normalizing query strings, scheme+host, leading
+  `{{ env.* }}`, and concrete UUID / integer / `{id}` / `:id` /
+  `{{ capture.x }}` segments (high, weight 40); path prefix match
+  on the same method (medium, 15); shared `openapi_operation_ids`
+  (high, 38; new optional `Vec<String>` field on `TestFile`
+  persisted via serde `#[serde(default)]`); tag token synthesized
+  from the endpoint path (medium, 12); direct edit to a
+  `.tarn.yaml` (high, 50); shared topic directory segment between
+  a changed source file and a test file (medium, 10, with
+  `src`/`tests`/`lib`/… treated as non-informative); `include:` /
+  multipart fixture reference match via literal substring search in
+  the test's raw YAML (medium, 8); and a last-resort name-token
+  substring hit on test file name / test name / step URL (low, 3).
+  Output is available as `--format human` (grouped by confidence,
+  one line per match, tailed with an advice section) or
+  `--format json` (stable `schema_version: 1` envelope with
+  `inputs`, `matches[]` carrying `file` / `test` / `confidence` /
+  `score` / `reasons[]` / `run_hint.command`, `low_confidence_only`
+  boolean, and `advice[]`). `--min-confidence low|medium|high`
+  filters the result set post-scoring. `--path` narrows test
+  discovery and `--no-default-excludes` disables the standard
+  ignore list; otherwise the same discovery contract as `tarn run`
+  applies. Advice messages call out weak signals explicitly —
+  empty results get "provide `--endpoints` or narrow `--path`",
+  low-only results get "declare `openapi_operation_ids:` to
+  strengthen the signal", and any `--openapi-ops` call on a suite
+  without declarations gets "adopting the field sharpens impact
+  analysis". Exit codes: 0 on success, 2 on missing inputs /
+  invalid `METHOD:PATH` / git or filesystem errors.
+- **`tarn scaffold` bootstraps a valid `.tarn.yaml` skeleton
+  deterministically (NAZ-411).** New CLI subcommand that turns one
+  of four inputs — an OpenAPI operation id
+  (`--from-openapi SPEC --op-id ID`), a raw `curl` command
+  (`--from-curl FILE`, backslash-continuations folded and
+  `$VAR` / `${VAR}` rewritten to `{{ env.VAR }}`), an explicit
+  method + URL pair (`--method M --url U`), or a previously
+  recorded fixture (`--from-recorded PATH`, accepts a file, a step
+  directory auto-picking `latest-passed.json` / the newest history
+  entry, or the legacy `request.json` + `response.json` split
+  form) — into a scaffold-quality Tarn file with the request
+  block, default headers/body shape where known, a placeholder
+  `status: 2xx` + `body: $: { type: object }` assertion, obvious
+  id-shaped captures pulled from the response schema / recorded
+  response, and a machine-greppable `# TODO:` comment on every
+  inferred-but-unverified field (categories: `env`, `method`,
+  `url`, `path_param`, `headers`, `auth`, `body`, `assertion`,
+  `capture`). Exactly one input mode is required (exit 2 on zero
+  or multiple). `--out PATH` writes to disk; default is stdout.
+  `--force` is required to overwrite an existing `--out`.
+  `--name NAME` overrides the inferred top-level `name:`.
+  `--format yaml` (default) emits the skeleton itself; `--format
+  json` emits a stable `schema_version: 1` envelope carrying
+  `source_mode`, the inferred request (method / url / headers /
+  body_shape / response_captures / response_shape_keys /
+  path_params), every TODO with final 1-based `line` number, the
+  YAML as a string, and a `validation.parsed_ok` / `schema_ok`
+  round-trip summary. Output is deterministic byte-for-byte across
+  runs with identical inputs: headers use `BTreeMap`, body keys
+  preserve the input order, captures are rendered sorted, and no
+  clock / RNG state is read at scaffold time (random placeholders
+  emit Tarn built-in names like `$uuid_v4` / `$random_hex(8)` so
+  resolution happens under the faker seed at run time, not at
+  scaffold time). Every generated file round-trips through
+  `parser::parse_str` before being written — a scaffold that
+  produces invalid YAML is reported as an internal bug with the
+  offending text attached, never silently persisted. Exit codes:
+  0 on success, 2 on bad inputs / I/O errors / round-trip
+  validation failures.
+
+### MCP server (`tarn-mcp`) — NAZ-407, NAZ-416
+
+- **MCP parity with the CLI plus artifact-oriented APIs (NAZ-407).**
+  The MCP server now writes every run's artifacts under
   `.tarn/runs/<run_id>/` — `report.json`, `summary.json`, `failures.json`,
   `state.json`, `events.jsonl` plus the `.tarn/` pointer files — through
   the same library helpers the CLI uses (`report::state_writer`,
@@ -55,315 +392,33 @@
   response envelope. The library helper `tarn::report::compute_exit_code`
   was promoted out of `main.rs` so the CLI and MCP agree on exit-code
   precedence without drift.
-- **Immutable per-run artifact directories (NAZ-400).** Every `tarn run`
-  now writes its JSON report and `state.json` into
-  `.tarn/runs/<run_id>/`, where `<run_id>` is a stable identifier of
-  the form `YYYYmmdd-HHMMSS-xxxxxx` (6 hex chars of random suffix to
-  break same-second ties). A second run no longer destroys the
-  previous run's debugging context — the archive is append-only and
-  compares cleanly between runs. The existing `.tarn/last-run.json`
-  and `.tarn/state.json` paths are preserved as pointers to the most
-  recent run so tooling that already reads them keeps working. The
-  CLI announces `run id:` and `run artifacts:` on stderr at the end
-  of every run; both files embed the same `run_id` so automation can
-  correlate archives without string-matching on paths.
-  `--no-last-run-json` now suppresses both the pointer and the
-  per-run directory (the transient-run behavior it already
-  advertised).
-  - **Triage artifacts `summary.json` and `failures.json` (NAZ-401).**
-    Every run now also writes a condensed `summary.json` (run id,
-    timings, exit code, total/failed counts, list of failed files) and
-    a `failures.json` (one entry per failing step with file/test/step
-    coordinates, failure category, message, request method/url,
-    response status, a ~500-char redacted body excerpt, and — when
-    trivially derivable — a `root_cause` pointer for cascade skips).
-    Both land next to `report.json` under `.tarn/runs/<run_id>/` and
-    are mirrored to `.tarn/summary.json` / `.tarn/failures.json` as
-    discoverability pointers. A failed run can now be triaged from
-    `failures.json` alone, without parsing the full report; the full
-    report stays available for deep inspection. Both artifacts are
-    emitted unconditionally (passing runs still produce
-    `failures: []`) so tooling can key off stable filenames, and both
-    are suppressed under `--no-last-run-json`.
-  - **`tarn rerun --failed` reruns only the failing subset (NAZ-403).**
-    New subcommand that reads `failures.json` from a prior run and
-    executes just the `(file, test)` pairs that failed. `--failed`
-    is required (so `tarn rerun` never silently becomes a full run);
-    `--run <run_id>` selects a specific historical archive under
-    `.tarn/runs/<id>/failures.json`, otherwise the workspace-level
-    latest-run pointer at `.tarn/failures.json` is used. Granularity
-    is test-level (a failing `FILE::TEST` becomes one selector);
-    setup/teardown failures escalate to a whole-file rerun because
-    their fixtures feed every test in the file. User-supplied
-    `--select` / `--test-filter` compose with the rerun selection
-    (union), so additional narrowing still works. The command prints
-    `rerun: selected N tests from run <id>:` followed by a bullet
-    list of `FILE::TEST` labels (truncated at 20 with `…and M more`)
-    on stderr before dispatching to the runner. The rerun produces a
-    fresh run artifact set — its own `run_id`, `report.json`,
-    `summary.json`, `failures.json`, `state.json`, and refreshed
-    `last-run.json` pointer — and stamps the source provenance onto
-    both `report.json` and `summary.json` under a new `rerun_source`
-    field (`{run_id, source_path, selected_count}`) so automation can
-    chain reruns. A source run with no failures exits 0 with
-    `rerun: no failing tests to rerun` and does not create an empty
-    archive. Source lookup is anchored at the current workspace root;
-    `cd` into the project before invoking the command if you have
-    moved away.
-  - **Built-in concise report subcommand `tarn report` (NAZ-404).**
-    New CLI subcommand that re-renders a prior run's persisted
-    `summary.json` + `failures.json` without re-running the tests,
-    replacing external helper scripts (such as `parse-results.py`) in
-    the common local-debugging loop. `tarn report` reads the
-    workspace-level pointers at `.tarn/summary.json` /
-    `.tarn/failures.json` by default; `--run <run_id>` (with the same
-    `last` / `latest` / `@latest` / `prev` / bare-id aliases supported
-    by `tarn inspect` and `tarn diff`) opens any historical archive
-    under `.tarn/runs/<run_id>/`. `--format concise` (the default)
-    prints a one-line verdict header followed — on failing runs — by
-    up to 10 root-cause groups (reusing the NAZ-402 fingerprinting so
-    cascade fallout collapses into `└─ cascades: N skipped` rather
-    than inflating the group count), with a trailing
-    `…and N more groups (run \`tarn failures\` for full list)` when
-    the run has more. `--format json` emits a stable envelope
-    (`schema_version: 1`) with totals, failed counts, and a
-    `groups_truncated` / `groups_total` pair so agents can paginate or
-    fall back to `tarn failures`. Color output is honored on a TTY and
-    suppressed automatically on a pipe (plus `--no-color` for explicit
-    override), mirroring the llm renderer. Exit codes: 0 when the
-    loaded `failures.json` is empty, 1 when it has any failure, 2 on
-    missing / malformed artifacts or an unknown `--run <id>`.
-  - **`tarn inspect` and `tarn diff` for run drill-down and
-    comparison (NAZ-405).** `tarn inspect <run_id> [target]` loads
-    `.tarn/runs/<run_id>/report.json` and renders a run / file /
-    test / step view depending on the `FILE[::TEST[::STEP]]` address
-    passed — so opening a single failing step no longer needs `jq`
-    against the full report. Run id aliases `last` / `latest` /
-    `@latest` / `prev` are supported (`prev` resolves to the archive
-    immediately before the latest). The run-level view accepts
-    `--filter-category <cat>` to narrow the listed failed files to
-    those carrying a failure in the given category; pass
-    `--fail-on-failure` to exit 1 when the inspected entity is
-    failing. `tarn diff <run_a> <run_b>` loads both runs'
-    `summary.json` and `failures.json`, computes the totals delta,
-    and classifies failure fingerprints (reusing the grouping
-    machinery from `tarn failures`) into `new` (only in B), `fixed`
-    (only in A), and `persistent` (both). `--file`, `--test`, and
-    `--filter-category` compose additively against the root-cause
-    coordinates so diffs can be scoped to a single suite. Both
-    subcommands support `--format human|json` with a stable JSON
-    envelope (`schema_version` 1). Exit codes: 0 on success, 2 on
-    unknown run id / missing artifact / parse error.
-  - **Failures-first debugging workflow in docs + skill (NAZ-408,
-    docs-only).** The `tarn-api-testing` skill, README, AI workflow
-    demo, troubleshooting guide, docs index, and MCP workflow doc now
-    lead with the canonical failures-first loop
-    (`validate → run → failures → inspect last FILE::TEST::STEP →
-    patch → rerun --failed → diff prev last`) and deprecate
-    full-`report.json` parsing to a last-resort path. Agents are
-    explicitly instructed never to slurp `report.json` when
-    `failures.json` suffices, never to open cascade skips
-    (`skipped_due_to_failed_capture`) individually, and to rule out
-    response-shape drift before blaming business logic. A
-    reusable "reopen-request" incident walkthrough (mutation response
-    changed from `{"uuid": "..."}` to `{"request": {"uuid": "..."}}`
-    → capture path needs to move from `$.uuid` to `$.request.uuid` +
-    envelope type assertion) lands in `docs/TROUBLESHOOTING.md` and
-    the skill. Mutation-response vs read-response conventions are
-    documented so tests default to asserting the envelope on `POST`/
-    `PUT`/`PATCH` responses.
-  - **`tarn lint` with eight structural reliability rules (NAZ-406).**
-    New subcommand separate from `tarn validate` — validate answers
-    "will this parse?"; lint answers "will this test fall over next
-    month?". Ships eight rules with stable ids: TL001 (positional
-    capture on a shared list endpoint), TL002 (same-list capture
-    reused across tests in a file), TL003 (polling with a weak stop
-    condition — no body assertion, broad status shorthand), TL004
-    (mutation step asserts a body but no status), TL005 (shorthand
-    `"2xx"` status on a step whose name implies a specific code like
-    201/204), TL006 (capture from response body with no body
-    assertion to anchor shape drift), TL007 (duplicate named test
-    within a file — correctness error), and TL008 (hard-coded
-    absolute URL). Severity is bucketed into `error` (TL007),
-    `warning` (TL001..TL004), and `info` (TL005, TL006, TL008). CLI
-    supports `--format human|json`, `--severity error|warning|info`
-    (default `warning`), `--lint-allow-absolute-urls`, and
-    `--no-default-excludes` for discovery parity with `run`. JSON
-    output carries a stable `schema_version: 1` envelope with
-    `files_scanned` and an array of `findings` whose entries include
-    `rule_id`, `severity`, `file`, `line`, `column`, `step_path`
-    (`FILE::TEST::STEP` for jump-to-source), `message`, and `hint`.
-    Exit codes: 0 when no findings reach the threshold, 1 when
-    findings at or above threshold exist, 2 on I/O or parse error.
-    Each rule lives in its own `src/lint/tl00N_*.rs` module with
-    per-rule unit tests; the orchestrator runs all rules, merges and
-    sorts findings by `(line, rule_id)`, and hands the result to the
-    CLI for rendering.
-  - **Streaming run lifecycle events to `events.jsonl` (NAZ-413).**
-    Every `tarn run` now also writes an append-only NDJSON stream to
-    `.tarn/runs/<run_id>/events.jsonl`, mirrored to `.tarn/events.jsonl`
-    as a convenience pointer. Each line is one event; consumers tail
-    the file to react to failures as they happen rather than waiting
-    for `report.json` to land. The envelope is stable and versioned
-    (`schema_version: 1`, plus `run_id`, UTC `ts`, monotonic 0-based
-    `seq`), and every event carries `file_id` / `test_id` (8-hex
-    truncation of SHA-256) so lines correlate with `failures.json`
-    entries and the full report after the fact. Emitted kinds:
-    `run_started`, `file_started`, `file_completed`, `test_started`,
-    `test_completed`, `step_started`, `step_completed`,
-    `capture_failure`, `polling_timeout`, `run_completed`. Bodies and
-    headers are intentionally absent — the stream is a correlation
-    spine, not a payload transport. Each write flushes so an early
-    crash still produces a correct line-bounded prefix; parallel
-    workers serialize through one mutex, with `seq` providing the
-    total order readers should sort by. `--no-last-run-json`
-    suppresses both the archive file and the pointer, matching
-    existing transient-run semantics.
-  - **Response-shape drift detection with candidate fix paths
-    (NAZ-415).** A body-assertion or capture JSONPath miss on a JSON
-    object response now runs a pure tail-segment heuristic that
-    proposes replacement paths: `$.uuid` missing on
-    `{"request": {"uuid": "…"}}` suggests `$.request.uuid` at high
-    confidence, `$.data.items[0].id` on `{"items":[…]}` suggests
-    `$.items[0].id` at medium confidence. When at least one candidate
-    is high confidence the failure is reclassified from
-    `assertion_failed` / `capture_error` to a new
-    `response_shape_mismatch` category; lower-confidence drift keeps
-    the original category but still carries the observed shape and
-    candidates on a new `response_shape_mismatch` field of each
-    `failures.json` entry. `tarn failures` groups drift by
-    `shape_drift:<expected_path>:<observed_keys_hash>` so one
-    contract change surfaces as a single group across every file
-    that hit it, and cascade fallout of drift still points its
-    `root_cause` back at the drift step so agents can trace blocked
-    skips to the real cause.
-  - **Agent-oriented compact run payload `tarn run --agent` (NAZ-412).**
-    New flag on `tarn run` that emits a single `AgentReport` JSON
-    object on stdout — run id, pass/fail status, exit code, totals,
-    root-cause-first failure groups (reusing the NAZ-402 fingerprinter
-    so `tarn failures` and the agent payload agree), per-cause
-    request/response excerpts capped at 300 chars, the full NAZ-415
-    `response_shape_mismatch` hint, a `cascaded_steps` list that
-    folds downstream `skipped_due_to_failed_capture` noise under its
-    upstream root cause, and up to three machine-dispatchable
-    `next_actions` per cause (`replace_jsonpath` first when a
-    high-confidence drift candidate exists, always an `inspect_step`
-    command, plus `rerun_failed` when there are ≥2 causes and
-    `check_server_reachable` for network failures). Root causes are
-    capped at 10 with a `notes` entry pointing to `tarn failures`
-    for the full list. Stdout is the AgentReport only; normal
-    stdout-bound formatters are suppressed, progress is silenced, and
-    stderr still prints `run id:` and `run artifacts:` so humans
-    watching the run see progress. File-bound `--format` targets
-    compose; `--agent` refuses combination with `--ndjson`, `--watch`,
-    or another stdout-bound non-JSON format with exit code 2.
-    Payload is `schema_version: 1` so MCP / agent clients can depend
-    on the envelope.
-  - **Minimum remediation bundles `tarn pack-context` (NAZ-414).**
-    New CLI subcommand that reads a run's persisted `summary.json` +
-    `failures.json` (and opportunistically `report.json` / `state.json`)
-    and emits a compact, deterministic payload carrying the same
-    small bundle of context an agent needs after a failed run: failed
-    YAML snippets (re-extracted from source with the parser's line
-    locations so the exact failing step block is surfaced verbatim
-    with two lines of leading context, capped at 40 lines), request
-    and response excerpts for only the failing steps, captures
-    lineage (produced by the failing step, `consumed_by` later steps
-    via `{{ capture.X }}` interpolation, `blocked` from cascade
-    assertions and shape-drift diagnoses), related same-test cascade
-    fallout, and a rerun command + selector per entry. `--failed`
-    (default), `--file`, and `--test` filters compose as AND and are
-    repeatable. `--run <id>` reads any historical archive (`last` /
-    `latest` / `@latest` / `prev` aliases honored); without it the
-    workspace-level pointers under `.tarn/` are used. `--format json`
-    (default) emits a stable envelope (`schema_version: 1`);
-    `--format markdown` renders the same data as headings + fenced
-    YAML + bullet lists. `--max-chars N` caps serialized output
-    (default 16000) and trims lowest-priority sections first
-    (markdown-only snippet stripping past entry 3 → drop
-    `consumed_by` past 3 per entry → drop `related_steps` past 3 per
-    entry → truncate response bodies → drop entries past the 10th)
-    with a trailing `notes` entry pointing to the full `report.json`
-    when anything was cut. Source files edited since the run degrade
-    gracefully with a `yaml_snippet_warning: "source changed since
-    run"` instead of blocking the whole command. Exit codes: 0 on
-    success, 2 on unknown run id / missing artifacts / parse error.
-  - **`tarn impact` maps changes to test targets (NAZ-410).** New CLI
-    subcommand that answers "what should I run next for this change?"
-    without executing any tests. Accepts four additive input flavors:
-    `--diff` (reads `git diff --name-only HEAD` in the CWD), `--files
-    PATH[,…]`, `--endpoints METHOD:PATH[,…]` (e.g.
-    `GET:/users/:id,POST:/users`), and `--openapi-ops ID[,…]`. At
-    least one source is required (exit 2 otherwise). Matching is a
-    ranked sum of boring per-signal heuristics — URL method+path
-    equality after normalizing query strings, scheme+host, leading
-    `{{ env.* }}`, and concrete UUID / integer / `{id}` / `:id` /
-    `{{ capture.x }}` segments (high, weight 40); path prefix match
-    on the same method (medium, 15); shared `openapi_operation_ids`
-    (high, 38; new optional `Vec<String>` field on `TestFile`
-    persisted via serde `#[serde(default)]`); tag token synthesized
-    from the endpoint path (medium, 12); direct edit to a
-    `.tarn.yaml` (high, 50); shared topic directory segment between
-    a changed source file and a test file (medium, 10, with
-    `src`/`tests`/`lib`/… treated as non-informative); `include:` /
-    multipart fixture reference match via literal substring search in
-    the test's raw YAML (medium, 8); and a last-resort name-token
-    substring hit on test file name / test name / step URL (low, 3).
-    Output is available as `--format human` (grouped by confidence,
-    one line per match, tailed with an advice section) or
-    `--format json` (stable `schema_version: 1` envelope with
-    `inputs`, `matches[]` carrying `file` / `test` / `confidence` /
-    `score` / `reasons[]` / `run_hint.command`, `low_confidence_only`
-    boolean, and `advice[]`). `--min-confidence low|medium|high`
-    filters the result set post-scoring. `--path` narrows test
-    discovery and `--no-default-excludes` disables the standard
-    ignore list; otherwise the same discovery contract as `tarn run`
-    applies. Advice messages call out weak signals explicitly —
-    empty results get "provide `--endpoints` or narrow `--path`",
-    low-only results get "declare `openapi_operation_ids:` to
-    strengthen the signal", and any `--openapi-ops` call on a suite
-    without declarations gets "adopting the field sharpens impact
-    analysis". Exit codes: 0 on success, 2 on missing inputs /
-    invalid `METHOD:PATH` / git or filesystem errors.
-  - **`tarn scaffold` bootstraps a valid `.tarn.yaml` skeleton
-    deterministically (NAZ-411).** New CLI subcommand that turns one
-    of four inputs — an OpenAPI operation id
-    (`--from-openapi SPEC --op-id ID`), a raw `curl` command
-    (`--from-curl FILE`, backslash-continuations folded and
-    `$VAR` / `${VAR}` rewritten to `{{ env.VAR }}`), an explicit
-    method + URL pair (`--method M --url U`), or a previously
-    recorded fixture (`--from-recorded PATH`, accepts a file, a step
-    directory auto-picking `latest-passed.json` / the newest history
-    entry, or the legacy `request.json` + `response.json` split
-    form) — into a scaffold-quality Tarn file with the request
-    block, default headers/body shape where known, a placeholder
-    `status: 2xx` + `body: $: { type: object }` assertion, obvious
-    id-shaped captures pulled from the response schema / recorded
-    response, and a machine-greppable `# TODO:` comment on every
-    inferred-but-unverified field (categories: `env`, `method`,
-    `url`, `path_param`, `headers`, `auth`, `body`, `assertion`,
-    `capture`). Exactly one input mode is required (exit 2 on zero
-    or multiple). `--out PATH` writes to disk; default is stdout.
-    `--force` is required to overwrite an existing `--out`.
-    `--name NAME` overrides the inferred top-level `name:`.
-    `--format yaml` (default) emits the skeleton itself; `--format
-    json` emits a stable `schema_version: 1` envelope carrying
-    `source_mode`, the inferred request (method / url / headers /
-    body_shape / response_captures / response_shape_keys /
-    path_params), every TODO with final 1-based `line` number, the
-    YAML as a string, and a `validation.parsed_ok` / `schema_ok`
-    round-trip summary. Output is deterministic byte-for-byte across
-    runs with identical inputs: headers use `BTreeMap`, body keys
-    preserve the input order, captures are rendered sorted, and no
-    clock / RNG state is read at scaffold time (random placeholders
-    emit Tarn built-in names like `$uuid_v4` / `$random_hex(8)` so
-    resolution happens under the faker seed at run time, not at
-    scaffold time). Every generated file round-trips through
-    `parser::parse_str` before being written — a scaffold that
-    produces invalid YAML is reported as an internal bug with the
-    offending text attached, never silently persisted. Exit codes:
-    0 on success, 2 on bad inputs / I/O errors / round-trip
-    validation failures.
+- **High-level MCP APIs for the agent inner loop (NAZ-416).** Five new
+  tools wrap the prior library work so an agent can drive
+  impact → scaffold → run → inspect → fix without shell fallbacks:
+  `tarn_impact` (wraps `tarn::impact::analyze` with the same JSON shape
+  `tarn impact --format json` emits, plus a structured error for
+  missing inputs that carries a hint), `tarn_scaffold` (wraps
+  `tarn::scaffold::generate` for all four input modes
+  openapi/curl/explicit/recorded, optionally writing the rendered YAML
+  to disk with an overwrite guard), `tarn_run_agent` (convenience
+  surface over `tarn_run` with `report_mode: agent` pre-selected and
+  the full selector grammar — `test_filter`, `step_filter`, `select`,
+  `tag` — exposed), `tarn_last_root_causes` (failures-first read that
+  returns only the fingerprinted groups from NAZ-402, no cascade noise),
+  and `tarn_pack_context` (wraps NAZ-414's remediation bundle with both
+  JSON and markdown render targets and the `max_chars` truncation
+  budget). `tarn_rerun_failed` now echoes the caller's `env_name`/
+  `vars` and the selection slice the runner executed so an agent can
+  confirm its own intent without re-parsing. Every new response carries
+  `schema_version: 1` — the same version the underlying CLI artifacts
+  already emit so a consumer reading both surfaces sees consistent
+  versioning. Four new error codes in the reserved `-32050..-32099`
+  window (`ERR_IMPACT_INVALID_INPUT`, `ERR_IMPACT_PARSE_FAILED`,
+  `ERR_SCAFFOLD_INVALID_INPUT`, `ERR_SCAFFOLD_FAILED`,
+  `ERR_PACK_CONTEXT_INVALID_INPUT`) keep domain errors structured
+  instead of stringified. The golden `tools-list.json.golden` is
+  refreshed with descriptions ending in `equivalent to: tarn …` so
+  agents can cross-check behaviour against the CLI.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 
