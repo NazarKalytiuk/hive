@@ -121,6 +121,33 @@
     the skill. Mutation-response vs read-response conventions are
     documented so tests default to asserting the envelope on `POST`/
     `PUT`/`PATCH` responses.
+  - **`tarn lint` with eight structural reliability rules (NAZ-406).**
+    New subcommand separate from `tarn validate` — validate answers
+    "will this parse?"; lint answers "will this test fall over next
+    month?". Ships eight rules with stable ids: TL001 (positional
+    capture on a shared list endpoint), TL002 (same-list capture
+    reused across tests in a file), TL003 (polling with a weak stop
+    condition — no body assertion, broad status shorthand), TL004
+    (mutation step asserts a body but no status), TL005 (shorthand
+    `"2xx"` status on a step whose name implies a specific code like
+    201/204), TL006 (capture from response body with no body
+    assertion to anchor shape drift), TL007 (duplicate named test
+    within a file — correctness error), and TL008 (hard-coded
+    absolute URL). Severity is bucketed into `error` (TL007),
+    `warning` (TL001..TL004), and `info` (TL005, TL006, TL008). CLI
+    supports `--format human|json`, `--severity error|warning|info`
+    (default `warning`), `--lint-allow-absolute-urls`, and
+    `--no-default-excludes` for discovery parity with `run`. JSON
+    output carries a stable `schema_version: 1` envelope with
+    `files_scanned` and an array of `findings` whose entries include
+    `rule_id`, `severity`, `file`, `line`, `column`, `step_path`
+    (`FILE::TEST::STEP` for jump-to-source), `message`, and `hint`.
+    Exit codes: 0 when no findings reach the threshold, 1 when
+    findings at or above threshold exist, 2 on I/O or parse error.
+    Each rule lives in its own `src/lint/tl00N_*.rs` module with
+    per-rule unit tests; the orchestrator runs all rules, merges and
+    sorts findings by `(line, rule_id)`, and hands the result to the
+    CLI for rendering.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

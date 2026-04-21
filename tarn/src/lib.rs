@@ -14,6 +14,7 @@ pub mod http;
 pub mod hurl_import;
 pub mod interpolation;
 pub mod jsonpath;
+pub mod lint;
 pub mod model;
 pub mod outline;
 pub mod parser;

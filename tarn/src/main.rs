@@ -232,6 +232,40 @@ enum Commands {
         no_default_excludes: bool,
     },
 
+    /// Lint test files for reliability smells and correctness errors (NAZ-406).
+    ///
+    /// Separate from `tarn validate`: validate answers "does this parse
+    /// and match the schema?"; lint answers "is this a test that won't
+    /// fall over next month?". Catches things like positional captures
+    /// on shared list endpoints (TL001), polling with weak stop
+    /// conditions (TL003), and mutations without a status assertion
+    /// (TL004). See `tarn/src/lint/` for the full rule set.
+    ///
+    /// Exit codes: 0 when no findings reach the severity threshold,
+    /// 1 when findings exist at or above the threshold, 2 on I/O or
+    /// parse error.
+    Lint {
+        /// Test file or directory to lint
+        path: Option<String>,
+
+        /// Output format: human (default) or json
+        #[arg(long, default_value = "human")]
+        format: String,
+
+        /// Minimum severity to report: error, warning (default), or info
+        #[arg(long, default_value = "warning")]
+        severity: String,
+
+        /// Suppress TL008 (hard-coded absolute URLs). Useful when tests
+        /// deliberately hit third-party services by absolute URL.
+        #[arg(long = "lint-allow-absolute-urls")]
+        lint_allow_absolute_urls: bool,
+
+        /// Include normally-ignored directories during discovery (see `run --no-default-excludes`).
+        #[arg(long = "no-default-excludes")]
+        no_default_excludes: bool,
+    },
+
     /// Format Tarn test files into canonical YAML
     Fmt {
         /// Test file or directory to format
@@ -825,6 +859,19 @@ fn main() {
             format,
             no_default_excludes,
         } => validate_command(path, &format, no_default_excludes),
+        Commands::Lint {
+            path,
+            format,
+            severity,
+            lint_allow_absolute_urls,
+            no_default_excludes,
+        } => lint_command(
+            path,
+            &format,
+            &severity,
+            lint_allow_absolute_urls,
+            no_default_excludes,
+        ),
         Commands::Fmt { path, check } => fmt_command(path, check),
         Commands::List {
             tag,
@@ -3256,6 +3303,187 @@ fn extract_location_prefix(message: &str, path: &Path) -> (String, Option<usize>
         return (message.to_string(), None, None);
     };
     (tail.trim_start().to_string(), Some(line), Some(col))
+}
+
+/// Top-level dispatcher for `tarn lint`. Mirrors `validate_command`'s
+/// shape: resolve files, pick a renderer, feed each file through the
+/// rule set, and aggregate exit codes.
+///
+/// Exit codes:
+/// - `0` — no findings reach `--severity` (default `warning`).
+/// - `1` — one or more findings at or above the threshold.
+/// - `2` — I/O or parse error (same semantics as `tarn validate`).
+fn lint_command(
+    path: Option<String>,
+    format: &str,
+    severity: &str,
+    lint_allow_absolute_urls: bool,
+    no_default_excludes: bool,
+) -> i32 {
+    let json_format = match format.to_ascii_lowercase().as_str() {
+        "human" => false,
+        "json" => true,
+        other => {
+            eprintln!(
+                "Error: unknown lint format '{}'. Use 'human' or 'json'.",
+                other
+            );
+            return 2;
+        }
+    };
+
+    let threshold = match tarn::lint::Severity::parse_threshold(severity) {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: unknown severity '{}'. Use 'error', 'warning', or 'info'.",
+                severity
+            );
+            return 2;
+        }
+    };
+
+    let files = match resolve_files_with_report(path, no_default_excludes) {
+        Ok(r) => r.files,
+        Err(e) => {
+            if json_format {
+                let output = serde_json::json!({
+                    "schema_version": 1,
+                    "files_scanned": 0,
+                    "findings": [],
+                    "error": e.to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&output).unwrap());
+            } else {
+                eprintln!("Error: {}", e);
+            }
+            return e.exit_code();
+        }
+    };
+
+    if files.is_empty() {
+        if json_format {
+            let output = serde_json::json!({
+                "schema_version": 1,
+                "files_scanned": 0,
+                "findings": [],
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        } else {
+            eprintln!("No test files found");
+        }
+        return 2;
+    }
+
+    let opts = tarn::lint::LintOptions {
+        allow_absolute_urls: lint_allow_absolute_urls,
+    };
+
+    let mut all_findings: Vec<(String, tarn::lint::Finding)> = Vec::new();
+    let mut had_io_error = false;
+    for file_path in &files {
+        match tarn::lint::lint_path(Path::new(file_path), &opts) {
+            Ok(findings) => {
+                for f in findings {
+                    all_findings.push((file_path.clone(), f));
+                }
+            }
+            Err(msg) => {
+                // Parse/read failures exit 2 — same semantics as
+                // `tarn validate`. Emit through the chosen format so
+                // downstream tooling stays consistent.
+                had_io_error = true;
+                if !json_format {
+                    eprintln!("Error: {}", msg);
+                }
+            }
+        }
+    }
+
+    let visible: Vec<&(String, tarn::lint::Finding)> = all_findings
+        .iter()
+        .filter(|(_, f)| f.severity >= threshold)
+        .collect();
+
+    if json_format {
+        let findings_json: Vec<serde_json::Value> =
+            visible.iter().map(|(_, f)| finding_to_json(f)).collect();
+        let mut output = serde_json::json!({
+            "schema_version": 1,
+            "files_scanned": files.len(),
+            "findings": findings_json,
+        });
+        if had_io_error {
+            output["error"] = serde_json::Value::String(
+                "one or more files could not be read or parsed".to_string(),
+            );
+        }
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    } else {
+        render_findings_human(&visible);
+        println!(
+            "\n{} file{} scanned, {} finding{} at severity >= {}",
+            files.len(),
+            if files.len() == 1 { "" } else { "s" },
+            visible.len(),
+            if visible.len() == 1 { "" } else { "s" },
+            threshold.as_str(),
+        );
+    }
+
+    if had_io_error {
+        return 2;
+    }
+    if visible.is_empty() {
+        0
+    } else {
+        1
+    }
+}
+
+fn finding_to_json(f: &tarn::lint::Finding) -> serde_json::Value {
+    serde_json::json!({
+        "rule_id": f.rule_id,
+        "severity": f.severity.as_str(),
+        "file": f.file,
+        "line": f.line,
+        "column": f.column,
+        "step_path": f.step_path,
+        "message": f.message,
+        "hint": f.hint,
+    })
+}
+
+fn render_findings_human(findings: &[&(String, tarn::lint::Finding)]) {
+    if findings.is_empty() {
+        println!("No lint findings.");
+        return;
+    }
+    // Group by file for readability. `findings` is already sorted by
+    // (line, rule_id) inside each file thanks to `lint_file`'s sort,
+    // and by file insertion order here.
+    let mut current_file: Option<&str> = None;
+    for (file_path, f) in findings {
+        if current_file != Some(file_path.as_str()) {
+            println!("\n{}", file_path);
+            current_file = Some(file_path.as_str());
+        }
+        let loc = match (f.line, f.column) {
+            (Some(l), Some(c)) => format!("{}:{}", l, c),
+            (Some(l), None) => format!("{}", l),
+            _ => "-".to_string(),
+        };
+        println!(
+            "  {} [{}] {}: {}",
+            loc,
+            f.severity.as_str(),
+            f.rule_id,
+            f.message
+        );
+        if let Some(hint) = &f.hint {
+            println!("      hint: {}", hint);
+        }
+    }
 }
 
 fn fmt_command(path: Option<String>, check: bool) -> i32 {

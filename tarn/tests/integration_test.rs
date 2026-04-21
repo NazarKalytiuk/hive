@@ -6546,3 +6546,150 @@ steps:
     assert!(parsed["groups"].as_array().unwrap().is_empty());
     assert_eq!(parsed["groups_truncated"], false);
 }
+
+// --- NAZ-406: tarn lint --------------------------------------------------
+
+/// A file with a TL001 smell (positional capture on a shared list
+/// endpoint) must make `tarn lint` exit 1 and surface the rule id
+/// in JSON output.
+#[test]
+fn lint_flags_positional_capture_on_shared_list_endpoint() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "smelly.tarn.yaml",
+        r#"
+name: smelly
+steps:
+  - name: list users
+    request:
+      method: GET
+      url: "http://example.com/users"
+    capture:
+      first_id: "$[0].id"
+"#,
+    );
+
+    let output = tarn()
+        .args(["lint", &file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["files_scanned"], 1);
+    let findings = parsed["findings"].as_array().unwrap();
+    assert!(
+        findings.iter().any(|f| f["rule_id"] == "TL001"),
+        "missing TL001 in {}",
+        stdout
+    );
+}
+
+/// A file whose only findings are `info`-level (TL008 hard-coded URL,
+/// for instance) must pass `--severity error` with exit 0, because no
+/// finding reaches the error bar.
+#[test]
+fn lint_exits_zero_when_threshold_is_above_available_findings() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "info-only.tarn.yaml",
+        r#"
+name: info-only
+steps:
+  - name: ping
+    request:
+      method: GET
+      url: "https://api.example.com/health"
+    assert:
+      status: 200
+"#,
+    );
+
+    tarn()
+        .args(["lint", &file, "--severity", "error"])
+        .assert()
+        .code(0);
+}
+
+/// A clean file produces zero findings and exits 0.
+#[test]
+fn lint_is_silent_on_clean_file() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "clean.tarn.yaml",
+        r#"
+name: clean
+steps:
+  - name: ping
+    request:
+      method: GET
+      url: "{{ env.base_url }}/health"
+    assert:
+      status: 200
+"#,
+    );
+
+    let output = tarn()
+        .args(["lint", &file, "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["findings"].as_array().unwrap().len(), 0);
+}
+
+/// The JSON schema must round-trip through serde — the contract for
+/// MCP / editor integrations downstream. We assert the key fields
+/// are present with the expected types.
+#[test]
+fn lint_json_schema_is_stable() {
+    let dir = TempDir::new().unwrap();
+    let file = write_test_file(
+        &dir,
+        "schema-check.tarn.yaml",
+        r#"
+name: schema-check
+steps:
+  - name: create user
+    request:
+      method: POST
+      url: "http://example.com/users"
+      body: { name: x }
+    assert:
+      body:
+        "$.name": "x"
+"#,
+    );
+
+    let output = tarn()
+        .args(["lint", &file, "--format", "json"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["schema_version"], 1);
+    let findings = parsed["findings"].as_array().unwrap();
+    assert!(!findings.is_empty());
+    let f = &findings[0];
+    assert!(f["rule_id"].is_string());
+    assert!(f["severity"].is_string());
+    assert!(f["file"].is_string());
+    assert!(f["message"].is_string());
+    // `line` and `step_path` are allowed to be null but the keys
+    // must exist so downstream tools can key off them unconditionally.
+    assert!(f.get("line").is_some());
+    assert!(f.get("step_path").is_some());
+    assert!(f.get("hint").is_some());
+}
