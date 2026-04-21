@@ -838,6 +838,76 @@ enum Commands {
         #[arg(long = "no-default-excludes")]
         no_default_excludes: bool,
     },
+
+    /// Scaffold a minimal `.tarn.yaml` skeleton (NAZ-411).
+    ///
+    /// Generates a valid-but-intentionally-incomplete test file from
+    /// one of four inputs: an OpenAPI operation id, a raw `curl`
+    /// command saved in a file, an explicit method+URL pair, or a
+    /// previously-recorded fixture (`.tarn/fixtures/...`). The
+    /// output carries `# TODO:` markers on every inferred-but-
+    /// unverified field so agents can iterate without re-reading the
+    /// file from scratch.
+    ///
+    /// Exactly one of `--from-openapi`, `--from-curl`, `--method`, or
+    /// `--from-recorded` must be provided. Exit codes: 0 on success,
+    /// 2 on bad inputs / I/O errors.
+    Scaffold {
+        /// Path to an OpenAPI 3.x spec (JSON or YAML). Requires
+        /// `--op-id`.
+        #[arg(long = "from-openapi", value_name = "FILE")]
+        from_openapi: Option<String>,
+
+        /// OpenAPI `operationId` to scaffold. Required when
+        /// `--from-openapi` is set.
+        #[arg(long = "op-id", value_name = "ID")]
+        op_id: Option<String>,
+
+        /// Path to a file containing a single `curl` invocation
+        /// (multi-line with `\` continuations is fine).
+        #[arg(long = "from-curl", value_name = "FILE")]
+        from_curl: Option<String>,
+
+        /// Explicit HTTP method. Must be paired with `--url`.
+        #[arg(long)]
+        method: Option<String>,
+
+        /// Explicit request URL. Must be paired with `--method`.
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Path to a recorded fixture file or step directory under
+        /// `.tarn/fixtures/...`. Accepts a `latest-passed.json` file,
+        /// a step directory (auto-picks `latest-passed.json` or the
+        /// most recent history entry), or the legacy
+        /// `request.json` + `response.json` split form.
+        #[arg(long = "from-recorded", value_name = "PATH")]
+        from_recorded: Option<String>,
+
+        /// Write the scaffold to this path. Defaults to stdout.
+        #[arg(long, value_name = "PATH")]
+        out: Option<String>,
+
+        /// Override the top-level `name:` in the generated file.
+        /// Default is inferred from the input (op-id, URL path, or
+        /// fixture file name).
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+
+        /// Overwrite the `--out` file if it already exists. Without
+        /// this flag, scaffold refuses to clobber an existing file
+        /// and exits 2.
+        #[arg(long)]
+        force: bool,
+
+        /// Output shape: `yaml` (default) prints the scaffold itself;
+        /// `json` prints a metadata envelope carrying the inferred
+        /// request, the TODO list (with line numbers), validation
+        /// status, and the YAML as a string — designed for agent
+        /// consumption.
+        #[arg(long, default_value = "yaml")]
+        format: String,
+    },
 }
 
 fn main() {
@@ -1149,6 +1219,29 @@ fn main() {
             &min_confidence,
             path.as_deref(),
             no_default_excludes,
+        ),
+        Commands::Scaffold {
+            from_openapi,
+            op_id,
+            from_curl,
+            method,
+            url,
+            from_recorded,
+            out,
+            name,
+            force,
+            format,
+        } => scaffold_command(
+            from_openapi.as_deref(),
+            op_id.as_deref(),
+            from_curl.as_deref(),
+            method.as_deref(),
+            url.as_deref(),
+            from_recorded.as_deref(),
+            out.as_deref(),
+            name.as_deref(),
+            force,
+            &format,
         ),
     };
 
@@ -4519,6 +4612,208 @@ fn import_hurl_command(path: &str, output: Option<&str>) -> i32 {
         output_path.display()
     );
     0
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scaffold_command(
+    from_openapi: Option<&str>,
+    op_id: Option<&str>,
+    from_curl: Option<&str>,
+    method: Option<&str>,
+    url: Option<&str>,
+    from_recorded: Option<&str>,
+    out: Option<&str>,
+    name: Option<&str>,
+    force: bool,
+    format: &str,
+) -> i32 {
+    // Count selected modes: exactly one must be set. `method`+`url`
+    // together count as one mode.
+    let openapi_set = from_openapi.is_some();
+    let curl_set = from_curl.is_some();
+    let explicit_set = method.is_some() || url.is_some();
+    let recorded_set = from_recorded.is_some();
+    let selected = [openapi_set, curl_set, explicit_set, recorded_set]
+        .iter()
+        .filter(|b| **b)
+        .count();
+    if selected == 0 {
+        eprintln!(
+            "Error: tarn scaffold requires exactly one input mode: \
+             --from-openapi / --from-curl / --method+--url / --from-recorded"
+        );
+        return 2;
+    }
+    if selected > 1 {
+        eprintln!(
+            "Error: tarn scaffold accepts exactly one input mode at a time; \
+             received {}. Pick one of --from-openapi, --from-curl, --method+--url, --from-recorded.",
+            selected
+        );
+        return 2;
+    }
+
+    let input = if openapi_set {
+        let spec = from_openapi.unwrap();
+        let Some(op_id) = op_id else {
+            eprintln!("Error: --from-openapi requires --op-id");
+            return 2;
+        };
+        tarn::scaffold::ScaffoldInput::OpenApi {
+            spec_path: PathBuf::from(spec),
+            op_id: op_id.to_string(),
+        }
+    } else if curl_set {
+        let path = from_curl.unwrap();
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Error: failed to read {}: {}", path, e);
+                return 2;
+            }
+        };
+        tarn::scaffold::ScaffoldInput::Curl {
+            curl_text: text,
+            source_label: Path::new(path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(path)
+                .to_string(),
+        }
+    } else if explicit_set {
+        let Some(method) = method else {
+            eprintln!("Error: --method requires --url");
+            return 2;
+        };
+        let Some(url) = url else {
+            eprintln!("Error: --url requires --method");
+            return 2;
+        };
+        tarn::scaffold::ScaffoldInput::Explicit {
+            method: method.to_string(),
+            url: url.to_string(),
+        }
+    } else {
+        let path = from_recorded.unwrap();
+        tarn::scaffold::ScaffoldInput::Recorded {
+            path: PathBuf::from(path),
+        }
+    };
+
+    let options = tarn::scaffold::ScaffoldOptions {
+        name_override: name.map(str::to_string),
+    };
+
+    let result = match tarn::scaffold::generate(&input, &options) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return 2;
+        }
+    };
+
+    let format_lower = format.to_ascii_lowercase();
+    let payload = match format_lower.as_str() {
+        "yaml" => result.yaml.clone(),
+        "json" => match serde_json::to_string_pretty(&build_scaffold_json(&result)) {
+            Ok(s) => {
+                let mut s = s;
+                s.push('\n');
+                s
+            }
+            Err(e) => {
+                eprintln!("Error: failed to render JSON output: {}", e);
+                return 2;
+            }
+        },
+        other => {
+            eprintln!(
+                "Error: unknown scaffold format '{}'. Use 'yaml' or 'json'.",
+                other
+            );
+            return 2;
+        }
+    };
+
+    if let Some(out_path) = out {
+        let path = Path::new(out_path);
+        if path.exists() && !force {
+            eprintln!(
+                "Error: {} already exists (pass --force to overwrite)",
+                path.display()
+            );
+            return 2;
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    eprintln!("Error: failed to create {}: {}", parent.display(), e);
+                    return 2;
+                }
+            }
+        }
+        if let Err(e) = std::fs::write(path, payload.as_bytes()) {
+            eprintln!("Error: failed to write {}: {}", path.display(), e);
+            return 2;
+        }
+    } else {
+        use std::io::Write as _;
+        let mut stdout = std::io::stdout().lock();
+        if let Err(e) = stdout.write_all(payload.as_bytes()) {
+            eprintln!("Error: failed to write to stdout: {}", e);
+            return 2;
+        }
+    }
+    0
+}
+
+fn build_scaffold_json(result: &tarn::scaffold::ScaffoldResult) -> serde_json::Value {
+    let body_shape = match &result.request.body {
+        Some(tarn::scaffold::BodyShape::Json(v)) => Some(v.clone()),
+        Some(tarn::scaffold::BodyShape::Raw(s)) => Some(serde_json::Value::String(s.clone())),
+        None => None,
+    };
+    let todos: Vec<serde_json::Value> = result
+        .todos
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "line": t.line,
+                "category": t.category.as_str(),
+                "message": t.message,
+            })
+        })
+        .collect();
+    // Determinism: serialise captures as a sorted object (BTreeMap
+    // already iterates sorted, but serde_json::Map preserves insertion;
+    // so we fold through Map to keep the key order predictable).
+    let mut response_captures: Vec<String> = result.request.captures.keys().cloned().collect();
+    response_captures.sort();
+    let headers: serde_json::Map<String, serde_json::Value> = result
+        .request
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect();
+    serde_json::json!({
+        "schema_version": 1,
+        "source_mode": result.source_mode.as_str(),
+        "inferred": {
+            "method": result.request.method,
+            "url": result.request.url,
+            "headers": serde_json::Value::Object(headers),
+            "body_shape": body_shape,
+            "response_captures": response_captures,
+            "response_shape_keys": result.request.response_shape_keys,
+            "path_params": result.request.path_params,
+        },
+        "todos": todos,
+        "yaml": result.yaml,
+        "validation": {
+            "parsed_ok": result.parsed_ok,
+            "schema_ok": result.schema_ok,
+        },
+    })
 }
 
 fn default_hurl_output_path(path: &Path) -> PathBuf {

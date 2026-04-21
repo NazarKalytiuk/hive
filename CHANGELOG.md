@@ -274,6 +274,45 @@
     without declarations gets "adopting the field sharpens impact
     analysis". Exit codes: 0 on success, 2 on missing inputs /
     invalid `METHOD:PATH` / git or filesystem errors.
+  - **`tarn scaffold` bootstraps a valid `.tarn.yaml` skeleton
+    deterministically (NAZ-411).** New CLI subcommand that turns one
+    of four inputs — an OpenAPI operation id
+    (`--from-openapi SPEC --op-id ID`), a raw `curl` command
+    (`--from-curl FILE`, backslash-continuations folded and
+    `$VAR` / `${VAR}` rewritten to `{{ env.VAR }}`), an explicit
+    method + URL pair (`--method M --url U`), or a previously
+    recorded fixture (`--from-recorded PATH`, accepts a file, a step
+    directory auto-picking `latest-passed.json` / the newest history
+    entry, or the legacy `request.json` + `response.json` split
+    form) — into a scaffold-quality Tarn file with the request
+    block, default headers/body shape where known, a placeholder
+    `status: 2xx` + `body: $: { type: object }` assertion, obvious
+    id-shaped captures pulled from the response schema / recorded
+    response, and a machine-greppable `# TODO:` comment on every
+    inferred-but-unverified field (categories: `env`, `method`,
+    `url`, `path_param`, `headers`, `auth`, `body`, `assertion`,
+    `capture`). Exactly one input mode is required (exit 2 on zero
+    or multiple). `--out PATH` writes to disk; default is stdout.
+    `--force` is required to overwrite an existing `--out`.
+    `--name NAME` overrides the inferred top-level `name:`.
+    `--format yaml` (default) emits the skeleton itself; `--format
+    json` emits a stable `schema_version: 1` envelope carrying
+    `source_mode`, the inferred request (method / url / headers /
+    body_shape / response_captures / response_shape_keys /
+    path_params), every TODO with final 1-based `line` number, the
+    YAML as a string, and a `validation.parsed_ok` / `schema_ok`
+    round-trip summary. Output is deterministic byte-for-byte across
+    runs with identical inputs: headers use `BTreeMap`, body keys
+    preserve the input order, captures are rendered sorted, and no
+    clock / RNG state is read at scaffold time (random placeholders
+    emit Tarn built-in names like `$uuid_v4` / `$random_hex(8)` so
+    resolution happens under the faker seed at run time, not at
+    scaffold time). Every generated file round-trips through
+    `parser::parse_str` before being written — a scaffold that
+    produces invalid YAML is reported as an internal bug with the
+    offending text attached, never silently persisted. Exit codes:
+    0 on success, 2 on bad inputs / I/O errors / round-trip
+    validation failures.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

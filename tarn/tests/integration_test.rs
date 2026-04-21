@@ -8042,3 +8042,199 @@ fn tarn_impact_min_confidence_filters_low() {
         matches
     );
 }
+
+// ---------------------------------------------------------------------------
+// NAZ-411: `tarn scaffold`
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the scaffold subcommand through the built binary —
+// they verify the user-visible surface (exit codes, stdout vs --out,
+// overwrite protection, json metadata) rather than the internal IR the
+// unit tests in `scaffold::*` cover. Every happy-path test also parses
+// the generated YAML via `tarn::parser::parse_file` so the scaffold's
+// claim ("output is valid Tarn syntax") stays locked in.
+
+#[test]
+fn scaffold_explicit_mode_writes_parseable_yaml_to_out() {
+    let dir = TempDir::new().unwrap();
+    let out_path = dir.path().join("smoke.tarn.yaml");
+    tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "POST",
+            "--url",
+            "http://example.com/users",
+            "--out",
+            out_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(out_path.exists(), "scaffold should have written the file");
+    // Round-trip through the parser — the ticket's acceptance criterion.
+    let parsed = tarn::parser::parse_file(&out_path).expect("scaffold output must parse");
+    assert_eq!(parsed.steps.len(), 1);
+    assert_eq!(parsed.steps[0].request.method, "POST");
+
+    let contents = fs::read_to_string(&out_path).unwrap();
+    assert!(contents.contains("# TODO:"), "scaffold must emit TODOs");
+}
+
+#[test]
+fn scaffold_explicit_mode_emits_yaml_to_stdout_by_default() {
+    let output = tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "GET",
+            "--url",
+            "http://example.com/health",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("method: GET"));
+    assert!(stdout.contains("url: "));
+    assert!(stdout.contains("# TODO:"));
+}
+
+#[test]
+fn scaffold_from_curl_happy_path() {
+    let dir = TempDir::new().unwrap();
+    let curl_file = dir.path().join("req.curl");
+    fs::write(
+        &curl_file,
+        r#"curl -X POST http://api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Jane"}'
+"#,
+    )
+    .unwrap();
+
+    let out_path = dir.path().join("users.tarn.yaml");
+    tarn()
+        .args([
+            "scaffold",
+            "--from-curl",
+            curl_file.to_str().unwrap(),
+            "--out",
+            out_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let parsed = tarn::parser::parse_file(&out_path).expect("curl scaffold must parse");
+    assert_eq!(parsed.steps[0].request.method, "POST");
+    assert_eq!(parsed.steps[0].request.url, "http://api/users");
+}
+
+#[test]
+fn scaffold_requires_exactly_one_input_mode() {
+    // No input → exit 2.
+    tarn().arg("scaffold").assert().failure().code(2);
+
+    // Two inputs → exit 2.
+    tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "GET",
+            "--url",
+            "http://x/y",
+            "--from-curl",
+            "does-not-matter",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn scaffold_refuses_to_overwrite_without_force() {
+    let dir = TempDir::new().unwrap();
+    let out_path = dir.path().join("existing.tarn.yaml");
+    fs::write(&out_path, "placeholder\n").unwrap();
+
+    tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "GET",
+            "--url",
+            "http://x/y",
+            "--out",
+            out_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .code(2);
+
+    // With --force, the same invocation succeeds and replaces the file.
+    tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "GET",
+            "--url",
+            "http://x/y",
+            "--out",
+            out_path.to_str().unwrap(),
+            "--force",
+        ])
+        .assert()
+        .success();
+    let after = fs::read_to_string(&out_path).unwrap();
+    assert!(after.contains("method: GET"));
+}
+
+#[test]
+fn scaffold_json_format_emits_todos_and_validation() {
+    let output = tarn()
+        .args([
+            "scaffold",
+            "--method",
+            "POST",
+            "--url",
+            "http://example.com/widgets",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["source_mode"], "explicit");
+    let todos = v["todos"].as_array().expect("todos array present");
+    assert!(!todos.is_empty(), "minimal scaffold must carry ≥1 TODO");
+    for t in todos {
+        assert!(t["line"].is_u64(), "each TODO must carry a line number");
+        assert!(t["category"].is_string());
+        assert!(t["message"].is_string());
+    }
+    assert_eq!(v["validation"]["parsed_ok"], true);
+    assert_eq!(v["validation"]["schema_ok"], true);
+    assert!(v["yaml"].as_str().unwrap().contains("method: POST"));
+}
+
+#[test]
+fn scaffold_is_deterministic_across_runs() {
+    // Acceptance criterion: byte-identical output on identical inputs.
+    let run_once = || {
+        tarn()
+            .args([
+                "scaffold",
+                "--method",
+                "PUT",
+                "--url",
+                "http://example.com/users/1",
+            ])
+            .output()
+            .unwrap()
+            .stdout
+    };
+    assert_eq!(run_once(), run_once());
+}

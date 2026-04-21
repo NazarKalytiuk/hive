@@ -23,6 +23,7 @@ pub(crate) mod parser_locations;
 pub mod regex_cache;
 pub mod report;
 pub mod runner;
+pub mod scaffold;
 pub mod scripting;
 pub mod selector;
 pub mod update;
