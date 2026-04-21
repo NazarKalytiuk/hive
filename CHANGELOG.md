@@ -19,6 +19,21 @@
   `--no-last-run-json` now suppresses both the pointer and the
   per-run directory (the transient-run behavior it already
   advertised).
+  - **Triage artifacts `summary.json` and `failures.json` (NAZ-401).**
+    Every run now also writes a condensed `summary.json` (run id,
+    timings, exit code, total/failed counts, list of failed files) and
+    a `failures.json` (one entry per failing step with file/test/step
+    coordinates, failure category, message, request method/url,
+    response status, a ~500-char redacted body excerpt, and — when
+    trivially derivable — a `root_cause` pointer for cascade skips).
+    Both land next to `report.json` under `.tarn/runs/<run_id>/` and
+    are mirrored to `.tarn/summary.json` / `.tarn/failures.json` as
+    discoverability pointers. A failed run can now be triaged from
+    `failures.json` alone, without parsing the full report; the full
+    report stays available for deep inspection. Both artifacts are
+    emitted unconditionally (passing runs still produce
+    `failures: []`) so tooling can key off stable filenames, and both
+    are suppressed under `--no-last-run-json`.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

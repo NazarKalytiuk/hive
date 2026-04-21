@@ -4470,6 +4470,299 @@ fn no_last_run_json_suppresses_run_dir_and_pointer() {
 }
 
 // ============================================================
+// NAZ-401: summary.json and failures.json triage artifacts
+// ============================================================
+
+fn write_passing_fixture(dir: &TempDir, name: &str, base_url: &str) -> String {
+    write_test_file(
+        dir,
+        name,
+        &format!(
+            r#"
+name: Triage passing
+tests:
+  happy:
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 200
+"#,
+            base = base_url
+        ),
+    )
+}
+
+fn run_id_from_stderr(stderr: &str) -> String {
+    stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("run id: "))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| panic!("expected `run id:` line on stderr; got: {stderr}"))
+}
+
+/// A passing run must still emit `summary.json` (with zero failures) and
+/// `failures.json` (with an empty array) so tooling can always find the
+/// artifacts without conditional discovery logic.
+#[test]
+fn summary_and_failures_emitted_on_passing_run() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_passing_fixture(&dir, "triage-pass.tarn.yaml", &server.base_url());
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+
+    let summary_path = run_dir.join("summary.json");
+    let failures_path = run_dir.join("failures.json");
+    assert!(summary_path.is_file(), "summary.json must exist in run dir");
+    assert!(
+        failures_path.is_file(),
+        "failures.json must exist in run dir"
+    );
+
+    let summary: serde_json::Value =
+        serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+    assert_eq!(summary["exit_code"], 0);
+    assert_eq!(summary["run_id"].as_str(), Some(run_id.as_str()));
+    assert_eq!(summary["failed"]["files"], 0);
+    assert_eq!(summary["failed"]["tests"], 0);
+    assert_eq!(summary["failed"]["steps"], 0);
+    assert!(summary["failed_files"].as_array().unwrap().is_empty());
+    assert_eq!(summary["totals"]["files"], 1);
+    assert!(summary["totals"]["steps"].as_u64().unwrap() >= 1);
+
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(&failures_path).unwrap()).unwrap();
+    assert_eq!(failures["run_id"].as_str(), Some(run_id.as_str()));
+    assert!(failures["failures"].as_array().unwrap().is_empty());
+}
+
+/// A failing run populates `failures.json` with per-step entries that
+/// include request method/url, response status, and a body excerpt —
+/// the triage surface required by the acceptance criteria.
+#[test]
+fn failures_json_carries_request_response_and_counts() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "triage-fail.tarn.yaml",
+        &format!(
+            r#"
+name: Triage failing
+tests:
+  happy:
+    steps:
+      - name: health
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 999
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+
+    let summary: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("summary.json")).unwrap()).unwrap();
+    assert_eq!(summary["exit_code"], 1);
+    assert_eq!(summary["failed"]["files"], 1);
+    assert_eq!(summary["failed"]["tests"], 1);
+    assert_eq!(summary["failed"]["steps"], 1);
+    let failed_files = summary["failed_files"].as_array().unwrap();
+    assert_eq!(failed_files.len(), 1);
+    assert!(
+        failed_files[0]
+            .as_str()
+            .unwrap()
+            .ends_with("triage-fail.tarn.yaml"),
+        "failed_files should list the failing test file"
+    );
+
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("failures.json")).unwrap()).unwrap();
+    let entries = failures["failures"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry["test"], "happy");
+    assert_eq!(entry["step"], "health");
+    assert_eq!(entry["failure_category"], "assertion_failed");
+    assert_eq!(entry["request"]["method"], "GET");
+    assert!(entry["request"]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/health"));
+    let status = entry["response"]["status"].as_u64().unwrap();
+    assert_eq!(status, 200);
+    assert!(entry["response"]["body_excerpt"].is_string());
+    assert!(
+        entry["message"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("status"),
+        "message should describe the failure"
+    );
+}
+
+/// The workspace pointer files must mirror the archive byte-for-byte,
+/// same invariant `.tarn/last-run.json` holds for `report.json`.
+#[test]
+fn summary_and_failures_pointers_mirror_run_dir() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_passing_fixture(&dir, "triage-pointer.tarn.yaml", &server.base_url());
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+    let pointer_dir = dir.path().join(".tarn");
+
+    for name in ["summary.json", "failures.json"] {
+        let archive = fs::read(run_dir.join(name)).unwrap();
+        let pointer = fs::read(pointer_dir.join(name)).unwrap();
+        assert_eq!(
+            archive, pointer,
+            "{name} pointer must be a byte-for-byte copy of the archived artifact",
+        );
+    }
+}
+
+/// `--no-last-run-json` must suppress `summary.json` and `failures.json`
+/// in both the run directory and the workspace pointer, matching the
+/// existing behavior for `last-run.json` and the run dir itself.
+#[test]
+fn no_last_run_json_suppresses_summary_and_failures() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "triage-optout.tarn.yaml",
+        &format!(
+            r#"
+name: Triage opt-out
+tests:
+  happy:
+    steps:
+      - name: list
+        request:
+          method: GET
+          url: "{base}/users"
+        assert:
+          status: 999
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file, "--no-last-run-json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+
+    assert!(
+        !dir.path().join(".tarn").join("summary.json").exists(),
+        "pointer summary.json must stay suppressed"
+    );
+    assert!(
+        !dir.path().join(".tarn").join("failures.json").exists(),
+        "pointer failures.json must stay suppressed"
+    );
+
+    let runs_root = dir.path().join(".tarn").join("runs");
+    if runs_root.exists() {
+        let mut entries = fs::read_dir(&runs_root).unwrap();
+        assert!(
+            entries.next().is_none(),
+            "runs dir must stay empty under --no-last-run-json",
+        );
+    }
+}
+
+/// Long response bodies must be truncated past ~500 chars with a
+/// marker so `failures.json` stays triage-sized.
+#[test]
+fn failures_json_truncates_long_body_excerpt() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    // /users returns an array large enough to overflow the excerpt cap.
+    let test_file = write_test_file(
+        &dir,
+        "triage-truncate.tarn.yaml",
+        &format!(
+            r#"
+name: Triage truncate
+tests:
+  happy:
+    steps:
+      - name: list
+        request:
+          method: GET
+          url: "{base}/large"
+        assert:
+          status: 999
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("failures.json")).unwrap()).unwrap();
+    let entries = failures["failures"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let excerpt = entries[0]["response"]["body_excerpt"]
+        .as_str()
+        .expect("body_excerpt should be populated");
+    assert!(
+        excerpt.contains("…[truncated,"),
+        "long body must carry truncation marker, got: {}",
+        excerpt
+    );
+}
+
+// ============================================================
 // NAZ-240 / NAZ-349 / NAZ-244: compact, llm, verbose-responses
 // ============================================================
 

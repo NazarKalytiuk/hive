@@ -12,6 +12,7 @@ pub mod progress;
 pub mod redaction;
 pub mod run_dir;
 pub mod state_writer;
+pub mod summary;
 pub mod tap;
 
 use crate::assert::types::RunResult;

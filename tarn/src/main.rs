@@ -839,6 +839,7 @@ fn run_command(
             base_url: base_url_guess.clone(),
             run_id: Some(run_id.clone()),
             run_directory: run_directory.clone(),
+            emit_pointer_artifacts: persist_artifacts,
         };
 
         let exit = execute_run(
@@ -1122,11 +1123,22 @@ struct StateContext {
     /// `<workspace_root>/.tarn/runs/<run_id>/`. `None` when the
     /// directory could not be created or was suppressed.
     run_directory: Option<PathBuf>,
+    /// Whether the workspace-level pointer artifacts under `.tarn/`
+    /// (`summary.json`, `failures.json`) may be written. False under
+    /// `--no-last-run-json`, which asks for a fully transient run.
+    emit_pointer_artifacts: bool,
 }
 
-/// Persist `.tarn/state.json` atomically. Failures are logged to
-/// stderr; the caller never bubbles them up because `state.json` is
-/// a convenience sidecar, not a correctness signal.
+/// Persist `.tarn/state.json`, `.tarn/summary.json`, and
+/// `.tarn/failures.json` atomically, plus their per-run copies under
+/// `.tarn/runs/<run_id>/`. Failures are logged to stderr; the caller
+/// never bubbles them up because these sidecars are a convenience, not
+/// a correctness signal.
+///
+/// NAZ-401: `summary.json` and `failures.json` are always emitted
+/// (even on a clean run — failures.json carries an empty array) so
+/// downstream tooling can key off a single stable filename without
+/// conditional discovery logic.
 fn write_state_sidecar(
     run_result: &RunResult,
     started_at: chrono::DateTime<chrono::Utc>,
@@ -1144,6 +1156,14 @@ fn write_state_sidecar(
         ctx.base_url.clone(),
         ctx.run_id.clone(),
     );
+    let (summary_doc, failures_doc) = tarn::report::summary::build_summary_and_failures(
+        run_result,
+        started_at,
+        ended_at,
+        exit_code,
+        ctx.run_id.clone(),
+    );
+
     // NAZ-400: write the per-run immutable copy first, then refresh
     // the legacy `.tarn/state.json` pointer. Errors on either write
     // are best-effort: the run's exit code remains authoritative.
@@ -1155,6 +1175,20 @@ fn write_state_sidecar(
                 err
             );
         }
+        if let Err(err) = tarn::report::summary::write_summary_to_dir(dir, &summary_doc) {
+            eprintln!(
+                "tarn: failed to write summary.json under {}: {}",
+                dir.display(),
+                err
+            );
+        }
+        if let Err(err) = tarn::report::summary::write_failures_to_dir(dir, &failures_doc) {
+            eprintln!(
+                "tarn: failed to write failures.json under {}: {}",
+                dir.display(),
+                err
+            );
+        }
     }
     if let Err(err) = tarn::report::state_writer::write_state(&ctx.workspace_root, &state) {
         eprintln!(
@@ -1162,6 +1196,24 @@ fn write_state_sidecar(
             ctx.workspace_root.display(),
             err
         );
+    }
+    if ctx.emit_pointer_artifacts {
+        let pointer_dir = ctx.workspace_root.join(".tarn");
+        if let Err(err) = tarn::report::summary::write_summary_to_dir(&pointer_dir, &summary_doc) {
+            eprintln!(
+                "tarn: failed to write .tarn/summary.json under {}: {}",
+                ctx.workspace_root.display(),
+                err
+            );
+        }
+        if let Err(err) = tarn::report::summary::write_failures_to_dir(&pointer_dir, &failures_doc)
+        {
+            eprintln!(
+                "tarn: failed to write .tarn/failures.json under {}: {}",
+                ctx.workspace_root.display(),
+                err
+            );
+        }
     }
 }
 
