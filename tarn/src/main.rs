@@ -395,6 +395,31 @@ enum Commands {
         #[arg(long, default_value = "llm")]
         format: String,
     },
+
+    /// Group a prior run's failures by root cause and suppress cascade noise.
+    ///
+    /// Reads the `failures.json` artifact emitted by `tarn run`. With no
+    /// arguments it defaults to `.tarn/failures.json` (the latest run);
+    /// `--run <run_id>` reads the per-run archive under
+    /// `.tarn/runs/<run_id>/failures.json`.
+    Failures {
+        /// Run id whose archive should be loaded (see `.tarn/runs/`).
+        /// Without this flag the workspace-level latest-run pointer is used.
+        #[arg(long)]
+        run: Option<String>,
+
+        /// Output format: `human` (default) or `json`.
+        #[arg(long, default_value = "human")]
+        format: String,
+
+        /// Expand cascade lists instead of summarizing them as `└─ cascades: N skipped`.
+        #[arg(long = "include-cascades")]
+        include_cascades: bool,
+
+        /// Disable ANSI color output.
+        #[arg(long = "no-color")]
+        no_color: bool,
+    },
 }
 
 fn main() {
@@ -551,6 +576,12 @@ fn main() {
             0
         }
         Commands::Summary { path, format } => summary_command(&path, &format),
+        Commands::Failures {
+            run,
+            format,
+            include_cascades,
+            no_color,
+        } => failures_command(run.as_deref(), &format, include_cascades, no_color),
     };
 
     process::exit(exit_code);
@@ -1292,6 +1323,99 @@ fn summary_command(path: &str, format: &str) -> i32 {
     print!("{}", output);
 
     if run_result.passed() {
+        0
+    } else {
+        1
+    }
+}
+
+/// Load a prior run's `failures.json`, group failures by root cause,
+/// and render a human-readable or JSON report. Returns 0 when the
+/// archive is empty (no failures), 1 when failures exist, 2 on any
+/// load or parse error.
+fn failures_command(
+    run: Option<&str>,
+    format: &str,
+    include_cascades: bool,
+    no_color: bool,
+) -> i32 {
+    let format = match format.to_ascii_lowercase().as_str() {
+        "human" => "human",
+        "json" => "json",
+        other => {
+            eprintln!(
+                "Error: unknown failures format '{}'. Use 'human' or 'json'.",
+                other
+            );
+            return 2;
+        }
+    };
+
+    // Resolve the failures.json path. For `--run <id>` we need a
+    // workspace root to anchor `.tarn/runs/<id>/`; fall back to the
+    // current directory when no tarn project is detected. For the
+    // default (latest run) we read `.tarn/failures.json` relative to
+    // the workspace root (same fallback).
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("Error: failed to resolve current directory: {}", e);
+            return 2;
+        }
+    };
+    let workspace_root = config::find_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let path = match run {
+        Some(id) => tarn::report::run_dir::run_directory(&workspace_root, id).join("failures.json"),
+        None => workspace_root.join(".tarn").join("failures.json"),
+    };
+    if !path.is_file() {
+        match run {
+            Some(id) => eprintln!(
+                "Error: no failures.json for run '{}' at {}",
+                id,
+                path.display()
+            ),
+            None => eprintln!(
+                "Error: no failures.json at {}. Run `tarn run` first.",
+                path.display()
+            ),
+        }
+        return 2;
+    }
+
+    let raw = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("Error: failed to read {}: {}", path.display(), e);
+            return 2;
+        }
+    };
+    let doc: tarn::report::summary::FailuresDoc = match serde_json::from_slice(&raw) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error: failed to parse {}: {}", path.display(), e);
+            return 2;
+        }
+    };
+
+    let source = path.display().to_string();
+    let report = tarn::report::failures_command::build_report(&doc, source);
+
+    let no_color_effective = no_color || !std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let output = match format {
+        "json" => tarn::report::failures_command::render_json(&report),
+        _ => tarn::report::failures_command::render_human(
+            &report,
+            include_cascades,
+            no_color_effective,
+        ),
+    };
+    print!("{}", output);
+    if format == "json" {
+        println!();
+    }
+
+    if report.total_failures == 0 {
         0
     } else {
         1

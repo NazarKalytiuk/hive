@@ -23,7 +23,7 @@ use crate::fixtures::{SETUP_TEST_SLUG, TEARDOWN_TEST_SLUG};
 use crate::model::RedactionConfig;
 use crate::report::redaction::{sanitize_json, sanitize_string};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bumped on incompatible changes to either artifact's envelope.
@@ -35,7 +35,7 @@ pub const SUMMARY_SCHEMA_VERSION: u32 = 1;
 /// body (which lives in `report.json`).
 pub const BODY_EXCERPT_MAX_CHARS: usize = 500;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryDoc {
     pub schema_version: u32,
     pub run_id: Option<String>,
@@ -48,48 +48,51 @@ pub struct SummaryDoc {
     pub failed_files: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Counts {
     pub files: usize,
     pub tests: usize,
     pub steps: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailuresDoc {
     pub schema_version: u32,
     pub run_id: Option<String>,
     pub failures: Vec<FailureEntry>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailureEntry {
     pub file: String,
     pub test: String,
     pub step: String,
+    #[serde(default)]
     pub failure_category: Option<FailureCategory>,
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request: Option<FailureRequest>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<FailureResponse>,
+    #[serde(default)]
     pub root_cause: Option<RootCauseRef>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailureRequest {
     pub method: String,
     pub url: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailureResponse {
+    #[serde(default)]
     pub status: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_excerpt: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootCauseRef {
     pub file: String,
     pub test: String,

@@ -1,9 +1,9 @@
 use crate::model::{Location, MultipartBody, RedactionConfig};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Category of failure for structured error reporting.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureCategory {
     AssertionFailed,

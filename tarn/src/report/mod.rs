@@ -1,6 +1,7 @@
 pub mod compact;
 pub mod curl;
 pub mod failure;
+pub mod failures_command;
 pub mod fixture_writer;
 pub mod html;
 pub mod human;

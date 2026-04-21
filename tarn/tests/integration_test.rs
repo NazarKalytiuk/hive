@@ -5346,3 +5346,269 @@ fn last_run_json_is_augmented_with_args_env_working_directory() {
     assert!(parsed["start_time"].is_string());
     assert!(parsed["end_time"].is_string());
 }
+
+// ============================================================================
+// NAZ-402: tarn failures — root-cause grouping and cascade suppression
+// ============================================================================
+
+/// Running `tarn failures --format json` after a failing run must
+/// group the failures and render the documented envelope.
+#[test]
+fn failures_subcommand_groups_failures_from_latest_run() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "grouping.tarn.yaml",
+        &format!(
+            r#"
+name: Grouping
+tests:
+  t:
+    steps:
+      - name: bad
+        request:
+          method: GET
+          url: "{base}/health"
+        assert:
+          status: 418
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let run = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(1));
+
+    let output = tarn()
+        .args(["failures", "--format", "json", "--no-color"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["total_failures"], 1);
+    assert_eq!(parsed["total_cascades"], 0);
+    let groups = parsed["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1);
+    let fp = groups[0]["fingerprint"].as_str().unwrap();
+    assert!(
+        fp.starts_with("status:418:200:GET:"),
+        "unexpected fingerprint: {}",
+        fp
+    );
+    assert_eq!(groups[0]["occurrences"], 1);
+    assert_eq!(groups[0]["root_cause"]["step"], "bad");
+}
+
+/// `tarn failures --run <id>` must read `.tarn/runs/<id>/failures.json`
+/// directly, so the user can triage any historical run, not just the
+/// latest one.
+#[test]
+fn failures_subcommand_loads_specific_run_by_id() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "by-run.tarn.yaml",
+        &format!(
+            r#"
+name: By run id
+steps:
+  - name: bad
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 599
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let run = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+
+    let output = tarn()
+        .args([
+            "failures",
+            "--run",
+            &run_id,
+            "--format",
+            "json",
+            "--no-color",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["run_id"].as_str(), Some(run_id.as_str()));
+    assert!(parsed["source"]
+        .as_str()
+        .unwrap()
+        .contains(&format!(".tarn/runs/{}/failures.json", run_id)));
+    assert_eq!(parsed["total_failures"], 1);
+}
+
+/// A nonexistent `--run` id must exit 2 with a clear message rather
+/// than silently falling back to the latest run.
+#[test]
+fn failures_subcommand_unknown_run_id_exits_two() {
+    let dir = TempDir::new().unwrap();
+    // Seed `.tarn/` so the workspace is recognized as a tarn project.
+    fs::create_dir_all(dir.path().join(".tarn")).unwrap();
+    fs::write(dir.path().join("tarn.config.yaml"), "").unwrap();
+
+    let output = tarn()
+        .args(["failures", "--run", "does-not-exist", "--format", "json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does-not-exist") && stderr.contains("failures.json"),
+        "error should reference the missing run and artifact: {}",
+        stderr
+    );
+}
+
+/// A passing run leaves `failures.json` populated with an empty list;
+/// `tarn failures` on it must exit 0 and report no failures.
+#[test]
+fn failures_subcommand_exits_zero_when_no_failures() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "clean.tarn.yaml",
+        &format!(
+            r#"
+name: Clean run
+steps:
+  - name: ok
+    request:
+      method: GET
+      url: "{base}/health"
+    assert:
+      status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let run = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(0));
+
+    let output = tarn()
+        .args(["failures", "--format", "json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(parsed["total_failures"], 0);
+    assert!(parsed["groups"].as_array().unwrap().is_empty());
+}
+
+/// A cascade failure must be counted in `total_cascades` and surface
+/// as a `blocked_steps` entry on the upstream group rather than as a
+/// second occurrence — this is the core promise of the command.
+#[test]
+fn failures_subcommand_collapses_cascade_fallout_under_root_cause() {
+    let server = DemoServer::start();
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "cascade-failures.tarn.yaml",
+        &format!(
+            r#"
+name: Cascade skip
+env:
+  base_url: "{base}"
+steps:
+  - name: capture missing id
+    request:
+      method: GET
+      url: "{{{{ env.base_url }}}}/health"
+    capture:
+      user_id: "$.nonexistent"
+    assert:
+      status: 200
+  - name: uses failed capture
+    request:
+      method: GET
+      url: "{{{{ env.base_url }}}}/users/{{{{ capture.user_id }}}}"
+    assert:
+      status: 200
+  - name: also uses failed capture
+    request:
+      method: GET
+      url: "{{{{ env.base_url }}}}/users/{{{{ capture.user_id }}}}"
+    assert:
+      status: 200
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let run = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Capture error exits with 3; cascade skips do not escalate further.
+    assert_eq!(run.status.code(), Some(3));
+
+    let output = tarn()
+        .args(["failures", "--format", "json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(
+        parsed["total_cascades"].as_u64().unwrap() >= 2,
+        "expected at least two cascades, got: {}",
+        parsed
+    );
+    let groups = parsed["groups"].as_array().unwrap();
+    // Root cause has exactly one occurrence; cascades do not inflate it.
+    let root_group = groups
+        .iter()
+        .find(|g| g["root_cause"]["step"] == "capture missing id")
+        .expect("root-cause group present");
+    assert_eq!(root_group["occurrences"], 1);
+    let blocked = root_group["blocked_steps"].as_array().unwrap();
+    let blocked_names: Vec<&str> = blocked
+        .iter()
+        .map(|b| b["step"].as_str().unwrap())
+        .collect();
+    assert!(
+        blocked_names.contains(&"uses failed capture")
+            && blocked_names.contains(&"also uses failed capture"),
+        "both downstream skips must surface as blocked_steps: {:?}",
+        blocked_names
+    );
+}
