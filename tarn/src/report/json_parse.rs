@@ -192,6 +192,7 @@ fn parse_step(value: &Value) -> Result<StepResult, ParseError> {
         response_summary,
         captures_set,
         location,
+        response_shape_mismatch: None,
     })
 }
 
@@ -215,6 +216,10 @@ fn parse_assertion(value: &Value) -> Result<AssertionResult, ParseError> {
         message,
         diff,
         location,
+        // Rehydration from JSON doesn't need to carry the shape hint —
+        // the lifted copy on StepResult is authoritative, and parsers
+        // of the serialized artifact already read it from there.
+        response_shape_mismatch: None,
     })
 }
 
@@ -325,6 +330,7 @@ mod tests {
                 response_summary: None,
                 captures_set: vec!["id".into()],
                 location: None,
+                response_shape_mismatch: None,
             }],
             captures: HashMap::new(),
         };

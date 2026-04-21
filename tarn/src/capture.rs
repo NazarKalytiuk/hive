@@ -310,6 +310,33 @@ fn yaml_to_json(value: &serde_yaml::Value) -> Value {
 /// the one place that decides capture expressions support `{{ ... }}`; keeping
 /// it at the edge of extraction means the JSONPath/regex/header parsers see
 /// only literal, validated input.
+/// Return the raw (uninterpolated) JSONPath string of a capture spec
+/// when the capture is JSONPath-based — either the shorthand
+/// [`CaptureSpec::JsonPath`] form or an extended capture that sets
+/// `jsonpath:`. Returns `None` for header / cookie / body / status /
+/// url sources. Used by the runner's shape-drift diagnosis
+/// (NAZ-415) to pick a representative path without resolving
+/// interpolation.
+pub fn capture_jsonpath(spec: &CaptureSpec) -> Option<&str> {
+    match spec {
+        CaptureSpec::JsonPath(path) => Some(path.as_str()),
+        CaptureSpec::Extended(ext) => ext.jsonpath.as_deref(),
+    }
+}
+
+/// Resolve interpolation in a capture spec (public wrapper used by the
+/// runner for shape-drift diagnosis; the core runner already runs this
+/// internally during extraction). Returns the interpolated
+/// [`CaptureSpec`] so callers can inspect the concrete path that was
+/// attempted against the response.
+pub fn resolve_capture_spec_public(
+    name: &str,
+    spec: &CaptureSpec,
+    ctx: &Context,
+) -> Result<CaptureSpec, TarnError> {
+    resolve_capture_spec(name, spec, ctx)
+}
+
 fn resolve_capture_spec(
     name: &str,
     spec: &CaptureSpec,

@@ -392,6 +392,7 @@ fn golden_run_result() -> RunResult {
                 response_summary: None,
                 captures_set: vec![],
                 location: None,
+                response_shape_mismatch: None,
             }],
             test_results: vec![TestResult {
                 name: "smoke".into(),
@@ -416,6 +417,7 @@ fn golden_run_result() -> RunResult {
                         response_summary: None,
                         captures_set: vec![],
                         location: None,
+                        response_shape_mismatch: None,
                     },
                     StepResult {
                         name: "Fetch item".into(),
@@ -457,6 +459,7 @@ fn golden_run_result() -> RunResult {
                         response_summary: None,
                         captures_set: vec![],
                         location: None,
+                        response_shape_mismatch: None,
                     },
                 ],
                 captures: HashMap::new(),
@@ -475,6 +478,7 @@ fn golden_run_result() -> RunResult {
                 response_summary: None,
                 captures_set: vec![],
                 location: None,
+                response_shape_mismatch: None,
             }],
         }],
     }
@@ -6692,4 +6696,333 @@ steps:
     assert!(f.get("line").is_some());
     assert!(f.get("step_path").is_some());
     assert!(f.get("hint").is_some());
+}
+
+// ---------------------------------------------------------------------------
+// NAZ-415: response-shape drift detection
+// ---------------------------------------------------------------------------
+
+/// Minimal HTTP server that serves the same JSON body for every request.
+/// Used by the drift-detection tests so we can craft a specific response
+/// shape without standing up the full demo-server.
+struct FixedBodyServer {
+    port: u16,
+    running: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl FixedBodyServer {
+    fn start(body: &'static str) -> Self {
+        let (listener, port) = bind_ephemeral_listener();
+        listener.set_nonblocking(true).unwrap();
+        let running = Arc::new(AtomicBool::new(true));
+        let running_for_thread = Arc::clone(&running);
+        let thread = thread::spawn(move || {
+            while running_for_thread.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        // Drain the request headers (we ignore body).
+                        let mut buf = Vec::new();
+                        let mut chunk = [0u8; 1024];
+                        loop {
+                            match stream.read(&mut chunk) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    buf.extend_from_slice(&chunk[..n]);
+                                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                                        break;
+                                    }
+                                }
+                                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                                    thread::sleep(Duration::from_millis(10));
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            port,
+            running,
+            thread: Some(thread),
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for FixedBodyServer {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        let _ = std::net::TcpStream::connect(("127.0.0.1", self.port));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// A capture against a drifted server shape must fingerprint as
+/// `ResponseShapeMismatch`, carry a `response_shape_mismatch` hint in
+/// `failures.json`, and suggest the correct replacement path.
+#[test]
+fn capture_on_drifted_shape_classifies_as_response_shape_mismatch() {
+    let server =
+        FixedBodyServer::start(r#"{"request": {"uuid": "abc-123"}, "stageStatus": "pending"}"#);
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "drift.tarn.yaml",
+        &format!(
+            r#"
+name: Drift capture
+tests:
+  create:
+    steps:
+      - name: create_stage
+        request:
+          method: POST
+          url: "{base}/stages"
+        capture:
+          stage_id: "$.uuid"
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Drift classification downgrades the exit code from 3
+    // (`CaptureError` → runtime error) to 1 (test-level failure):
+    // a contract change is a test problem, not a runtime one.
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("failures.json")).unwrap()).unwrap();
+    let entries = failures["failures"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry["failure_category"], "response_shape_mismatch");
+    let drift = &entry["response_shape_mismatch"];
+    assert_eq!(drift["expected_path"], "$.uuid");
+    assert_eq!(drift["observed_type"], "object");
+    let observed_keys: Vec<&str> = drift["observed_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(observed_keys.contains(&"request"));
+    assert!(observed_keys.contains(&"stageStatus"));
+    let top_candidate = &drift["candidate_fixes"][0];
+    assert_eq!(top_candidate["path"], "$.request.uuid");
+    assert_eq!(top_candidate["confidence"], "high");
+}
+
+/// A body-assertion JSONPath miss on a scalar / non-object response
+/// stays in the generic `assertion_failed` bucket — drift detection
+/// only fires when the response is a JSON object we can describe.
+#[test]
+fn null_body_does_not_classify_as_shape_drift() {
+    let server = FixedBodyServer::start("null");
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "null-body.tarn.yaml",
+        &format!(
+            r#"
+name: Null body
+tests:
+  probe:
+    steps:
+      - name: fetch
+        request:
+          method: GET
+          url: "{base}/thing"
+        assert:
+          body:
+            "$.uuid": {{ exists: true }}
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("failures.json")).unwrap()).unwrap();
+    let entries = failures["failures"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry["failure_category"], "assertion_failed");
+    // `response_shape_mismatch` is still populated with observed type
+    // so agents see "null body" — but with no candidate fixes, and
+    // the category is *not* upgraded to drift.
+    let drift = &entry["response_shape_mismatch"];
+    assert_eq!(drift["observed_type"], "null");
+    assert!(drift["candidate_fixes"].as_array().unwrap().is_empty());
+    assert_eq!(drift["high_confidence"], false);
+}
+
+/// A drift miss in a capture step that downstream steps depend on
+/// should still produce a `root_cause` pointer on the cascaded skip,
+/// so `tarn failures` can attribute the skip back to the drift step.
+#[test]
+fn cascade_step_root_cause_points_back_to_drift_step() {
+    let server = FixedBodyServer::start(r#"{"request": {"uuid": "abc-123"}}"#);
+    let dir = TempDir::new().unwrap();
+    let test_file = write_test_file(
+        &dir,
+        "cascade-drift.tarn.yaml",
+        &format!(
+            r#"
+name: Drift cascade
+tests:
+  create_then_fetch:
+    steps:
+      - name: create_stage
+        request:
+          method: POST
+          url: "{base}/stages"
+        capture:
+          stage_id: "$.uuid"
+      - name: fetch_stage
+        request:
+          method: GET
+          url: "{base}/stages/{{{{ capture.stage_id }}}}"
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.code().unwrap() != 0);
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = run_id_from_stderr(&stderr);
+    let run_dir = dir.path().join(".tarn").join("runs").join(&run_id);
+    let failures: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_dir.join("failures.json")).unwrap()).unwrap();
+    let entries = failures["failures"].as_array().unwrap();
+
+    let drift_step = entries
+        .iter()
+        .find(|e| e["step"] == "create_stage")
+        .expect("drift step present");
+    assert_eq!(drift_step["failure_category"], "response_shape_mismatch");
+
+    let cascade_step = entries
+        .iter()
+        .find(|e| e["step"] == "fetch_stage")
+        .expect("cascade step present");
+    assert_eq!(
+        cascade_step["failure_category"],
+        "skipped_due_to_failed_capture"
+    );
+    let rc = &cascade_step["root_cause"];
+    assert_eq!(rc["step"], "create_stage");
+    assert_eq!(rc["test"], "create_then_fetch");
+}
+
+/// The `tarn failures --format json` grouping must collapse two
+/// separate tests that hit the exact same drift into a single group
+/// keyed on the shape-drift fingerprint.
+#[test]
+fn failures_command_groups_identical_drift_across_files() {
+    let server = FixedBodyServer::start(r#"{"request": {"uuid": "abc-123"}}"#);
+    let dir = TempDir::new().unwrap();
+    let _a = write_test_file(
+        &dir,
+        "drift-a.tarn.yaml",
+        &format!(
+            r#"
+name: Drift A
+tests:
+  create:
+    steps:
+      - name: create_stage
+        request:
+          method: POST
+          url: "{base}/stages"
+        capture:
+          stage_id: "$.uuid"
+"#,
+            base = server.base_url()
+        ),
+    );
+    let _b = write_test_file(
+        &dir,
+        "drift-b.tarn.yaml",
+        &format!(
+            r#"
+name: Drift B
+tests:
+  create:
+    steps:
+      - name: create_stage
+        request:
+          method: POST
+          url: "{base}/stages"
+        capture:
+          stage_id: "$.uuid"
+"#,
+            base = server.base_url()
+        ),
+    );
+
+    let run = tarn()
+        .args(["run"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(run.status.code().unwrap() != 0);
+
+    let failures = tarn()
+        .args(["failures", "--format", "json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&failures.stdout).to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let groups = parsed["groups"].as_array().unwrap();
+    let drift_group = groups
+        .iter()
+        .find(|g| {
+            g["fingerprint"]
+                .as_str()
+                .map(|s| s.starts_with("shape_drift:"))
+                .unwrap_or(false)
+        })
+        .expect("drift group present");
+    assert_eq!(drift_group["occurrences"], 2);
 }

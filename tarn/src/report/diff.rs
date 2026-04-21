@@ -332,6 +332,7 @@ fn failure_category_as_str(cat: crate::assert::types::FailureCategory) -> &'stat
         ParseError => "parse_error",
         CaptureError => "capture_error",
         UnresolvedTemplate => "unresolved_template",
+        ResponseShapeMismatch => "response_shape_mismatch",
         SkippedDueToFailedCapture => "skipped_due_to_failed_capture",
         SkippedDueToFailFast => "skipped_due_to_fail_fast",
         SkippedByCondition => "skipped_by_condition",
@@ -441,6 +442,7 @@ mod tests {
             request: None,
             response: None,
             root_cause: None,
+            response_shape_mismatch: None,
         }
     }
 

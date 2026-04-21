@@ -148,6 +148,24 @@
     per-rule unit tests; the orchestrator runs all rules, merges and
     sorts findings by `(line, rule_id)`, and hands the result to the
     CLI for rendering.
+  - **Response-shape drift detection with candidate fix paths
+    (NAZ-415).** A body-assertion or capture JSONPath miss on a JSON
+    object response now runs a pure tail-segment heuristic that
+    proposes replacement paths: `$.uuid` missing on
+    `{"request": {"uuid": "…"}}` suggests `$.request.uuid` at high
+    confidence, `$.data.items[0].id` on `{"items":[…]}` suggests
+    `$.items[0].id` at medium confidence. When at least one candidate
+    is high confidence the failure is reclassified from
+    `assertion_failed` / `capture_error` to a new
+    `response_shape_mismatch` category; lower-confidence drift keeps
+    the original category but still carries the observed shape and
+    candidates on a new `response_shape_mismatch` field of each
+    `failures.json` entry. `tarn failures` groups drift by
+    `shape_drift:<expected_path>:<observed_keys_hash>` so one
+    contract change surfaces as a single group across every file
+    that hit it, and cascade fallout of drift still points its
+    `root_cause` back at the drift step so agents can trace blocked
+    skips to the real cause.
 
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 

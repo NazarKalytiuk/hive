@@ -390,6 +390,7 @@ pub fn fingerprint_for(entry: &FailureEntry) -> String {
 
     match category {
         FailureCategory::AssertionFailed => fingerprint_assertion_failed(entry),
+        FailureCategory::ResponseShapeMismatch => fingerprint_shape_drift(entry),
         FailureCategory::ConnectionError => fingerprint_connection_error(entry),
         FailureCategory::Timeout => {
             let host = request_host(entry).unwrap_or_else(|| "unknown".into());
@@ -409,6 +410,26 @@ pub fn fingerprint_for(entry: &FailureEntry) -> String {
         | FailureCategory::SkippedDueToFailFast
         | FailureCategory::SkippedByCondition => unclassified_fingerprint(entry),
     }
+}
+
+/// Drift fingerprint: `shape_drift:<expected_path>:<observed_top_keys_hash>`.
+/// Keying on the structured hint (not the message) keeps two different
+/// files that hit the same drift in the same group even if the runner's
+/// message text evolves. When the hint is missing (older runs), fall back
+/// to the generic assertion-failed fingerprint so the entry still lands
+/// in a sensible bucket instead of `unclassified`.
+fn fingerprint_shape_drift(entry: &FailureEntry) -> String {
+    let Some(hint) = entry.response_shape_mismatch.as_ref() else {
+        return fingerprint_assertion_failed(entry);
+    };
+    let mut keys = hint.observed_keys.clone();
+    keys.sort();
+    let joined = keys.join(",");
+    format!(
+        "shape_drift:{}:{:x}",
+        hint.expected_path,
+        truncated_hash(&joined)
+    )
 }
 
 fn fingerprint_assertion_failed(entry: &FailureEntry) -> String {
@@ -488,6 +509,7 @@ fn unclassified_fingerprint(entry: &FailureEntry) -> String {
 fn category_label(cat: FailureCategory) -> &'static str {
     match cat {
         FailureCategory::AssertionFailed => "assertion_failed",
+        FailureCategory::ResponseShapeMismatch => "response_shape_mismatch",
         FailureCategory::ConnectionError => "connection_error",
         FailureCategory::Timeout => "timeout",
         FailureCategory::ParseError => "parse_error",
@@ -688,6 +710,7 @@ mod tests {
             request: None,
             response: None,
             root_cause: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -822,6 +845,68 @@ mod tests {
     }
 
     #[test]
+    fn shape_drift_fingerprint_uses_structured_hint() {
+        use crate::report::shape_diagnosis::{
+            CandidateFix, ShapeConfidence, ShapeMismatchDiagnosis,
+        };
+        // NAZ-415: drift-classified entries fingerprint on the
+        // structured hint so two files that hit the same drift land in
+        // the same bucket even if the message text drifts across runs.
+        let diag = ShapeMismatchDiagnosis {
+            expected_path: "$.uuid".into(),
+            observed_keys: vec!["request".into(), "stageStatus".into()],
+            observed_type: "object".into(),
+            candidate_fixes: vec![CandidateFix {
+                path: "$.request.uuid".into(),
+                confidence: ShapeConfidence::High,
+                reason: "wrap".into(),
+            }],
+            high_confidence: true,
+        };
+        let mut e = entry(
+            "a.tarn.yaml",
+            "t",
+            "s",
+            Some(FailureCategory::ResponseShapeMismatch),
+            "JSONPath $.uuid did not match any value",
+        );
+        e.response_shape_mismatch = Some(diag.clone());
+        let fp = fingerprint_for(&e);
+        assert!(
+            fp.starts_with("shape_drift:$.uuid:"),
+            "unexpected fingerprint: {}",
+            fp
+        );
+
+        // Same drift in a different file yields the same fingerprint.
+        let mut e2 = entry(
+            "b.tarn.yaml",
+            "other_test",
+            "other_step",
+            Some(FailureCategory::ResponseShapeMismatch),
+            "JSONPath $.uuid matched no values",
+        );
+        e2.response_shape_mismatch = Some(diag);
+        assert_eq!(fingerprint_for(&e), fingerprint_for(&e2));
+    }
+
+    #[test]
+    fn shape_drift_without_hint_falls_back_to_assertion_fingerprint() {
+        // Defensive: if a legacy artifact is read back with the new
+        // category but no structured hint (not possible for fresh
+        // runs, but robust against historical schemas), we still put
+        // the entry in a sensible bucket instead of `unclassified`.
+        let e = entry(
+            "a.tarn.yaml",
+            "t",
+            "s",
+            Some(FailureCategory::ResponseShapeMismatch),
+            "JSONPath $.uuid did not match any value",
+        );
+        assert_eq!(fingerprint_for(&e), "body_jsonpath:$.uuid:missing");
+    }
+
+    #[test]
     fn unknown_message_falls_back_to_unclassified_with_stable_hash() {
         let e = entry(
             "a.tarn.yaml",
@@ -892,6 +977,7 @@ mod tests {
                 test: "t".into(),
                 step: "create_user".into(),
             }),
+            response_shape_mismatch: None,
         };
         let report = build_report(&doc(vec![root, cascade]), "test");
         assert_eq!(report.total_cascades, 1);
@@ -985,6 +1071,7 @@ mod tests {
                 test: "t".into(),
                 step: "create_user".into(),
             }),
+            response_shape_mismatch: None,
         };
         let report = build_report(&doc(vec![root, cascade]), "test");
         let summary = render_human(&report, false, true);

@@ -56,6 +56,7 @@ fn mk_run(passing: bool) -> RunResult {
                     response_summary: None,
                     captures_set: vec![],
                     location: None,
+                    response_shape_mismatch: None,
                 }],
                 captures: HashMap::new(),
             }],

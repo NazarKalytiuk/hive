@@ -254,6 +254,7 @@ mod tests {
             request: None,
             response: None,
             root_cause: None,
+            response_shape_mismatch: None,
         }
     }
 

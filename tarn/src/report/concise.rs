@@ -247,6 +247,7 @@ fn group_to_json(group: &FailureGroup) -> Value {
 fn category_label(cat: FailureCategory) -> &'static str {
     match cat {
         FailureCategory::AssertionFailed => "assertion_failed",
+        FailureCategory::ResponseShapeMismatch => "response_shape_mismatch",
         FailureCategory::ConnectionError => "connection_error",
         FailureCategory::Timeout => "timeout",
         FailureCategory::ParseError => "parse_error",
@@ -351,6 +352,7 @@ mod tests {
                 body_excerpt: Some(r#"{"error":"internal server error"}"#.into()),
             }),
             root_cause: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -427,6 +429,7 @@ mod tests {
                 test: "t".into(),
                 step: "create".into(),
             }),
+            response_shape_mismatch: None,
         };
         let summary = make_summary(1, 2, 2);
         let out = render_concise(&summary, &doc(vec![root, cascade]), "rid", true);

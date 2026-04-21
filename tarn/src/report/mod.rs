@@ -16,6 +16,7 @@ pub mod progress;
 pub mod redaction;
 pub mod rerun;
 pub mod run_dir;
+pub mod shape_diagnosis;
 pub mod state_writer;
 pub mod summary;
 pub mod tap;

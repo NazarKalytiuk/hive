@@ -19,6 +19,7 @@ pub fn sanitize_assertion(
             .as_ref()
             .map(|diff| sanitize_string(diff, &redaction.replacement, secret_values)),
         location: assertion.location.clone(),
+        response_shape_mismatch: assertion.response_shape_mismatch.clone(),
     }
 }
 

@@ -839,6 +839,7 @@ fn skipped_due_to_failed_capture(step: &Step, failed_refs: &[String]) -> StepRes
         response_summary: None,
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     }
 }
 
@@ -862,6 +863,7 @@ fn fail_fast_skipped_step(step: &Step) -> StepResult {
         response_summary: None,
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     }
 }
 
@@ -884,6 +886,7 @@ fn condition_skipped_step(step: &Step, message: String) -> StepResult {
         response_summary: None,
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     }
 }
 
@@ -1051,6 +1054,7 @@ fn unresolved_template_step(
             response_summary: None,
             captures_set: vec![],
             location: step.location.clone(),
+            response_shape_mismatch: None,
         });
     }
 
@@ -1077,6 +1081,7 @@ fn unresolved_template_step(
         response_summary: None,
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     })
 }
 
@@ -1134,7 +1139,92 @@ fn runtime_failure_step(
         response_summary: None,
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     }
+}
+
+/// NAZ-415: run the shape-drift heuristic against the first
+/// JSONPath-based capture spec in `capture_map` and return a
+/// diagnosis. This is a best-effort picker — if several captures in
+/// the same step each use JSONPath, we diagnose the first one that
+/// produces candidates (or, failing that, the first one at all) so
+/// the lifted hint matches the dominant cause without requiring the
+/// runner to know which specific capture the error message is for.
+/// Header / cookie / body / status / url captures are skipped because
+/// drift diagnosis is about response-body shape.
+fn diagnose_capture_shape_drift(
+    capture_map: &HashMap<String, crate::model::CaptureSpec>,
+    body: &serde_json::Value,
+    ctx: &crate::interpolation::Context,
+) -> Option<crate::report::shape_diagnosis::ShapeMismatchDiagnosis> {
+    let mut fallback: Option<crate::report::shape_diagnosis::ShapeMismatchDiagnosis> = None;
+    for (name, spec) in capture_map {
+        let resolved = match capture::resolve_capture_spec_public(name, spec, ctx) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let Some(path) = capture::capture_jsonpath(&resolved) else {
+            continue;
+        };
+        let diag = crate::report::shape_diagnosis::diagnose(path, body);
+        if !diag.candidate_fixes.is_empty() {
+            return Some(diag);
+        }
+        if fallback.is_none() {
+            fallback = Some(diag);
+        }
+    }
+    fallback
+}
+
+/// NAZ-415: propagate the first shape-drift diagnosis attached to a
+/// failing assertion up to the step-level `response_shape_mismatch`
+/// field so downstream reporting can surface it without scanning
+/// every assertion.
+///
+/// Category upgrade rule: a step's `error_category` is lifted to
+/// [`FailureCategory::ResponseShapeMismatch`] **only** when all of the
+/// following hold:
+///
+/// 1. The step is currently categorized as `AssertionFailed` or
+///    `CaptureError`. Any other category (network, timeout, parse,
+///    cascade skip) is already more specific and wins.
+/// 2. The diagnosis has at least one `High` confidence candidate
+///    (`high_confidence == true`).
+/// 3. Every failing assertion on the step is a pure "no match for
+///    path" miss — i.e. every failing assertion carries the same
+///    diagnosis. If the step also has a non-drift failure (status
+///    mismatch, value mismatch, header miss), we keep the original
+///    category so the report doesn't misrepresent a compound failure
+///    as "just drift".
+fn lift_shape_diagnosis(mut step: StepResult) -> StepResult {
+    if step.passed {
+        return step;
+    }
+    let failing: Vec<&AssertionResult> = step.failures();
+    if failing.is_empty() {
+        return step;
+    }
+    let all_drift = failing.iter().all(|a| a.response_shape_mismatch.is_some());
+    let first_diagnosis = failing
+        .iter()
+        .find_map(|a| a.response_shape_mismatch.clone());
+    let Some(diagnosis) = first_diagnosis else {
+        return step;
+    };
+
+    // Always surface the observed-shape hint — even for low-confidence
+    // drift, agents benefit from "here are the observed keys".
+    step.response_shape_mismatch = Some(diagnosis.clone());
+
+    let upgradable = matches!(
+        step.error_category,
+        Some(FailureCategory::AssertionFailed) | Some(FailureCategory::CaptureError)
+    );
+    if all_drift && diagnosis.high_confidence && upgradable {
+        step.error_category = Some(FailureCategory::ResponseShapeMismatch);
+    }
+    step
 }
 
 fn http_failure_category(message: &str) -> FailureCategory {
@@ -1532,6 +1622,43 @@ fn run_step(
     cookie_jars: &mut HashMap<String, CookieJar>,
     base_dir: &Path,
 ) -> Result<StepResult, TarnError> {
+    // NAZ-415: run the step, then lift any shape-drift diagnosis
+    // attached to a failing body/capture assertion onto the
+    // step-level `response_shape_mismatch` field. The inner function
+    // is the historical body of this fn — this wrapper exists so
+    // every return path is post-processed in exactly one place.
+    let result = run_step_inner(
+        step,
+        env,
+        captures,
+        optional_unset,
+        test_file,
+        redaction,
+        redacted_values,
+        client,
+        opts,
+        cookies_enabled,
+        cookie_jars,
+        base_dir,
+    )?;
+    Ok(lift_shape_diagnosis(result))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_step_inner(
+    step: &Step,
+    env: &HashMap<String, String>,
+    captures: &mut HashMap<String, serde_json::Value>,
+    optional_unset: &mut HashSet<String>,
+    test_file: &TestFile,
+    redaction: &RedactionConfig,
+    redacted_values: &mut BTreeSet<String>,
+    client: &http::HttpClient,
+    opts: &RunOptions,
+    cookies_enabled: bool,
+    cookie_jars: &mut HashMap<String, CookieJar>,
+    base_dir: &Path,
+) -> Result<StepResult, TarnError> {
     // Evaluate `if:` / `unless:` before anything else so a falsy gate
     // produces a clean skipped step without spending a delay or
     // preparing a request. Interpolation uses the same context as a
@@ -1632,6 +1759,7 @@ fn run_step(
             response_summary: None,
             captures_set: vec![],
             location: step.location.clone(),
+            response_shape_mismatch: None,
         });
     }
 
@@ -1741,12 +1869,21 @@ fn run_step(
             // If capture failed, mark step as failed instead of aborting
             if let Some(capture_err) = capture_result {
                 let mut all_assertions = assertion_results;
-                all_assertions.push(AssertionResult::fail(
+                // NAZ-415: if the first failing JSONPath capture missed on
+                // an object response, attach a shape-drift diagnosis so
+                // the lift pass can surface it at the step level.
+                let mut capture_assertion = AssertionResult::fail(
                     "capture",
                     "successful extraction",
                     "extraction failed",
                     format!("{}", capture_err),
-                ));
+                );
+                if let Some(diag) =
+                    diagnose_capture_shape_drift(&step.capture, &response.body, &request.ctx)
+                {
+                    capture_assertion = capture_assertion.with_shape_diagnosis(diag);
+                }
+                all_assertions.push(capture_assertion);
                 return Ok(StepResult {
                     name: step.name.clone(),
                     description: step.description.clone(),
@@ -1765,6 +1902,7 @@ fn run_step(
                     response_summary: Some(resp_summary),
                     captures_set: vec![],
                     location: step.location.clone(),
+                    response_shape_mismatch: None,
                 });
             }
 
@@ -1804,6 +1942,7 @@ fn run_step(
                 response_summary: Some(resp_summary),
                 captures_set: captured_keys,
                 location: step.location.clone(),
+                response_shape_mismatch: None,
             });
         }
 
@@ -1837,6 +1976,7 @@ fn run_step(
         response_summary: Some(resp_summary),
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     })
 }
 
@@ -2024,6 +2164,7 @@ fn run_step_poll(
                             response_summary: Some(resp_summary),
                             captures_set: vec![],
                             location: step.location.clone(),
+                            response_shape_mismatch: None,
                         });
                     }
                 }
@@ -2062,6 +2203,7 @@ fn run_step_poll(
                 response_summary: Some(resp_summary),
                 captures_set: captured_keys,
                 location: step.location.clone(),
+                response_shape_mismatch: None,
             });
         }
     }
@@ -2097,6 +2239,7 @@ fn run_step_poll(
                 response_summary: None,
                 captures_set: vec![],
                 location: step.location.clone(),
+                response_shape_mismatch: None,
             });
         }
     };
@@ -2174,6 +2317,7 @@ fn run_step_poll(
         response_summary: Some(last.response_summary),
         captures_set: vec![],
         location: step.location.clone(),
+        response_shape_mismatch: None,
     })
 }
 

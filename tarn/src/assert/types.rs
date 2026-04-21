@@ -1,4 +1,5 @@
 use crate::model::{Location, MultipartBody, RedactionConfig};
+use crate::report::shape_diagnosis::ShapeMismatchDiagnosis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -12,6 +13,15 @@ pub enum FailureCategory {
     ParseError,
     CaptureError,
     UnresolvedTemplate,
+    /// The step's asserted or captured JSONPath missed on a JSON object
+    /// response whose shape differs from the expected path in a way
+    /// that the [`crate::report::shape_diagnosis`] heuristic could
+    /// explain with a high-confidence replacement (NAZ-415). This is
+    /// set *only* when the diagnosis yielded at least one `High`
+    /// candidate; lower-confidence drift is left as `AssertionFailed`
+    /// / `CaptureError` with a `response_shape_mismatch` hint attached,
+    /// so we never downgrade a real assertion failure silently.
+    ResponseShapeMismatch,
     /// The step was not executed because a capture referenced in its
     /// request failed in an earlier step of the same test. Carrying a
     /// distinct category (rather than re-emitting `UnresolvedTemplate`)
@@ -72,6 +82,11 @@ pub struct AssertionResult {
     /// every assertion originates from a YAML node (e.g. the synthetic
     /// `runtime`/`interpolation` assertions manufactured by the runner).
     pub location: Option<Location>,
+    /// Structured response-shape drift hint (NAZ-415). Populated when a
+    /// body-assertion JSONPath missed on an object response whose shape
+    /// the heuristic could describe; the runner lifts this to the
+    /// step-level `response_shape_mismatch` field for reporting.
+    pub response_shape_mismatch: Option<ShapeMismatchDiagnosis>,
 }
 
 impl AssertionResult {
@@ -91,6 +106,7 @@ impl AssertionResult {
             actual,
             diff: None,
             location: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -108,6 +124,7 @@ impl AssertionResult {
             message: message.into(),
             diff: None,
             location: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -126,6 +143,7 @@ impl AssertionResult {
             message: message.into(),
             diff: Some(diff.into()),
             location: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -135,6 +153,18 @@ impl AssertionResult {
     /// the exact source range.
     pub fn with_location(mut self, location: Option<Location>) -> Self {
         self.location = location;
+        self
+    }
+
+    /// Attach a [`ShapeMismatchDiagnosis`] to a failing assertion. The
+    /// diagnosis is lifted to the step's `response_shape_mismatch`
+    /// field when the runner assembles the [`StepResult`], and the
+    /// step's category is upgraded to
+    /// [`FailureCategory::ResponseShapeMismatch`] only when the
+    /// diagnosis is high confidence — see
+    /// [`crate::report::shape_diagnosis`] for the heuristic.
+    pub fn with_shape_diagnosis(mut self, diagnosis: ShapeMismatchDiagnosis) -> Self {
+        self.response_shape_mismatch = Some(diagnosis);
         self
     }
 }
@@ -169,6 +199,13 @@ pub struct StepResult {
     /// expanded from an `include:` directive do not carry locations in
     /// the first iteration of this feature).
     pub location: Option<Location>,
+    /// Structured response-shape drift hint (NAZ-415). Populated when a
+    /// body-assertion or capture JSONPath missed on a JSON object
+    /// response and the shape-diagnosis heuristic produced at least
+    /// one observation (keys + type) — candidate fixes may be empty if
+    /// the heuristic couldn't suggest anything, but the observed shape
+    /// is still carried for agent consumption.
+    pub response_shape_mismatch: Option<ShapeMismatchDiagnosis>,
 }
 
 impl StepResult {
@@ -197,6 +234,10 @@ impl StepResult {
 
         match self.error_category {
             Some(FailureCategory::AssertionFailed) => Some(ErrorCode::AssertionMismatch),
+            // Drift is a specific kind of assertion miss — surfaces the
+            // same `AssertionMismatch` code so callers that only filter
+            // by code see no regression, while the category distinguishes.
+            Some(FailureCategory::ResponseShapeMismatch) => Some(ErrorCode::AssertionMismatch),
             Some(FailureCategory::CaptureError) => Some(ErrorCode::CaptureExtractionFailed),
             Some(FailureCategory::Timeout) => {
                 if self
@@ -419,6 +460,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(sr.total_assertions(), 3);
         assert_eq!(sr.passed_assertions(), 2);
@@ -448,6 +490,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(
             poll_timeout.error_code(),
@@ -473,6 +516,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(
             request_timeout.error_code(),
@@ -501,6 +545,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(refused.error_code(), Some(ErrorCode::ConnectionRefused));
 
@@ -523,6 +568,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(tls.error_code(), Some(ErrorCode::TlsVerificationFailed));
     }
@@ -548,6 +594,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         assert_eq!(sr.error_code(), Some(ErrorCode::InterpolationFailed));
     }
@@ -574,6 +621,7 @@ mod tests {
                     response_summary: None,
                     captures_set: vec![],
                     location: None,
+                    response_shape_mismatch: None,
                 },
                 StepResult {
                     name: "verify".into(),
@@ -594,6 +642,7 @@ mod tests {
                     response_summary: None,
                     captures_set: vec![],
                     location: None,
+                    response_shape_mismatch: None,
                 },
             ],
             captures: HashMap::new(),
@@ -626,6 +675,7 @@ mod tests {
                 response_summary: None,
                 captures_set: vec![],
                 location: None,
+                response_shape_mismatch: None,
             }],
             test_results: vec![TestResult {
                 name: "t1".into(),
@@ -647,6 +697,7 @@ mod tests {
                         response_summary: None,
                         captures_set: vec![],
                         location: None,
+                        response_shape_mismatch: None,
                     },
                     StepResult {
                         name: "s2".into(),
@@ -662,6 +713,7 @@ mod tests {
                         response_summary: None,
                         captures_set: vec![],
                         location: None,
+                        response_shape_mismatch: None,
                     },
                 ],
                 captures: HashMap::new(),
@@ -704,6 +756,7 @@ mod tests {
                             response_summary: None,
                             captures_set: vec![],
                             location: None,
+                            response_shape_mismatch: None,
                         }],
                         captures: HashMap::new(),
                     }],
@@ -736,6 +789,7 @@ mod tests {
                             response_summary: None,
                             captures_set: vec![],
                             location: None,
+                            response_shape_mismatch: None,
                         }],
                         captures: HashMap::new(),
                     }],

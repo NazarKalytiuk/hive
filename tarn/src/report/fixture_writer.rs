@@ -424,6 +424,7 @@ mod tests {
             response_summary: Some("200 OK".into()),
             captures_set: vec!["user_id".into()],
             location: None,
+            response_shape_mismatch: None,
         }
     }
 

@@ -1,5 +1,6 @@
 use crate::assert::types::AssertionResult;
 use crate::regex_cache;
+use crate::report::shape_diagnosis;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use indexmap::IndexMap;
 use md5::compute as md5_compute;
@@ -64,15 +65,49 @@ pub fn assert_body(
         match expected {
             // Operator map: "$.field": { type: string, contains: "sub", ... }
             serde_yaml::Value::Mapping(map) if path_str != "$" || is_operator_map(map) => {
-                results.extend(assert_operator_map(path_str, &queried, body_bytes, map));
+                results.extend(stamp_shape_diagnosis(
+                    path_str,
+                    body,
+                    &queried,
+                    assert_operator_map(path_str, &queried, body_bytes, map),
+                ));
             }
             _ => {
-                results.push(assert_eq_value(path_str, &queried, &yaml_to_json(expected)));
+                let one = assert_eq_value(path_str, &queried, &yaml_to_json(expected));
+                results.extend(stamp_shape_diagnosis(path_str, body, &queried, vec![one]));
             }
         }
     }
 
     results
+}
+
+/// For each failing assertion on `path_str` whose failure was caused by
+/// the JSONPath producing *no match* (not a value mismatch), attach a
+/// shape-drift diagnosis computed against the observed body. The
+/// runner later lifts the first such diagnosis to the step-level
+/// `response_shape_mismatch` field. We never attach a diagnosis to
+/// passing assertions or to assertions that did find a value.
+fn stamp_shape_diagnosis(
+    path_str: &str,
+    body: &Value,
+    queried: &Option<Value>,
+    results: Vec<AssertionResult>,
+) -> Vec<AssertionResult> {
+    if queried.is_some() {
+        return results;
+    }
+    let diagnosis = shape_diagnosis::diagnose(path_str, body);
+    results
+        .into_iter()
+        .map(|ar| {
+            if ar.passed {
+                ar
+            } else {
+                ar.with_shape_diagnosis(diagnosis.clone())
+            }
+        })
+        .collect()
 }
 
 /// Query a JSONPath expression against a JSON body.
@@ -2105,5 +2140,44 @@ mod tests {
             "expected type-mismatch message, got {:?}",
             results[0].message
         );
+    }
+
+    #[test]
+    fn missing_path_on_object_response_attaches_shape_diagnosis() {
+        // NAZ-415: when a body JSONPath misses on a JSON object, the
+        // failing assertion should carry a shape-drift diagnosis with
+        // the observed keys and at least one candidate fix so the
+        // runner can lift it to the step's `response_shape_mismatch`.
+        let results = run(
+            r#"{"request": {"uuid": "abc"}, "stageStatus": "pending"}"#,
+            r#""$.uuid": { exists: true }"#,
+        );
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        let diag = results[0]
+            .response_shape_mismatch
+            .as_ref()
+            .expect("drift diagnosis attached to failing assertion");
+        assert_eq!(diag.expected_path, "$.uuid");
+        assert!(diag.observed_keys.contains(&"request".to_string()));
+        assert!(diag.high_confidence);
+        assert_eq!(diag.candidate_fixes[0].path, "$.request.uuid");
+    }
+
+    #[test]
+    fn passing_path_assertion_does_not_attach_shape_diagnosis() {
+        let results = run(r#"{"uuid": "abc"}"#, r#""$.uuid": { exists: true }"#);
+        assert!(results[0].passed);
+        assert!(results[0].response_shape_mismatch.is_none());
+    }
+
+    #[test]
+    fn value_mismatch_on_existing_path_does_not_attach_shape_diagnosis() {
+        // A path that *does* find a value but the value is wrong is a
+        // genuine assertion miss, not drift. We must not pollute it
+        // with a shape-drift hint.
+        let results = run(r#"{"name": "Bob"}"#, r#""$.name": "Alice""#);
+        assert!(!results[0].passed);
+        assert!(results[0].response_shape_mismatch.is_none());
     }
 }

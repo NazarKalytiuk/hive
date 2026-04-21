@@ -58,6 +58,7 @@ fn example_outputs() {
         response_summary: Some("500 Internal Server Error".into()),
         captures_set: vec![],
         location: None,
+        response_shape_mismatch: None,
     };
     let fixture = fixture_writer::build_fixture(&step, &RedactionConfig::default(), &[]);
     let config = FixtureWriteConfig {

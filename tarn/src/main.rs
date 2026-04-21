@@ -4102,6 +4102,10 @@ fn run_result_exit_code(run_result: &RunResult) -> i32 {
             | Some(FailureCategory::SkippedDueToFailFast)
             | Some(FailureCategory::SkippedByCondition)
             | Some(FailureCategory::AssertionFailed)
+            // Shape drift is still a test-level assertion miss for exit
+            // code purposes — a test contract change shouldn't look like
+            // a runtime error to CI.
+            | Some(FailureCategory::ResponseShapeMismatch)
             | None => {}
         }
     }
@@ -4411,6 +4415,7 @@ steps:
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
 
         let make_file = |step| FileResult {

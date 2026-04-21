@@ -23,6 +23,7 @@ use crate::fixtures::{SETUP_TEST_SLUG, TEARDOWN_TEST_SLUG};
 use crate::model::RedactionConfig;
 use crate::report::redaction::{sanitize_json, sanitize_string};
 use crate::report::rerun::RerunSource;
+use crate::report::shape_diagnosis::ShapeMismatchDiagnosis;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -82,6 +83,13 @@ pub struct FailureEntry {
     pub response: Option<FailureResponse>,
     #[serde(default)]
     pub root_cause: Option<RootCauseRef>,
+    /// Structured response-shape drift hint (NAZ-415). Present when
+    /// the step's JSONPath miss was diagnosed as contract drift — the
+    /// agent-consumable observed shape + candidate fix paths. Omitted
+    /// for non-drift failures to keep the artifact compact and
+    /// byte-identical to prior schema for unrelated categories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_shape_mismatch: Option<ShapeMismatchDiagnosis>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +249,7 @@ fn build_failure_entry(
         request,
         response,
         root_cause,
+        response_shape_mismatch: step.response_shape_mismatch.clone(),
     }
 }
 
@@ -395,6 +404,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -430,6 +440,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         }
     }
 
@@ -592,6 +603,7 @@ mod tests {
             response_summary: None,
             captures_set: vec![],
             location: None,
+            response_shape_mismatch: None,
         };
         let mut file = wrap_file("a.tarn.yaml", vec![upstream, cascade], "happy");
         // Mark the upstream step's declared capture as unfulfilled by
