@@ -640,7 +640,7 @@ fn run_command(
     } else {
         format_specs.to_vec()
     };
-    let mut output_targets = match parse_output_targets(&effective_format_specs) {
+    let output_targets = match parse_output_targets(&effective_format_specs) {
         Ok(targets) => targets,
         Err(e) => {
             eprintln!(
@@ -653,27 +653,24 @@ fn run_command(
 
     // Every run produces a machine-readable JSON artifact by default so
     // human-mode runs can still be inspected programmatically after the
-    // fact. We resolve the path here (user override > default under the
-    // project root) and prepend an explicit OutputTarget — this reuses
-    // the existing `emit_run_outputs` plumbing (path resolution, error
-    // reporting, the "<format> report saved to …" message) instead of
-    // carving out a side-channel writer.
-    let last_run_artifact_path: Option<PathBuf> = if !no_last_run_json {
-        let artifact_path = match report_json_path {
+    // fact. Since NAZ-400, the primary archive lives under
+    // `.tarn/runs/<run_id>/report.json` so repeat runs never destroy
+    // prior debugging context; `.tarn/last-run.json` (or the
+    // `--report-json=PATH` override) is kept as a copy of the latest
+    // run for legacy consumers that already read that path.
+    //
+    // The actual insertion of the per-run JSON target happens inside
+    // `do_run`, because `run_id` is minted per invocation (watch mode
+    // reruns must each get their own directory).
+    let last_run_pointer_path: Option<PathBuf> = if !no_last_run_json {
+        Some(match report_json_path {
             Some(p) => p.to_path_buf(),
             None => project.root_dir.join(".tarn").join("last-run.json"),
-        };
-        output_targets.insert(
-            0,
-            OutputTarget {
-                format: OutputFormat::Json,
-                path: Some(artifact_path.clone()),
-            },
-        );
-        Some(artifact_path)
+        })
     } else {
         None
     };
+    let persist_artifacts = !no_last_run_json;
     let json_output_mode = match json_mode.parse::<JsonOutputMode>() {
         Ok(mode) => mode,
         Err(e) => {
@@ -781,12 +778,7 @@ fn run_command(
         .iter()
         .find(|(k, _)| k == "base_url")
         .map(|(_, v)| v.clone());
-    let state_ctx = StateContext {
-        workspace_root: project.root_dir.clone(),
-        args: argv_tail,
-        env_name: env_name.map(|s| s.to_string()),
-        base_url: base_url_guess,
-    };
+    let workspace_root = project.root_dir.clone();
 
     // Also capture full argv + cwd for the `.tarn/last-run.json` augment
     // step (NAZ-256). The LSP "rerun last failures" flow reads these
@@ -797,12 +789,58 @@ fn run_command(
     let env_label = env_name.map(|s| s.to_string());
 
     // Build the run closure (used by both normal and watch mode)
-    let last_run_path_clone = last_run_artifact_path.clone();
+    let last_run_pointer_clone = last_run_pointer_path.clone();
     let run_args_clone = run_args.clone();
     let working_directory_clone = working_directory.clone();
     let env_label_clone = env_label.clone();
+    let base_output_targets = output_targets.clone();
+    let env_name_for_state = env_name.map(|s| s.to_string());
     let do_run = move |run_files: &[String]| {
         let start_time = chrono::Utc::now();
+        // NAZ-400: each run gets its own immutable directory under
+        // `.tarn/runs/<run_id>/`. We mint the id inside the closure so
+        // watch-mode reruns do not stomp on each other.
+        let run_id = tarn::report::run_dir::generate_run_id(start_time);
+        let run_directory = if persist_artifacts {
+            match tarn::report::run_dir::ensure_run_directory(&workspace_root, &run_id) {
+                Ok(dir) => Some(dir),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to create run directory under {}/.tarn/runs: {}. Falling back to last-run.json only.",
+                        workspace_root.display(),
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let run_report_path = run_directory.as_ref().map(|d| d.join("report.json"));
+
+        // Compose the per-run output targets: primary archive first
+        // (so writes hit the immutable run dir before the pointer copy
+        // lands), then any user-supplied targets.
+        let mut targets = base_output_targets.clone();
+        if let Some(ref p) = run_report_path {
+            targets.insert(
+                0,
+                OutputTarget {
+                    format: OutputFormat::Json,
+                    path: Some(p.clone()),
+                },
+            );
+        }
+
+        let state_ctx = StateContext {
+            workspace_root: workspace_root.clone(),
+            args: argv_tail.clone(),
+            env_name: env_name_for_state.clone(),
+            base_url: base_url_guess.clone(),
+            run_id: Some(run_id.clone()),
+            run_directory: run_directory.clone(),
+        };
+
         let exit = execute_run(
             run_files,
             &cli_vars,
@@ -810,7 +848,7 @@ fn run_command(
             &tag_filter,
             &selectors,
             &run_opts,
-            &output_targets,
+            &targets,
             json_output_mode,
             render_opts,
             no_progress,
@@ -822,7 +860,38 @@ fn run_command(
             &state_ctx,
         );
         let end_time = chrono::Utc::now();
-        if let Some(artifact) = &last_run_path_clone {
+
+        // Copy the in-archive report to the legacy `last-run.json`
+        // pointer so existing tooling keeps working. This is a simple
+        // atomic copy rather than a second render — the JSON is
+        // already on disk.
+        if let (Some(src), Some(pointer)) = (&run_report_path, &last_run_pointer_clone) {
+            if src != pointer {
+                if let Err(e) = tarn::report::run_dir::copy_to_pointer(src, pointer) {
+                    eprintln!(
+                        "Warning: failed to update pointer at {}: {}",
+                        pointer.display(),
+                        e
+                    );
+                } else {
+                    eprintln!("json report saved to {}", pointer.display());
+                }
+            }
+        }
+
+        // Inject args/env/working_dir/run_id into both the archive
+        // report and the pointer. Augmentation is best-effort: failures
+        // are logged but never flip the run's exit code.
+        let mut augment_paths: Vec<PathBuf> = Vec::new();
+        if let Some(ref p) = run_report_path {
+            augment_paths.push(p.clone());
+        }
+        if let Some(ref p) = last_run_pointer_clone {
+            if !augment_paths.iter().any(|x| x == p) {
+                augment_paths.push(p.clone());
+            }
+        }
+        for artifact in &augment_paths {
             if let Err(e) = augment_last_run_json(
                 artifact,
                 &run_args_clone,
@@ -830,18 +899,24 @@ fn run_command(
                 &working_directory_clone,
                 start_time,
                 end_time,
+                Some(&run_id),
             ) {
-                // Augmentation is best-effort: a failure here must not
-                // flip a successful run's exit code to 3. We log to
-                // stderr so CI can pick it up without surprising the
-                // user, but the run result itself is authoritative.
                 eprintln!(
-                    "Warning: failed to augment last-run.json at {}: {}",
+                    "Warning: failed to augment report at {}: {}",
                     artifact.display(),
                     e
                 );
             }
         }
+
+        // NAZ-400 acceptance criterion: announce the run id and the
+        // artifact directory so both humans and machines can navigate
+        // back to a specific run after the fact.
+        if let Some(ref dir) = run_directory {
+            eprintln!("run id: {}", run_id);
+            eprintln!("run artifacts: {}", dir.display());
+        }
+
         exit
     };
 
@@ -861,6 +936,7 @@ fn run_command(
 /// Augmentation is skipped (without error) if the file is missing: the
 /// user may have passed `--no-last-run-json` between runs, or moved the
 /// artifact elsewhere.
+#[allow(clippy::too_many_arguments)]
 fn augment_last_run_json(
     artifact_path: &Path,
     args: &[String],
@@ -868,6 +944,7 @@ fn augment_last_run_json(
     working_directory: &Path,
     start_time: chrono::DateTime<chrono::Utc>,
     end_time: chrono::DateTime<chrono::Utc>,
+    run_id: Option<&str>,
 ) -> Result<(), String> {
     let content = match std::fs::read_to_string(artifact_path) {
         Ok(s) => s,
@@ -899,6 +976,12 @@ fn augment_last_run_json(
         "end_time".to_string(),
         serde_json::Value::String(end_time.to_rfc3339()),
     );
+    if let Some(id) = run_id {
+        obj.insert(
+            "run_id".to_string(),
+            serde_json::Value::String(id.to_string()),
+        );
+    }
 
     let rendered = serde_json::to_string_pretty(&value).map_err(|e| format!("render: {}", e))?;
     std::fs::write(artifact_path, rendered).map_err(|e| format!("write: {}", e))
@@ -1032,6 +1115,13 @@ struct StateContext {
     env_name: Option<String>,
     /// Effective `base_url` for the run, when we can detect one.
     base_url: Option<String>,
+    /// Stable id for this run. Matches the directory name under
+    /// `.tarn/runs/`. `None` if artifact persistence is fully disabled.
+    run_id: Option<String>,
+    /// Absolute path to the immutable per-run artifact directory
+    /// `<workspace_root>/.tarn/runs/<run_id>/`. `None` when the
+    /// directory could not be created or was suppressed.
+    run_directory: Option<PathBuf>,
 }
 
 /// Persist `.tarn/state.json` atomically. Failures are logged to
@@ -1044,7 +1134,7 @@ fn write_state_sidecar(
     ctx: &StateContext,
 ) {
     let ended_at = chrono::Utc::now();
-    let state = tarn::report::state_writer::build_state(
+    let state = tarn::report::state_writer::build_state_with_run_id(
         run_result,
         started_at,
         ended_at,
@@ -1052,7 +1142,20 @@ fn write_state_sidecar(
         &ctx.args,
         ctx.env_name.clone(),
         ctx.base_url.clone(),
+        ctx.run_id.clone(),
     );
+    // NAZ-400: write the per-run immutable copy first, then refresh
+    // the legacy `.tarn/state.json` pointer. Errors on either write
+    // are best-effort: the run's exit code remains authoritative.
+    if let Some(ref dir) = ctx.run_directory {
+        if let Err(err) = tarn::report::state_writer::write_state_to_dir(dir, &state) {
+            eprintln!(
+                "tarn: failed to write state.json under {}: {}",
+                dir.display(),
+                err
+            );
+        }
+    }
     if let Err(err) = tarn::report::state_writer::write_state(&ctx.workspace_root, &state) {
         eprintln!(
             "tarn: failed to write .tarn/state.json under {}: {}",
@@ -3098,6 +3201,7 @@ steps:
                 insecure: false,
                 fail_fast_within_test: false,
                 parallel_opt_in: None,
+                faker: None,
             },
         );
 
@@ -3165,6 +3269,7 @@ steps:
                 insecure: false,
                 fail_fast_within_test: false,
                 parallel_opt_in: None,
+                faker: None,
             },
         );
 
@@ -3201,6 +3306,7 @@ steps:
             insecure: false,
             fail_fast_within_test: false,
             parallel_opt_in: None,
+            faker: None,
         };
 
         let transport = resolve_http_transport_config(
@@ -3243,6 +3349,7 @@ steps:
             insecure: true,
             fail_fast_within_test: false,
             parallel_opt_in: None,
+            faker: None,
         };
 
         let transport = resolve_http_transport_config(&config, &HttpTransportConfig::default());

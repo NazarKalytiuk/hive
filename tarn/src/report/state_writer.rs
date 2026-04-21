@@ -28,6 +28,13 @@ pub struct StateDoc {
     /// Version tag. Bumped when `StateDoc` itself gains or loses a
     /// field in an incompatible way.
     pub schema_version: u32,
+    /// Stable identifier for the run that produced this state file.
+    /// Matches the directory name under `.tarn/runs/` holding the
+    /// immutable copy of this same document. Optional for
+    /// backwards-compatibility with historical writers that did not
+    /// set it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub run_id: Option<String>,
     /// Summary of the most recent run.
     pub last_run: LastRun,
     /// Per-failure breakdown, sorted by file/test/step. Empty when
@@ -79,7 +86,14 @@ pub struct StateEnv {
 /// Persist a [`StateDoc`] to `<root>/.tarn/state.json` atomically.
 pub fn write_state(root: &Path, state: &StateDoc) -> std::io::Result<PathBuf> {
     let dir = root.join(".tarn");
-    std::fs::create_dir_all(&dir)?;
+    write_state_to_dir(&dir, state)
+}
+
+/// Persist a [`StateDoc`] to `<dir>/state.json` atomically. Used to
+/// write per-run copies under `.tarn/runs/<run_id>/state.json` in
+/// addition to the legacy `.tarn/state.json` pointer.
+pub fn write_state_to_dir(dir: &Path, state: &StateDoc) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
     let path = dir.join("state.json");
     let tmp = dir.join("state.json.tmp");
     let encoded = serde_json::to_vec_pretty(state)
@@ -103,6 +117,22 @@ pub fn build_state(
     args: &[String],
     env_name: Option<String>,
     base_url: Option<String>,
+) -> StateDoc {
+    build_state_with_run_id(
+        result, started_at, ended_at, exit_code, args, env_name, base_url, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_state_with_run_id(
+    result: &RunResult,
+    started_at: DateTime<Utc>,
+    ended_at: DateTime<Utc>,
+    exit_code: i32,
+    args: &[String],
+    env_name: Option<String>,
+    base_url: Option<String>,
+    run_id: Option<String>,
 ) -> StateDoc {
     let mut passed = 0usize;
     let mut failed = 0usize;
@@ -152,6 +182,7 @@ pub fn build_state(
 
     StateDoc {
         schema_version: STATE_SCHEMA_VERSION,
+        run_id,
         last_run: LastRun {
             started_at: started_at.to_rfc3339(),
             ended_at: ended_at.to_rfc3339(),

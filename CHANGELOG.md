@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Runner + CLI (tarn)
+
+- **Immutable per-run artifact directories (NAZ-400).** Every `tarn run`
+  now writes its JSON report and `state.json` into
+  `.tarn/runs/<run_id>/`, where `<run_id>` is a stable identifier of
+  the form `YYYYmmdd-HHMMSS-xxxxxx` (6 hex chars of random suffix to
+  break same-second ties). A second run no longer destroys the
+  previous run's debugging context — the archive is append-only and
+  compares cleanly between runs. The existing `.tarn/last-run.json`
+  and `.tarn/state.json` paths are preserved as pointers to the most
+  recent run so tooling that already reads them keeps working. The
+  CLI announces `run id:` and `run artifacts:` on stderr at the end
+  of every run; both files embed the same `run_id` so automation can
+  correlate archives without string-matching on paths.
+  `--no-last-run-json` now suppresses both the pointer and the
+  per-run directory (the transient-run behavior it already
+  advertised).
+
 ## 0.9.0 — UUID version assertions & generators, basic faker with seeded RNG
 
 ### Runner + CLI (tarn)

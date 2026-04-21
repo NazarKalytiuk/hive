@@ -4273,6 +4273,203 @@ steps:
 }
 
 // ============================================================
+// NAZ-400: immutable per-run artifact directories
+// ============================================================
+
+fn write_failing_fixture(dir: &TempDir, name: &str) -> String {
+    write_test_file(
+        dir,
+        name,
+        r#"
+name: Persistent artifact
+steps:
+  - name: connect failure
+    request:
+      method: GET
+      url: "http://127.0.0.1:1/missing"
+    assert:
+      status: 200
+"#,
+    )
+}
+
+/// A fresh run must produce `.tarn/runs/<run_id>/` containing at
+/// minimum `report.json` and `state.json`, and both files must carry
+/// the same `run_id` that is announced on stderr.
+#[test]
+fn run_dir_artifacts_are_written_with_stable_run_id() {
+    let dir = TempDir::new().unwrap();
+    let test_file = write_failing_fixture(&dir, "runs-stable.tarn.yaml");
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("run id: "))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| panic!("expected `run id:` line on stderr; got: {stderr}"));
+
+    assert!(
+        stderr.contains("run artifacts: "),
+        "expected `run artifacts:` line on stderr; got: {stderr}"
+    );
+
+    let run_dir_path = dir.path().join(".tarn").join("runs").join(&run_id);
+    assert!(
+        run_dir_path.is_dir(),
+        "expected run directory at {}",
+        run_dir_path.display()
+    );
+
+    let report = run_dir_path.join("report.json");
+    let state = run_dir_path.join("state.json");
+    assert!(report.is_file(), "expected {} to exist", report.display());
+    assert!(state.is_file(), "expected {} to exist", state.display());
+
+    let report_body = fs::read_to_string(&report).unwrap();
+    let report_json: serde_json::Value = serde_json::from_str(&report_body).unwrap();
+    assert_eq!(
+        report_json["run_id"].as_str(),
+        Some(run_id.as_str()),
+        "report.json must embed the announced run_id"
+    );
+    assert_eq!(report_json["summary"]["status"], "FAILED");
+
+    let state_body = fs::read_to_string(&state).unwrap();
+    let state_json: serde_json::Value = serde_json::from_str(&state_body).unwrap();
+    assert_eq!(
+        state_json["run_id"].as_str(),
+        Some(run_id.as_str()),
+        "state.json must embed the same run_id"
+    );
+    assert_eq!(state_json["last_run"]["exit_code"], 3);
+}
+
+/// A second run must not destroy the first run's directory — that is
+/// the whole point of the immutable archive.
+#[test]
+fn run_dir_is_preserved_across_consecutive_runs() {
+    let dir = TempDir::new().unwrap();
+    let test_file = write_failing_fixture(&dir, "runs-preserved.tarn.yaml");
+
+    let first = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let first_stderr = String::from_utf8_lossy(&first.stderr).to_string();
+    let first_run_id = first_stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("run id: "))
+        .unwrap()
+        .trim()
+        .to_string();
+
+    // Sleep enough to drift past any same-second collision window,
+    // though the random suffix also prevents collision.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    let second = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let second_stderr = String::from_utf8_lossy(&second.stderr).to_string();
+    let second_run_id = second_stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("run id: "))
+        .unwrap()
+        .trim()
+        .to_string();
+
+    assert_ne!(first_run_id, second_run_id, "run ids must differ");
+
+    let first_dir = dir.path().join(".tarn").join("runs").join(&first_run_id);
+    let second_dir = dir.path().join(".tarn").join("runs").join(&second_run_id);
+    assert!(
+        first_dir.join("report.json").is_file(),
+        "first run's report must survive the second run"
+    );
+    assert!(
+        second_dir.join("report.json").is_file(),
+        "second run must have its own report"
+    );
+}
+
+/// The legacy `.tarn/last-run.json` pointer must always mirror the
+/// latest run's `report.json`.
+#[test]
+fn last_run_pointer_mirrors_most_recent_run_dir() {
+    let dir = TempDir::new().unwrap();
+    let test_file = write_failing_fixture(&dir, "runs-pointer.tarn.yaml");
+
+    let output = tarn()
+        .args(["run", &test_file])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let run_id = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("run id: "))
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let run_report = dir
+        .path()
+        .join(".tarn")
+        .join("runs")
+        .join(&run_id)
+        .join("report.json");
+    let pointer = dir.path().join(".tarn").join("last-run.json");
+    assert!(run_report.is_file());
+    assert!(pointer.is_file());
+
+    let run_body = fs::read_to_string(&run_report).unwrap();
+    let pointer_body = fs::read_to_string(&pointer).unwrap();
+    assert_eq!(
+        run_body, pointer_body,
+        "last-run.json pointer must be a byte-for-byte copy of the archived report"
+    );
+}
+
+/// `--no-last-run-json` must suppress both the pointer and the
+/// immutable archive — the user asked for a transient run.
+#[test]
+fn no_last_run_json_suppresses_run_dir_and_pointer() {
+    let dir = TempDir::new().unwrap();
+    let test_file = write_failing_fixture(&dir, "runs-optout.tarn.yaml");
+
+    let output = tarn()
+        .args(["run", &test_file, "--no-last-run-json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        !dir.path().join(".tarn").join("last-run.json").exists(),
+        "pointer must stay suppressed"
+    );
+    let runs_root = dir.path().join(".tarn").join("runs");
+    if runs_root.exists() {
+        let mut entries = fs::read_dir(&runs_root).unwrap();
+        assert!(
+            entries.next().is_none(),
+            "runs dir must be empty under --no-last-run-json"
+        );
+    }
+}
+
+// ============================================================
 // NAZ-240 / NAZ-349 / NAZ-244: compact, llm, verbose-responses
 // ============================================================
 

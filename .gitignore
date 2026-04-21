@@ -16,5 +16,6 @@ tarn.env.local.yaml
 # captures that may contain secrets.
 .tarn/fixtures/
 .tarn/last-run.json
+.tarn/runs/
 .tarn/state.json
 .tarn/state.json.tmp

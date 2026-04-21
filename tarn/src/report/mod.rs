@@ -10,6 +10,7 @@ pub mod junit;
 pub mod llm;
 pub mod progress;
 pub mod redaction;
+pub mod run_dir;
 pub mod state_writer;
 pub mod tap;
 
