@@ -126,11 +126,29 @@ describe("BUILTIN_FUNCTIONS", () => {
   it("matches the Tarn interpolation runtime list", () => {
     const names = BUILTIN_FUNCTIONS.map((b) => b.name).sort();
     expect(names).toEqual([
+      "$alnum",
+      "$alpha",
+      "$bool",
+      "$choice",
+      "$email",
+      "$first_name",
+      "$ipv4",
+      "$ipv6",
+      "$last_name",
+      "$name",
       "$now_iso",
+      "$phone",
       "$random_hex",
       "$random_int",
+      "$sentence",
+      "$slug",
       "$timestamp",
+      "$username",
       "$uuid",
+      "$uuid_v4",
+      "$uuid_v7",
+      "$word",
+      "$words",
     ]);
   });
 

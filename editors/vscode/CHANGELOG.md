@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.0 — Coordinated release with Tarn 0.10.0 (Agent Loop)
+
+Version-only bump to track Tarn 0.10.0, which introduces the Agent
+Loop toolchain: immutable per-run artifacts under `.tarn/runs/<run_id>/`,
+`summary.json` / `failures.json` / `events.jsonl`, plus the new
+subcommands `tarn failures`, `tarn rerun`, `tarn inspect`, `tarn diff`,
+`tarn report`, `tarn lint`, `tarn impact`, `tarn scaffold`,
+`tarn pack-context`, and `tarn run --agent`. `tarn.minVersion` moves
+to `0.10.0` because the CLI now persists archives that the LSP's
+"rerun last failures" flow relies on; running the 0.10.0 extension
+against a 0.9.0 CLI would surface an activation-time compatibility
+warning.
+
+No extension code changes in this release — behavior tracks the
+CLI's new artifacts through the existing LSP bridge.
+
 ## 0.9.0 — Coordinated release with Tarn 0.9.0 (UUID v4/v7 + faker built-ins)
 
 - Hover and completion surface the new runtime built-ins added in
