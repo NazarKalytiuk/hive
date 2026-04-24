@@ -22,7 +22,18 @@
     },
     "failureCategory": {
       "type": "string",
-      "enum": ["assertion_failed", "connection_error", "timeout", "parse_error", "capture_error", "unresolved_template"]
+      "enum": [
+        "assertion_failed",
+        "response_shape_mismatch",
+        "connection_error",
+        "timeout",
+        "parse_error",
+        "capture_error",
+        "unresolved_template",
+        "skipped_due_to_failed_capture",
+        "skipped_due_to_fail_fast",
+        "skipped_by_condition"
+      ]
     },
     "errorCode": {
       "type": "string",
@@ -39,7 +50,8 @@
         "interpolation_failed",
         "validation_failed",
         "configuration_error",
-        "parse_error"
+        "parse_error",
+        "skipped_dependency"
       ]
     },
     "requestInfo": {

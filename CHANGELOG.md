@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+## 0.11.0 — Release hardening + failure-category surface
+
+Release-engineering polish on top of the 0.10.0 Agent Loop shipment,
+plus a small surface bump in the report schema so the newer
+cascade/shape-drift taxonomy is first-class in parser and docs.
+
+### Report schema (`tarn`)
+
+- `failure_category` now enumerates `response_shape_mismatch`,
+  `skipped_due_to_fail_fast`, and `skipped_by_condition` alongside the
+  existing categories; `error_code` adds `skipped_dependency`.
+- `report::json_parse` recognizes the new categories so consumers of
+  archived `report.json` files can round-trip them through the
+  Rust types.
+- Human-format failure grouping labels `response_shape_mismatch` steps
+  as "Response shape mismatch" instead of falling back to a generic
+  assertion label.
+
+### Release + CI hardening
+
+- Release workflow validates that `tarn`, `tarn-mcp`, and `tarn-lsp`
+  all declare the tag version, and that `tarn-mcp`/`tarn-lsp` depend
+  on the same `tarn` version — prevents skewed publishes.
+- `publish-crates` job publishes in dependency order with a
+  `cargo search`-based index wait between crates and treats "already
+  uploaded" as success, so a partial publish can be safely retried.
+- `release`, `publish-crates`, and `docker` jobs are now gated on
+  `refs/tags/v*` so manual `workflow_dispatch` smoke runs can exercise
+  `build` in isolation without accidentally cutting a release.
+- CI runs `cargo audit`, the full `tarn` integration suite, and
+  `cargo test -p tarn-lsp`; release binaries now include `tarn-lsp`.
+- VS Code extension CI adds `npm audit --omit=dev` and integration
+  tests; `RELEASE_VERIFICATION.md` documents the expanded gate.
+
+### Installers
+
+- `install.sh` and `action-install.sh` install `tarn-lsp` alongside
+  `tarn` and `tarn-mcp` when the binary is present in the archive.
+
+### Docs
+
+- README, `plugin/skills/tarn-api-testing/SKILL.md`, and
+  `docs/site/ai-workflows.html` list the full failure-category
+  taxonomy and the new diagnosis-loop branch for response-shape
+  drift.
+
 ## 0.10.0 — Agent Loop: artifact-oriented runs, root-cause-first diagnostics, MCP parity (NAZ-400..416)
 
 Ships the Agent Loop epic (NAZ-409): every `tarn run` now persists an

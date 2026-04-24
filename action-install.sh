@@ -69,9 +69,15 @@ else
   echo "Checksums not available for this release, skipping verification."
 fi
 
-echo "Extracting to /usr/local/bin/tarn..."
+echo "Extracting Tarn binaries..."
 tar -xzf "${TMPDIR}/${ARCHIVE}" -C "${TMPDIR}"
 sudo install -m 755 "${TMPDIR}/tarn" /usr/local/bin/tarn
+if [ -f "${TMPDIR}/tarn-mcp" ]; then
+  sudo install -m 755 "${TMPDIR}/tarn-mcp" /usr/local/bin/tarn-mcp
+fi
+if [ -f "${TMPDIR}/tarn-lsp" ]; then
+  sudo install -m 755 "${TMPDIR}/tarn-lsp" /usr/local/bin/tarn-lsp
+fi
 
 echo "Installed tarn version:"
 tarn --version

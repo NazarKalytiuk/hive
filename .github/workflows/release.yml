@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check tag matches tarn/Cargo.toml and editors/vscode/package.json
+      - name: Check tag matches package versions
         shell: bash
         run: |
           set -euo pipefail
@@ -37,19 +37,34 @@ jobs:
           VERSION="${TAG#v}"
           echo "Resolved tag=$TAG expected version=$VERSION"
 
-          # Extract the [package] version from tarn/Cargo.toml. Using
-          # `sed -n` on the [package] table avoids false positives from
-          # [[bin]] or [dependencies] version lines.
-          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/p' tarn/Cargo.toml \
-            | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
-            | head -n 1)"
-          if [ -z "$CARGO_VERSION" ]; then
-            echo "::error::Could not parse [package].version from tarn/Cargo.toml"
+          package_version() {
+            sed -n '/^\[package\]/,/^\[/p' "$1" \
+              | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
+              | head -n 1
+          }
+
+          CARGO_VERSION="$(package_version tarn/Cargo.toml)"
+          MCP_VERSION="$(package_version tarn-mcp/Cargo.toml)"
+          LSP_VERSION="$(package_version tarn-lsp/Cargo.toml)"
+          if [ -z "$CARGO_VERSION" ] || [ -z "$MCP_VERSION" ] || [ -z "$LSP_VERSION" ]; then
+            echo "::error::Could not parse all Cargo package versions"
             exit 1
           fi
-          if [ "$CARGO_VERSION" != "$VERSION" ]; then
-            echo "::error::Tag $TAG expects tarn/Cargo.toml version $VERSION, found $CARGO_VERSION."
-            echo "::error::Bump tarn/Cargo.toml [package].version before tagging."
+          if [ "$CARGO_VERSION" != "$VERSION" ] || [ "$MCP_VERSION" != "$VERSION" ] || [ "$LSP_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag $TAG expects all Tarn crates to declare version $VERSION."
+            echo "::error::Found tarn=$CARGO_VERSION tarn-mcp=$MCP_VERSION tarn-lsp=$LSP_VERSION."
+            echo "::error::Bump all Tarn crates before tagging."
+            exit 1
+          fi
+
+          TARN_DEP_VERSION="$(sed -n '/^\[dependencies\]/,/^\[/p' tarn-mcp/Cargo.toml \
+            | sed -n 's/^tarn *= *{[^}]*version *= *"\([^"]*\)".*/\1/p' \
+            | head -n 1)"
+          LSP_TARN_DEP_VERSION="$(sed -n '/^\[dependencies\]/,/^\[/p' tarn-lsp/Cargo.toml \
+            | sed -n 's/^tarn *= *{[^}]*version *= *"\([^"]*\)".*/\1/p' \
+            | head -n 1)"
+          if [ "$TARN_DEP_VERSION" != "$VERSION" ] || [ "$LSP_TARN_DEP_VERSION" != "$VERSION" ]; then
+            echo "::error::tarn-mcp/tarn-lsp must depend on tarn $VERSION."
             exit 1
           fi
 
@@ -60,7 +75,7 @@ jobs:
             exit 1
           fi
 
-          echo "Tag $TAG aligned with tarn/Cargo.toml=$CARGO_VERSION and editors/vscode/package.json=$PKG_VERSION."
+          echo "Tag $TAG aligned with tarn=$CARGO_VERSION tarn-mcp=$MCP_VERSION tarn-lsp=$LSP_VERSION and VS Code=$PKG_VERSION."
 
   build:
     name: Build ${{ matrix.target }}
@@ -149,6 +164,7 @@ jobs:
   release:
     name: Create Release
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -209,6 +225,7 @@ jobs:
   publish-crates:
     name: Publish crates.io packages
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
@@ -217,29 +234,63 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish tarn
+      - name: Publish crates in dependency order
         if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p tarn
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Wait for crates.io index (after tarn)
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: sleep 30
+          package_version() {
+            sed -n '/^\[package\]/,/^\[/p' "$1" \
+              | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' \
+              | head -n 1
+          }
 
-      - name: Publish tarn-mcp
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p tarn-mcp
+          VERSION="$(package_version tarn/Cargo.toml)"
 
-      - name: Wait for crates.io index (after tarn-mcp)
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: sleep 30
+          publish_or_skip_existing() {
+            local crate="$1"
+            local output
+            set +e
+            output="$(cargo publish -p "$crate" 2>&1)"
+            local status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              return 0
+            fi
+            if printf '%s\n' "$output" | grep -Eiq 'already (exists|uploaded)|crate version .* is already uploaded'; then
+              echo "$crate $VERSION is already published; continuing."
+              return 0
+            fi
+            return "$status"
+          }
 
-      - name: Publish tarn-lsp
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p tarn-lsp
+          wait_for_crate_version() {
+            local crate="$1"
+            local version="$2"
+            for attempt in $(seq 1 24); do
+              if cargo search "$crate" --limit 10 | grep -Eq "^${crate} = \"${version}\""; then
+                echo "$crate $version is visible in the crates.io index."
+                return 0
+              fi
+              echo "$crate $version not visible yet (attempt $attempt/24); sleeping 15s..."
+              sleep 15
+            done
+            echo "::error::$crate $version did not appear in the crates.io index in time."
+            return 1
+          }
+
+          publish_or_skip_existing tarn
+          wait_for_crate_version tarn "$VERSION"
+          publish_or_skip_existing tarn-mcp
+          wait_for_crate_version tarn-mcp "$VERSION"
+          publish_or_skip_existing tarn-lsp
 
   docker:
     name: Publish Docker image
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

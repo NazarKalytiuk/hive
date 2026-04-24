@@ -206,6 +206,12 @@ fn failure_label(step: &StepResult) -> String {
     ) {
         return "Skipped (cascade)".to_string();
     }
+    if matches!(
+        step.error_category,
+        Some(FailureCategory::ResponseShapeMismatch)
+    ) {
+        return "Response shape mismatch".to_string();
+    }
 
     if let Some(ErrorCode::AssertionMismatch) = step.error_code() {
         if let Some(status_assertion) = step
@@ -360,6 +366,17 @@ mod tests {
         let groups = group_failures(&run_with_mixed());
         assert_eq!(groups[0], ("HTTP 500".to_string(), 2));
         assert_eq!(groups[1], ("HTTP 404".to_string(), 1));
+    }
+
+    #[test]
+    fn group_failures_labels_response_shape_mismatch() {
+        let mut run = run_with_mixed();
+        let step = &mut run.file_results[0].test_results[0].step_results[0];
+        step.error_category = Some(FailureCategory::ResponseShapeMismatch);
+
+        let groups = group_failures(&run);
+
+        assert!(groups.contains(&("Response shape mismatch".to_string(), 1)));
     }
 
     #[test]

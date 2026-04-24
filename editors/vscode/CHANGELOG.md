@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 — Coordinated release with Tarn 0.11.0
+
+Version-only bump to track Tarn 0.11.0. `tarn.minVersion` moves to
+`0.11.0` because the LSP bridge and `failure_category` parsing now
+rely on the expanded failure taxonomy (`response_shape_mismatch`,
+`skipped_due_to_fail_fast`, `skipped_by_condition`) shipped in the
+0.11.0 CLI. The 0.11.0 extension will surface an activation-time
+compatibility warning against an older CLI.
+
+No extension code changes in this release.
+
 ## 0.10.0 — Coordinated release with Tarn 0.10.0 (Agent Loop)
 
 Version-only bump to track Tarn 0.10.0, which introduces the Agent

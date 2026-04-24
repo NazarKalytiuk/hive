@@ -418,12 +418,14 @@ See `references/json-output.md` for the full schema.
 | Category | Meaning | Typical Fix |
 |----------|---------|-------------|
 | `assertion_failed` | Request succeeded, assertion mismatch | Fix assertion or application |
+| `response_shape_mismatch` | JSONPath missed because the response shape drifted | Replace the JSONPath with the suggested candidate and add a guard assertion |
 | `connection_error` | DNS/connect/TLS failure | Check URL, server status, network |
 | `timeout` | Request exceeded allowed time | Increase timeout or fix server |
 | `parse_error` | Invalid YAML, JSONPath, or config | Fix syntax |
 | `capture_error` | Capture extraction failed | Fix JSONPath or response shape |
 | `unresolved_template` | `{{ ... }}` couldn't resolve before send | Check env or upstream capture; optional captures produce a distinct message |
 | `skipped_due_to_failed_capture` | Downstream step skipped because a capture it needed failed earlier | Fix the root cause; skips are suppressed noise, not new failures |
+| `skipped_due_to_fail_fast` | Downstream step skipped after an earlier failure in the same test | Fix the first failing step |
 | `skipped_by_condition` | Step-level `if:` / `unless:` evaluated to skip | Intentional; `passed: true`, never flips exit code |
 
 ### Diagnosis Loop (structured report, step level)
@@ -433,12 +435,13 @@ Use this when you already have a single failing step open (e.g. via `tarn inspec
 ```
 1. Read failure_category first — it tells you which branch below applies
 2. If assertion_failed       → read assertions.failures[].expected vs actual
-3. If connection_error       → check request.url for unresolved {{ }} templates
-4. If timeout                → check server state / increase step timeout
-5. If capture_error          → check previous step's response shape (see "Response-shape drift")
-6. If unresolved_template    → check env chain or upstream capture
-7. If skipped_due_to_failed_capture → IGNORE; fix the root cause grouped by `tarn failures`
-8. Fix YAML or application → tarn rerun --failed → tarn diff prev last
+3. If response_shape_mismatch → apply the suggested replacement JSONPath after checking response.body
+4. If connection_error       → check request.url for unresolved {{ }} templates
+5. If timeout                → check server state / increase step timeout
+6. If capture_error          → check previous step's response shape (see "Response-shape drift")
+7. If unresolved_template    → check env chain or upstream capture
+8. If skipped_due_to_failed_capture/skipped_due_to_fail_fast → IGNORE; fix the root cause grouped by `tarn failures`
+9. Fix YAML or application → tarn rerun --failed → tarn diff prev last
 ```
 
 ### Response-shape drift (check this before blaming business logic)

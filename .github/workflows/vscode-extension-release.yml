@@ -123,11 +123,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
+
       - name: TypeScript typecheck
         run: npm run lint
 
       - name: Unit tests
         run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
 
       - name: Build bundle
         run: npm run build

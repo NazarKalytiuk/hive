@@ -60,7 +60,7 @@
 
             <h2>Fields that matter in the retry loop</h2>
             <ul>
-              <li><code class="ic">failure_category</code>: assertion, parse, connection, timeout, capture.</li>
+              <li><code class="ic">failure_category</code>: assertion, response-shape drift, parse, connection, timeout, capture, cascade skip.</li>
               <li><code class="ic">error_code</code>: stable machine-readable subtype for routing and heuristics.</li>
               <li><code class="ic">remediation_hints</code>: lightweight next-step guidance in the JSON itself.</li>
               <li><code class="ic">request</code> and <code class="ic">response</code>: included on executed failures so the model sees what actually happened.</li>

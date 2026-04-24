@@ -9,12 +9,16 @@ Run these before tagging:
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo audit
 cargo test -p demo-server
 cargo test -q -p tarn --lib --bins
 cargo test -p tarn --test conformance_test
 cargo test -p tarn --test integration_test
 cargo test -p tarn-mcp
+cargo test -p tarn-lsp
 bash scripts/ci/smoke.sh
+(cd editors/vscode && npm ci && npm audit --omit=dev && npm run lint && npm run test:unit && npm run test:integration && npm run build)
+(cd editors/zed && rustup target add wasm32-unknown-unknown && cargo fmt --check && cargo clippy --release --target wasm32-unknown-unknown -- -D warnings && cargo build --release --target wasm32-unknown-unknown)
 ```
 
 What these cover:
@@ -24,6 +28,9 @@ What these cover:
 - demo-server end-to-end flow
 - conformance fixtures and example corpus
 - MCP tool behavior
+- LSP language-server behavior
+- VS Code extension unit/integration behavior
+- Zed extension WASM build behavior
 - release-path smoke checks
 
 ## Manual Checks

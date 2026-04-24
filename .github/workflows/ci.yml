@@ -52,6 +52,14 @@ jobs:
         if: matrix.run_extra_checks
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Install cargo-audit
+        if: matrix.run_extra_checks
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Rust dependencies
+        if: matrix.run_extra_checks
+        run: cargo audit
+
       - name: Build workspace
         run: cargo build --workspace
 
@@ -61,18 +69,21 @@ jobs:
       - name: Test tarn libs and bins
         run: cargo test -p tarn --lib --bins
 
-      - name: Compile tarn integration tests
-        run: cargo test -p tarn --test integration_test --no-run
+      - name: Test tarn integration suite
+        run: cargo test -p tarn --test integration_test
 
       - name: Test tarn-mcp
         run: cargo test -p tarn-mcp
+
+      - name: Test tarn-lsp
+        run: cargo test -p tarn-lsp
 
       - name: Package tarn crate
         if: matrix.run_extra_checks
         run: cargo package -p tarn
 
       - name: Build release binaries
-        run: cargo build --release -p tarn -p tarn-mcp -p demo-server
+        run: cargo build --release -p tarn -p tarn-mcp -p tarn-lsp -p demo-server
 
       - name: Release-path smoke test
         if: matrix.run_smoke

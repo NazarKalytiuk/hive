@@ -68,7 +68,7 @@ fi
 tar xzf "$TMPDIR/${ARTIFACT}.tar.gz" -C "$TMPDIR"
 
 # Install
-for BIN in tarn tarn-mcp; do
+for BIN in tarn tarn-mcp tarn-lsp; do
   if [ -f "$TMPDIR/$BIN" ]; then
     if [ -w "$INSTALL_DIR" ]; then
       mv "$TMPDIR/$BIN" "$INSTALL_DIR/$BIN"
@@ -94,6 +94,9 @@ echo ""
 echo "  Tarn ${TAG} installed to ${INSTALL_DIR}/tarn"
 if [ -f "$INSTALL_DIR/tarn-mcp" ]; then
   echo "  Tarn MCP ${TAG} installed to ${INSTALL_DIR}/tarn-mcp"
+fi
+if [ -f "$INSTALL_DIR/tarn-lsp" ]; then
+  echo "  Tarn LSP ${TAG} installed to ${INSTALL_DIR}/tarn-lsp"
 fi
 echo ""
 echo "  Run 'tarn --help' to get started"

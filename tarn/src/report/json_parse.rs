@@ -276,8 +276,10 @@ fn parse_failure_category(s: &str) -> Option<FailureCategory> {
         "parse_error" => FailureCategory::ParseError,
         "capture_error" => FailureCategory::CaptureError,
         "unresolved_template" => FailureCategory::UnresolvedTemplate,
+        "response_shape_mismatch" => FailureCategory::ResponseShapeMismatch,
         "skipped_due_to_failed_capture" => FailureCategory::SkippedDueToFailedCapture,
         "skipped_due_to_fail_fast" => FailureCategory::SkippedDueToFailFast,
+        "skipped_by_condition" => FailureCategory::SkippedByCondition,
         _ => return None,
     })
 }
@@ -385,6 +387,27 @@ mod tests {
         let test = &parsed.file_results[0].test_results[0];
         assert_eq!(test.captures.get("token"), Some(&serde_json::json!("abc")));
         assert_eq!(test.step_results[0].captures_set, vec!["id".to_string()]);
+    }
+
+    #[test]
+    fn parse_recognizes_new_failure_categories() {
+        for (raw, expected) in [
+            (
+                "response_shape_mismatch",
+                FailureCategory::ResponseShapeMismatch,
+            ),
+            (
+                "skipped_due_to_failed_capture",
+                FailureCategory::SkippedDueToFailedCapture,
+            ),
+            (
+                "skipped_due_to_fail_fast",
+                FailureCategory::SkippedDueToFailFast,
+            ),
+            ("skipped_by_condition", FailureCategory::SkippedByCondition),
+        ] {
+            assert_eq!(parse_failure_category(raw), Some(expected));
+        }
     }
 
     #[test]

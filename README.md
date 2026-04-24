@@ -65,6 +65,7 @@ Container path:
 
 Installer notes:
 - `install.sh` verifies the downloaded archive against `hive-checksums.txt`
+- `install.sh` installs `tarn`, `tarn-mcp`, and `tarn-lsp` when those binaries are present in the release archive
 - `TARN_INSTALL_DIR` controls the install destination
 - `HIVE_INSTALL_DIR` is still accepted as a backward-compatible alias during the rename transition
 - Manual verification also works with `shasum -a 256 -c hive-checksums.txt`
@@ -1125,7 +1126,7 @@ tarn run \
 Structured JSON with versioned schema. Key design:
 - `schema_version: 1` for forward compatibility
 - Full request/response included **only for failed steps**
-- `failure_category` on failures: `assertion_failed`, `connection_error`, `timeout`, `parse_error`, `capture_error`, `unresolved_template`
+- `failure_category` on failures: `assertion_failed`, `response_shape_mismatch`, `connection_error`, `timeout`, `parse_error`, `capture_error`, `unresolved_template`, `skipped_due_to_failed_capture`, `skipped_due_to_fail_fast`
 - Stable `error_code` and `remediation_hints` are included on failed steps for automation-friendly diagnostics
 - `response_status` and `response_summary` on all executed steps (passed and failed) &mdash; AI agents can see what a passed step returned
 - `captures_set` on steps listing which capture variables were set; `captures` map on test groups showing all resolved values
