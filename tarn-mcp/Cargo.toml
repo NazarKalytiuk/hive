@@ -1,6 +1,6 @@
 [package]
 name = "tarn-mcp"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2021"
 description = "MCP server for Tarn API testing tool"
 license = "MIT"
