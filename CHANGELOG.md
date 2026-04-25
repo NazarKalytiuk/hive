@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 0.11.7 — Windows CI green + VS Code Marketplace publish unbroken
+
+CI / release-pipeline release. No CLI surface or behavior changes on
+Linux or macOS.
+
+- **Windows integration suite fully green** for the first time
+  (167/167, was 2/167 before NAZ-422 was opened, 157/167 after the
+  stack-overflow fix). Three platform-handling bugs the suite caught
+  were genuinely cross-platform issues, not test artifacts:
+  - Golden test fixtures (`tarn/tests/golden/*.golden`) now lock to
+    LF on every platform via `.gitattributes`. Git for Windows'
+    default `core.autocrlf=true` was rewriting them to CRLF, breaking
+    `*_report_matches_golden` (NAZ-423).
+  - JSON path strings serialized into run artifacts and
+    `tarn failures` / `tarn inspect` output now go through a new
+    `tarn::path_util::to_forward_slash` helper. Previously
+    `Path::display()` leaked native `\` separators into Windows
+    artifacts and broke `failures_subcommand_loads_specific_run_by_id`,
+    `last_run_json_artifact_is_written_in_human_mode`,
+    `rerun_failed_only_reruns_failing_tests_from_latest_run`,
+    `rerun_failed_with_explicit_run_id_uses_archive` (NAZ-424).
+  - `tarn impact` Direct-edit detection is now separator-agnostic.
+    The CLI / `git diff` always emits `/` while Windows discovery
+    emits `\`; matches now collapse to `Direct` regardless of which
+    side wears which separator (NAZ-425).
+- **VS Code Marketplace publish race fixed.** The extension publish
+  workflow used to start in parallel with the Rust release and gave
+  up after 3 minutes of polling for binaries that take 5–6 minutes
+  to build. It now triggers via `workflow_run` once the Rust release
+  completes, so the binary release is guaranteed on disk before the
+  extension ships. `workflow_dispatch` with a `tag` input is kept
+  for manual recovery (NAZ-433).
+
 ## 0.11.6 — VS Code Marketplace artwork
 
 VS Code extension changes only; no CLI behavior changes.

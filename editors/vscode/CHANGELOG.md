@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.7 — Marketplace publish unbroken
+
+Coordinated bump with Tarn 0.11.7. No extension code changes.
+
+The release-pipeline race that left 0.11.3 / 0.11.4 / 0.11.5 / 0.11.6
+silently absent from the Marketplace is fixed: the publish workflow
+now triggers via `workflow_run` after the Rust release succeeds, so
+every future tag push reaches the Marketplace and Open VSX without a
+manual rerun (NAZ-433). 0.11.7 itself is the first release that
+exercises the new path end-to-end.
+
+`tarn.minVersion` bumped to `0.11.7` to track the matching CLI release.
+
 ## 0.11.6 — Marketplace artwork
 
 First Marketplace listing with real artwork.
