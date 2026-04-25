@@ -85,7 +85,13 @@ fn paths_equal(a: &str, b: &str) -> bool {
 }
 
 fn normalize_lexical(p: &str) -> String {
-    let trimmed = p.trim_start_matches("./");
+    // Normalize Windows backslashes first so the rest of the comparison is
+    // separator-agnostic. Without this, on `windows-latest` a CLI/git input
+    // like `tests/users.tarn.yaml` never compares equal to a discovered
+    // path like `tests\users.tarn.yaml` and Direct matches silently fall
+    // through to the SharedTopic heuristic at Medium confidence.
+    let unified = p.replace('\\', "/");
+    let trimmed = unified.trim_start_matches("./");
     let normalized: String =
         trimmed
             .chars()
@@ -176,6 +182,21 @@ mod tests {
         assert_eq!(
             match_paths("src/orders/checkout.ts", "tests/users.tarn.yaml"),
             None
+        );
+    }
+
+    #[test]
+    fn direct_match_normalizes_windows_separators() {
+        // The CLI / `git diff` always emits forward slashes; discovered
+        // paths on `windows-latest` come back with backslashes. Both
+        // orderings must collapse to a Direct match.
+        assert_eq!(
+            match_paths("tests/users.tarn.yaml", r"tests\users.tarn.yaml"),
+            Some(PathMatch::Direct)
+        );
+        assert_eq!(
+            match_paths(r"tests\users.tarn.yaml", "tests/users.tarn.yaml"),
+            Some(PathMatch::Direct)
         );
     }
 }
