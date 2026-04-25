@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+## 0.11.1 — Release-pipeline patch for 0.11.0
+
+Hot-fix release for the broken 0.11.0 publish pipeline. Functionally
+identical to 0.11.0 for end users; the only deltas are workflow
+fixes that let `tarn-mcp`, `tarn-lsp`, and the VS Code extension
+actually reach their registries.
+
+### Why 0.11.1 instead of re-running 0.11.0
+
+The 0.11.0 tag baked in workflow files with two latent bugs that
+only surfaced at publish time:
+
+- `wait_for_crate_version` parsed `cargo search` output, which on
+  the runner emits ANSI color codes because release.yml sets
+  `CARGO_TERM_COLOR: always`. The grep never matched, so the wait
+  always timed out and aborted the publish before `tarn-mcp` and
+  `tarn-lsp` could be uploaded.
+- The new VS Code extension integration tests (added in 0.11.0)
+  expect a `target/debug/tarn` binary, but the workflow had no
+  `cargo build` step before invoking them.
+
+Re-running the v0.11.0 jobs would have re-executed the same broken
+workflows because tag pushes pin the workflow file to the tagged
+commit. 0.11.1 lands the fixes on a fresh tag so the publish
+pipeline can finish end-to-end.
+
+### Workflow fixes
+
+- **`release.yml`**: `wait_for_crate_version` now polls the
+  crates.io HTTP API directly (`/api/v1/crates/<name>` →
+  `crate.max_version`) instead of grepping `cargo search`. The
+  authoritative source removes the ANSI dependency, the sparse-
+  index propagation lag, and the `cargo search` ranking quirks
+  in one move. Retry budget bumped from 6 minutes to 9 minutes.
+- **`vscode-extension.yml` / `vscode-extension-release.yml`**:
+  add `dtolnay/rust-toolchain@stable` and
+  `cargo build -p tarn -p tarn-lsp` ahead of the integration
+  test step so `target/debug/tarn` and `target/debug/tarn-lsp`
+  exist when `runTest.ts` looks for them.
+
+No source code or report-schema changes vs. 0.11.0.
+
 ## 0.11.0 — Release hardening + failure-category surface
 
 Release-engineering polish on top of the 0.10.0 Agent Loop shipment,

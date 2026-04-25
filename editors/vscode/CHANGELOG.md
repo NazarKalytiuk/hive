@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1 — Coordinated release with Tarn 0.11.1
+
+Version-only bump to track Tarn 0.11.1. Tarn 0.11.0's publish
+pipeline failed before the VS Code extension reached the
+Marketplace, so 0.11.1 is the first 0.11.x extension build that
+actually ships. No extension code changes vs. 0.11.0.
+
+`tarn.minVersion` moves to `0.11.1` so the activation-time
+compatibility check matches the CLI version that exists on
+crates.io and in the GitHub release.
+
 ## 0.11.0 — Coordinated release with Tarn 0.11.0
 
 Version-only bump to track Tarn 0.11.0. `tarn.minVersion` moves to

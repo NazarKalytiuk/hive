@@ -269,15 +269,23 @@ jobs:
           wait_for_crate_version() {
             local crate="$1"
             local version="$2"
-            for attempt in $(seq 1 24); do
-              if cargo search "$crate" --limit 10 | grep -Eq "^${crate} = \"${version}\""; then
-                echo "$crate $version is visible in the crates.io index."
+            local api="https://crates.io/api/v1/crates/${crate}"
+            local latest
+            for attempt in $(seq 1 36); do
+              latest="$(curl -sH 'User-Agent: tarn-release-check' "$api" \
+                | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin); print(d["crate"]["max_version"])
+except Exception:
+    pass' 2>/dev/null || true)"
+              if [ "$latest" = "$version" ]; then
+                echo "$crate $version is visible on crates.io (max_version)."
                 return 0
               fi
-              echo "$crate $version not visible yet (attempt $attempt/24); sleeping 15s..."
+              echo "$crate $version not visible yet (attempt $attempt/36, latest=${latest:-unknown}); sleeping 15s..."
               sleep 15
             done
-            echo "::error::$crate $version did not appear in the crates.io index in time."
+            echo "::error::$crate $version did not appear on crates.io in time."
             return 1
           }
 
