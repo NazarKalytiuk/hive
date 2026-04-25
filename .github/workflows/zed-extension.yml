@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust + wasm target
         uses: dtolnay/rust-toolchain@stable
@@ -39,7 +39,7 @@ jobs:
         run: cargo build --release --target wasm32-unknown-unknown
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: zed-tarn-wasm
           path: editors/zed/target/wasm32-unknown-unknown/release/zed_tarn.wasm
