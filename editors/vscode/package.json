@@ -2,9 +2,9 @@
   "name": "tarn-vscode",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "tarn": {
-    "minVersion": "0.11.4"
+    "minVersion": "0.11.5"
   },
   "l10n": "./l10n",
   "publisher": "nazarkalytiuk",

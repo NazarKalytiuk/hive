@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.11.5 — Drop HIVE_INSTALL_DIR backwards-compat alias
+
+Breaking change for the small set of users who set `HIVE_INSTALL_DIR`
+to control where `install.sh` placed the tarn binaries. Use
+`TARN_INSTALL_DIR` instead. The fallback was introduced in 0.11.4 as a
+short-lived rename-transition shim and is now removed; `install.sh`
+honors only `TARN_INSTALL_DIR`. README updated to match.
+
 ## 0.11.4 — Rename hotfix: complete hive→tarn coverage
 
 Patch release that finishes the `hive`→`tarn` rename started in the

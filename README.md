@@ -67,7 +67,6 @@ Installer notes:
 - `install.sh` verifies the downloaded archive against `tarn-checksums.txt`
 - `install.sh` installs `tarn`, `tarn-mcp`, and `tarn-lsp` when those binaries are present in the release archive
 - `TARN_INSTALL_DIR` controls the install destination
-- `HIVE_INSTALL_DIR` is still accepted as a backward-compatible alias during the rename transition
 - Manual verification also works with `shasum -a 256 -c tarn-checksums.txt`
 
 ## Quick Start

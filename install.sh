@@ -3,7 +3,7 @@
 set -e
 
 REPO="NazarKalytiuk/tarn"
-INSTALL_DIR="${TARN_INSTALL_DIR:-${HIVE_INSTALL_DIR:-/usr/local/bin}}"
+INSTALL_DIR="${TARN_INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS and architecture
 OS="$(uname -s)"
