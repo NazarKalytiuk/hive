@@ -1,0 +1,6 @@
+# Lock golden test fixtures to LF on every platform. The integration
+# tests read these files via fs::read_to_string and compare byte-for-byte
+# against renderer output, which is LF-only. Without this, Git for
+# Windows (core.autocrlf=true by default) checks them out as CRLF and
+# the equality assertion fails on windows-latest CI.
+*.golden text eol=lf
