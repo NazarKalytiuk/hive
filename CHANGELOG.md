@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.11.6 — VS Code Marketplace artwork
+
+VS Code extension changes only; no CLI behavior changes.
+
+- Adds a real 128×128 extension icon and wires it into
+  `editors/vscode/package.json` (top-level `"icon"`). The Marketplace
+  listing now renders branded artwork instead of the default placeholder.
+- Replaces the 1×1 placeholder marketplace banner with a real 1376×400
+  brand banner matching `galleryBanner.color`.
+- Drops the six 1×1 screenshot placeholders and the placeholder demo
+  GIF from `editors/vscode/media/marketplace/`, plus the README image
+  references that pointed at them — those slots will come back when
+  real editor captures are recorded.
+- `editors/vscode/media/marketplace/README.md` is rewritten to document
+  the shipped artwork instead of the old placeholder capture plan.
+
+The CLI bump keeps the verify-version-alignment release gate happy and
+keeps the VS Code extension's `tarn.minVersion` in lockstep with the
+tagged CLI build.
+
 ## 0.11.5 — Drop HIVE_INSTALL_DIR backwards-compat alias
 
 Breaking change for the small set of users who set `HIVE_INSTALL_DIR`

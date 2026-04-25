@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.11.6 — Marketplace artwork
+
+First Marketplace listing with real artwork.
+
+- Adds a 128×128 extension `icon` (`media/marketplace/icon.png`) and
+  wires it through `package.json`. Until now the listing fell back to
+  the default Marketplace placeholder.
+- Replaces the 1×1 placeholder banner (`media/marketplace/banner.png`)
+  with the real 1376×400 brand banner, indigo `#1E1B4B` to match
+  `galleryBanner.color`, with the `tarn` wordmark and tagline.
+- Removes the README references to `screenshot-test-explorer.png`,
+  `screenshot-streaming.png`, `screenshot-diff.png`,
+  `screenshot-codelens.png`, `screenshot-env-picker.png`, and `demo.gif`
+  (all of them were 1×1 placeholders, so the listing rendered six
+  broken images). They will come back in a future release once real
+  captures from a live editor session land in the same commit.
+- `media/marketplace/README.md` is rewritten as a "shipped" spec for
+  the icon and banner so the next maintainer can regenerate them
+  without re-deriving the brand constants.
+
+`tarn.minVersion` bumped to `0.11.6` to track the matching CLI release.
+
+## 0.11.5 — Drop HIVE_INSTALL_DIR backwards-compat alias
+
+Coordinated bump with Tarn 0.11.5. No extension code changes; tracks
+the CLI cleanup that removed the HIVE_INSTALL_DIR fallback from
+`install.sh` (use `TARN_INSTALL_DIR`).
+
+## 0.11.4 — Coordinated release with Tarn 0.11.4
+
+Coordinated bump with Tarn 0.11.4 (rename hotfix). No extension code
+changes; tracks the CLI release that finishes the hive→tarn rename.
+
 ## 0.11.2 — Coordinated release with Tarn 0.11.2
 
 Version-only bump to track Tarn 0.11.2. Tarn 0.11.0's publish

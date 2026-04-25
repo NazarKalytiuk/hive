@@ -6,8 +6,6 @@
 
 Aimed squarely at the tight diagnosis loop that API debugging lives inside: **run → see the failure → fix the YAML or the server → rerun → green**. No terminal juggling, no re-parsing JSON by eye, no guessing which step blew up. The extension drives the [Tarn CLI](https://github.com/NazarKalytiuk/tarn) so everything that runs in your editor runs identically in CI — the same binary, the same report, the same exit code.
 
-![Test Explorer tree](media/marketplace/screenshot-test-explorer.png)
-
 ## Features
 
 ### Test Explorer
@@ -17,9 +15,6 @@ Aimed squarely at the tight diagnosis loop that API debugging lives inside: **ru
 - Cancellable runs with live progress streamed into the Tarn output channel.
 - Rich failure messages: expected vs actual, unified diff, request, response, remediation hints, failure category, error code.
 
-![Live streaming](media/marketplace/screenshot-streaming.png)
-![Failure diff in peek view](media/marketplace/screenshot-diff.png)
-
 ### Editor
 
 - CodeLens above every test and step: `Run`, `Dry Run`, `Run step`.
@@ -27,16 +22,12 @@ Aimed squarely at the tight diagnosis loop that API debugging lives inside: **ru
 - Snippet library for common test patterns (`tarn-test`, `tarn-step`, `tarn-capture`, `tarn-poll`, `tarn-form`, `tarn-graphql`, `tarn-multipart`, `tarn-lifecycle`, `tarn-include`).
 - Tarn-aware syntax highlighting for interpolation, JSONPath, and assertion operators.
 
-![CodeLens actions](media/marketplace/screenshot-codelens.png)
-
 ### Environments
 
 - Auto-discovers every `tarn.env*.yaml` in the workspace and exposes them via
   the `Tarn: Select Environment…` quick-pick and the status-bar entry.
 - Persists the active environment per workspace so reruns stay scoped.
 - `tarn.defaultEnvironment` lets you pin a default in workspace settings.
-
-![Environment picker](media/marketplace/screenshot-env-picker.png)
 
 ### Commands
 

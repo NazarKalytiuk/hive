@@ -2,13 +2,14 @@
   "name": "tarn-vscode",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.11.5",
+  "version": "0.11.6",
   "tarn": {
-    "minVersion": "0.11.5"
+    "minVersion": "0.11.6"
   },
   "l10n": "./l10n",
   "publisher": "nazarkalytiuk",
   "license": "MIT",
+  "icon": "media/marketplace/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/NazarKalytiuk/tarn.git"
