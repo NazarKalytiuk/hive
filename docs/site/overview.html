@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; Overview</title>
+    <meta name="description" content="Tarn is a CLI-first API testing tool. Tests are YAML files, results are structured JSON. One binary, zero runtime dependencies.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./overview.html" class="active">Overview</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
+          <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Overview</span>
+          <h1>What is Tarn?</h1>
+          <p class="lead">CLI-first API testing for the age of AI. Tests are YAML, results are structured JSON. One binary, zero runtime dependencies.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+
+            <h2>What is Tarn?</h2>
+            <p>Tarn is a CLI-first API testing tool. Tests are written in YAML files (<code class="ic">.tarn.yaml</code>), results come back as structured JSON. One binary, zero runtime dependencies.</p>
+
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">json</span> tests/health.tarn.yaml</pre>
+            </div>
+
+            <p>A minimal test file maps directly to the shape of an HTTP exchange. No framework, no test runner bootstrap, no language runtime:</p>
+
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="yaml-key">name</span>: <span class="yaml-str">Health check</span>
+<span class="yaml-key">steps</span>:
+  - <span class="yaml-key">name</span>: <span class="yaml-str">GET /health</span>
+    <span class="yaml-key">request</span>:
+      <span class="yaml-key">method</span>: <span class="yaml-str">GET</span>
+      <span class="yaml-key">url</span>: <span class="yaml-str">"{{ env.base_url }}/health"</span>
+    <span class="yaml-key">assert</span>:
+      <span class="yaml-key">status</span>: <span class="yaml-num">200</span></pre>
+            </div>
+
+            <p>That is the entire surface area for the most common API test. Complexity scales only when your scenario needs it &mdash; auth chains, polling, multipart uploads, multi-user sessions, GraphQL.</p>
+
+            <h2>What problems does it solve?</h2>
+            <p>Before Tarn, every API-testing approach had a fundamental mismatch with how AI agents and modern CI systems consume output:</p>
+            <ul>
+              <li><strong>Postman/Newman</strong> &mdash; GUI-dependent authoring, heavy Node runtime, tests locked in JSON blobs with no structured failure taxonomy.</li>
+              <li><strong>curl scripts</strong> &mdash; fragile shell parsing, no structured assertions, no machine-readable output.</li>
+              <li><strong>REST Client</strong> &mdash; editor-locked, no CI integration, no parallel execution.</li>
+              <li><strong>Playwright API tests</strong> &mdash; browser runtime overhead, Python/JS dependency, not designed for API-only workflows.</li>
+              <li><strong>Hurl</strong> &mdash; no MCP or LSP tools, no structured JSON failures with stable categories, no fix plan engine.</li>
+            </ul>
+            <p>Tarn replaces all of them with a single binary and a consistent contract:</p>
+            <ul>
+              <li><strong>YAML that reads like a spec</strong> &mdash; request/assert blocks are declarative, not procedural.</li>
+              <li><strong>Structured JSON failures</strong> &mdash; every failure carries a category, error code, and remediation hints. Agents and dashboards branch on taxonomy, not regex.</li>
+              <li><strong>MCP tools</strong> &mdash; <code class="ic">tarn-mcp</code> exposes list, validate, run, and fix_plan as structured protocol tools. No stdout scraping.</li>
+              <li><strong>LSP server</strong> &mdash; <code class="ic">tarn-lsp</code> provides diagnostics, hover, completion, code lens, and quick fixes for every LSP 3.17 editor.</li>
+              <li><strong>Single binary, no runtime</strong> &mdash; install once, run anywhere. No Node, no Python, no JVM.</li>
+            </ul>
+
+            <h2>Typical use cases</h2>
+            <ul>
+              <li><strong>API smoke tests in CI</strong> &mdash; run <code class="ic">tarn run --format json --json-mode compact</code> as a CI step. Output feeds directly into dashboards and alerting.</li>
+              <li><strong>Integration test suites</strong> &mdash; chain setup steps, captures, and assertions across multiple endpoints. Reuse shared auth flows with includes.</li>
+              <li><strong>Contract and acceptance testing</strong> &mdash; assert response shape with JSONPath, type checks, and schema validation. Catch regressions before they reach production.</li>
+              <li><strong>Demo and onboarding suites</strong> &mdash; the repo ships runnable example suites for health checks, auth flows, polling, multipart, and CRUD. Point at a real API and go.</li>
+              <li><strong>Agent-driven test generation and debugging</strong> &mdash; LLMs write <code class="ic">.tarn.yaml</code> files, run them via MCP, and iterate on structured failure reports. No human in the loop required.</li>
+            </ul>
+
+            <h2>Key features</h2>
+            <ul>
+              <li><strong>YAML-first authoring</strong> &mdash; tests are plain YAML with no wrapping test framework.</li>
+              <li><strong>Rich assertions with JSONPath</strong> &mdash; exact match, type check, substring, regex, numeric comparison, schema validation.</li>
+              <li><strong>Capture chaining</strong> &mdash; type-preserving captures from JSONPath, headers, cookies, regex, status, and URL. Pipe syntax for transforms.</li>
+              <li><strong>Cookie handling</strong> &mdash; automatic jar by default. Named jars for multi-user session testing. Per-step disable.</li>
+              <li><strong>Polling and retries</strong> &mdash; poll until assertions pass. Step-level retries with configurable intervals and limits.</li>
+              <li><strong>Multipart upload</strong> &mdash; combine form fields and file attachments in a single request.</li>
+              <li><strong>Includes for shared steps</strong> &mdash; reuse setup, teardown, and auth flows across test files.</li>
+              <li><strong>Environment variables with priority chain</strong> &mdash; <code class="ic">--var</code> &gt; shell env &gt; <code class="ic">tarn.env.local.yaml</code> &gt; <code class="ic">tarn.env.{name}.yaml</code> &gt; <code class="ic">tarn.env.yaml</code> &gt; inline <code class="ic">env:</code> block.</li>
+              <li><strong>Built-in functions</strong> &mdash; UUID v4/v7, timestamps, ISO 8601 dates, random hex/ints, full faker locale (email, name, phone, address, lorem, and more).</li>
+              <li><strong>Lua scripting</strong> &mdash; custom logic and transforms at any point in the step lifecycle.</li>
+              <li><strong>GraphQL support</strong> &mdash; send GraphQL queries with the same assertion and capture machinery.</li>
+              <li><strong>9 output formats</strong> &mdash; human, JSON (compact or pretty), JUnit XML, TAP, HTML report, curl export, compact, LLM-friendly, AgentReport.</li>
+              <li><strong>MCP server</strong> &mdash; <code class="ic">tarn-mcp</code> for direct agent integration.</li>
+              <li><strong>LSP server</strong> &mdash; <code class="ic">tarn-lsp</code> with diagnostics, hover, completion, code lens, formatting, and quick fixes.</li>
+              <li><strong>Bench tool</strong> &mdash; timing and throughput measurements for endpoints.</li>
+              <li><strong>Post-run analysis</strong> &mdash; <code class="ic">tarn failures</code>, <code class="ic">tarn diff</code>, <code class="ic">tarn inspect</code>, <code class="ic">tarn pack-context</code> for debugging and context sharing.</li>
+            </ul>
+
+            <h2>How Tarn compares</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead><tr><th>Feature</th><th>Tarn</th><th>Postman/Newman</th><th>curl scripts</th><th>Hurl</th></tr></thead>
+                <tbody>
+                  <tr><td>YAML tests</td><td>Yes</td><td>No (JSON)</td><td>No (shell)</td><td>Yes</td></tr>
+                  <tr><td>Structured JSON failures</td><td>Yes</td><td>Limited</td><td>No</td><td>Limited</td></tr>
+                  <tr><td>Single binary</td><td>Yes</td><td>No (Node)</td><td>No (curl)</td><td>Yes</td></tr>
+                  <tr><td>MCP tools</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+                  <tr><td>LSP server</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+                  <tr><td>Failure categories</td><td>Yes (stable taxonomy)</td><td>No</td><td>No</td><td>No</td></tr>
+                  <tr><td>Polling</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+                  <tr><td>Capture transforms</td><td>Yes (pipe syntax)</td><td>No</td><td>No</td><td>Limited</td></tr>
+                  <tr><td>Fix plan engine</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>Quick Links</h3>
+              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/INDEX.md" target="_blank" rel="noopener">
+                <strong>Docs Index</strong>
+                <span>Canonical markdown docs</span>
+              </a>
+              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/README.md" target="_blank" rel="noopener">
+                <strong>README</strong>
+                <span>Full repo reference</span>
+              </a>
+              <a class="sidebar-link" href="./getting-started.html">
+                <strong>Get Started</strong>
+                <span>Install and first suite</span>
+              </a>
+              <a class="sidebar-link" href="./examples.html">
+                <strong>Examples</strong>
+                <span>Runnable suites and templates</span>
+              </a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./getting-started.html">Next: Get Started</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -19,12 +19,17 @@
         </a>
         <nav class="nav">
           <a href="./index.html" class="active">Home</a>
+          <a href="./overview.html">Overview</a>
           <a href="./getting-started.html">Get Started</a>
-          <a href="./test-files.html">Test Files</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
           <a href="./ai-workflows.html">AI Workflows</a>
           <a href="./mcp.html">MCP</a>
           <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
           <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
           <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
@@ -163,35 +168,65 @@
           <div class="grid grid--3">
             <article class="card">
               <div class="card__icon">01</div>
-              <h3 class="card__title"><a href="./getting-started.html">Getting Started</a></h3>
-              <p class="card__text">Install Tarn, scaffold a project, run the demo server, and understand fmt, validate, and run in one pass.</p>
+              <h3 class="card__title"><a href="./overview.html">Overview</a></h3>
+              <p class="card__text">What Tarn is, what problems it solves, and how it compares to Postman, curl, Hurl, and Playwright.</p>
             </article>
             <article class="card">
               <div class="card__icon card__icon--cyan">02</div>
-              <h3 class="card__title"><a href="./test-files.html">Writing Test Files</a></h3>
-              <p class="card__text">Requests, assertions, captures, cookies, polling, multipart, GraphQL, and redaction.</p>
+              <h3 class="card__title"><a href="./getting-started.html">Getting Started</a></h3>
+              <p class="card__text">Install Tarn, scaffold a project, run your first test, and understand the core loop &mdash; fmt, validate, run.</p>
             </article>
             <article class="card">
               <div class="card__icon card__icon--violet">03</div>
-              <h3 class="card__title"><a href="./ai-workflows.html">AI Workflows</a></h3>
-              <p class="card__text">Compact JSON, failure categories, error codes, curl exports, plus editor-side <code class="ic">tarn-lsp</code> intelligence for agents like Claude Code.</p>
+              <h3 class="card__title"><a href="./writing-tests.html">Writing Tests</a></h3>
+              <p class="card__text">Complete guide to YAML test files: requests, assertions, captures, variables, cookies, multipart, includes, and built-in functions.</p>
             </article>
             <article class="card">
               <div class="card__icon">04</div>
-              <h3 class="card__title"><a href="./mcp.html">MCP Integration</a></h3>
-              <p class="card__text">Drop a portable <code class="ic">.mcp.json</code> at the repo root &mdash; or an <code class="ic">opencode.jsonc</code> for opencode. Works with Claude Code, opencode, Cursor, Windsurf, and any MCP-compatible client.</p>
+              <h3 class="card__title"><a href="./cli-reference.html">CLI Reference</a></h3>
+              <p class="card__text">Full reference for all tarn commands: run, validate, format, list, init, bench, lint, scaffold, and more.</p>
             </article>
             <article class="card">
               <div class="card__icon card__icon--cyan">05</div>
+              <h3 class="card__title"><a href="./ai-workflows.html">AI Workflows</a></h3>
+              <p class="card__text">Structured JSON output, failure categories, fix plans, and agent loops for AI-driven test development.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon card__icon--violet">06</div>
+              <h3 class="card__title"><a href="./mcp.html">MCP Integration</a></h3>
+              <p class="card__text">Portable <code class="ic">.mcp.json</code> setup for Claude Code, opencode, Cursor, Windsurf &mdash; structured tools for agents.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon">07</div>
+              <h3 class="card__title"><a href="./tarn-lsp.html">LSP &amp; Editor Support</a></h3>
+              <p class="card__text">Standalone LSP server for diagnostics, hover, completion, code actions, and JSONPath evaluation in any editor.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon card__icon--cyan">08</div>
+              <h3 class="card__title"><a href="./ci-usage.html">CI Integration</a></h3>
+              <p class="card__text">GitHub Actions, environment secrets, artifact reports, format gating, and best practices for CI pipelines.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon card__icon--violet">09</div>
               <h3 class="card__title"><a href="./examples.html">Examples</a></h3>
-              <p class="card__text">Browse the local corpus for auth, redirects, cookies, forms, multipart, and CRUD flows.</p>
+              <p class="card__text">Copy-paste ready test files: health check, CRUD, auth flow, faker data, and the local demo-server suites.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon">10</div>
+              <h3 class="card__title"><a href="./troubleshooting.html">Troubleshooting</a></h3>
+              <p class="card__text">Common issues and fixes: parse errors, connection failures, capture problems, assertion mismatches, and more.</p>
+            </article>
+            <article class="card">
+              <div class="card__icon card__icon--cyan">11</div>
+              <h3 class="card__title"><a href="./reference.html">Reference</a></h3>
+              <p class="card__text">Compact reference pages: assertion operators, built-in functions, YAML format, JSON report, failure categories, MCP tools, LSP capabilities.</p>
             </article>
             <article class="card">
               <div class="card__icon card__icon--violet">
                 <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
               </div>
-              <h3 class="card__title"><a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">Repository</a></h3>
-              <p class="card__text">Full source, strategy docs, roadmap, comparison matrix, and release notes on GitHub.</p>
+              <h3 class="card__title"><a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub Repository</a></h3>
+              <p class="card__text">Full source, strategy docs, roadmap, comparison matrix, and release notes.</p>
             </article>
           </div>
         </div>

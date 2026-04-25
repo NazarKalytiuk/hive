@@ -19,12 +19,17 @@
         </a>
         <nav class="nav">
           <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
           <a href="./getting-started.html">Get Started</a>
-          <a href="./test-files.html">Test Files</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
           <a href="./ai-workflows.html">AI Workflows</a>
           <a href="./mcp.html">MCP</a>
           <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
           <a href="./examples.html" class="active">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
           <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
@@ -35,14 +40,14 @@
     <main class="page">
       <div class="container">
         <section class="page__hero">
-          <span class="badge">Guide 05</span>
+          <span class="badge">Examples</span>
           <h1>Copy from examples that already map to real&nbsp;endpoints.</h1>
           <p class="lead">The repo examples do double duty: onboarding material and parser/schema regression coverage.</p>
         </section>
 
         <div class="page__layout">
           <article class="page__content">
-            <h2>Init scaffolds</h2>
+            <h2 id="init-scaffolds">Init scaffolds</h2>
             <ul>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/init/health.tarn.yaml" target="_blank" rel="noopener">health.tarn.yaml</a> &mdash; safe first-run smoke test</li>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/init/auth-flow.tarn.yaml" target="_blank" rel="noopener">auth-flow.tarn.yaml</a> &mdash; setup + bearer token reuse</li>
@@ -51,7 +56,7 @@
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/init/multi-user-session.tarn.yaml" target="_blank" rel="noopener">multi-user-session.tarn.yaml</a> &mdash; named cookie jars</li>
             </ul>
 
-            <h2>Local demo-server suites</h2>
+            <h2 id="demo-server">Local demo-server suites</h2>
             <ul>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/demo-server/hello-world.tarn.yaml" target="_blank" rel="noopener">hello-world.tarn.yaml</a></li>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/demo-server/redirects.tarn.yaml" target="_blank" rel="noopener">redirects.tarn.yaml</a></li>
@@ -61,7 +66,7 @@
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/demo-server/auth-user-lifecycle.tarn.yaml" target="_blank" rel="noopener">auth-user-lifecycle.tarn.yaml</a></li>
             </ul>
 
-            <h2>Public API and feature demos</h2>
+            <h2 id="public-api">Public API and feature demos</h2>
             <ul>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/minimal.tarn.yaml" target="_blank" rel="noopener">minimal.tarn.yaml</a></li>
               <li><a href="https://github.com/NazarKalytiuk/hive/blob/main/examples/auth.tarn.yaml" target="_blank" rel="noopener">auth.tarn.yaml</a></li>
@@ -125,19 +130,167 @@
 <span class="comment"># exits non-zero if any file would be reformatted</span></pre>
             </div>
             <p><code class="ic">tarn fmt --check</code> shares <code class="ic">tarn::format::format_document</code> with the LSP's <code class="ic">textDocument/formatting</code> handler, so a file that passes <code class="ic">--check</code> in CI is byte-identical to what "Format Document" produces in any LSP client.</p>
+
+            <h2 id="gallery">Examples Gallery</h2>
+            <p>Each example is a complete <code>.tarn.yaml</code> file you can copy and run.</p>
+
+            <h3>Basic health check</h3>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>name: Health check
+description: Simple smoke test
+env:
+  base_url: "http://localhost:3000"
+steps:
+  - name: GET /health
+    request:
+      method: GET
+      url: "{{ env.base_url }}/health"
+    assert:
+      status: 200
+      body:
+        "$.status": "ok"</pre>
+            </div>
+
+            <h3>Login and authenticated request</h3>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>name: Auth flow
+tests:
+  - name: Login and access
+    steps:
+      - name: POST /login
+        request:
+          method: POST
+          url: "{{ env.base_url }}/login"
+          body:
+            username: "admin"
+            password: "secret"
+        capture:
+          token: "$.token"
+        assert:
+          status: 200
+
+      - name: GET /me
+        request:
+          method: GET
+          url: "{{ env.base_url }}/me"
+          auth:
+            bearer: "{{ capture.token }}"
+        assert:
+          status: 200
+          body:
+            "$.username": "admin"</pre>
+            </div>
+
+            <h3>Full CRUD</h3>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>name: User CRUD
+setup:
+  - name: Cleanup
+    request:
+      method: DELETE
+      url: "{{ env.base_url }}/users/test-user"
+    assert:
+      status: { in: [200, 204, 404] }
+
+tests:
+  - name: User lifecycle
+    steps:
+      - name: Create user
+        request:
+          method: POST
+          url: "{{ env.base_url }}/users"
+          body:
+            name: "{{ $name }}"
+            email: "{{ $email }}"
+        capture:
+          user_id: "$.id"
+        assert:
+          status: 201
+          body:
+            "$.id": { type: string, not_empty: true }
+
+      - name: Get user
+        request:
+          method: GET
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+        assert:
+          status: 200
+
+      - name: Update user
+        request:
+          method: PATCH
+          url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+          body:
+            name: "Updated Name"
+        assert:
+          status: 200
+          body:
+            "$.name": "Updated Name"
+
+teardown:
+  - name: Delete user
+    request:
+      method: DELETE
+      url: "{{ env.base_url }}/users/{{ capture.user_id }}"
+    assert:
+      status: { in: [200, 204] }</pre>
+            </div>
+
+            <h3>Using faker data</h3>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>name: Faker demo
+env:
+  base_url: "{{ env.BASE_URL }}"
+steps:
+  - name: Create user with faker
+    request:
+      method: POST
+      url: "{{ env.base_url }}/users"
+      body:
+        name: "{{ $name }}"
+        email: "{{ $email }}"
+        username: "{{ $username }}"
+        phone: "{{ $phone }}"
+        role: "{{ $choice(admin, user, viewer) }}"
+        tags: "{{ $words(3) }}"
+        active: "{{ $bool }}"
+    assert:
+      status: 201</pre>
+            </div>
           </article>
 
           <aside class="page__sidebar">
             <div class="sidebar-card">
-              <h3>Why examples matter</h3>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/tarn/src/parser.rs" target="_blank" rel="noopener">
-                <strong>Parser Regression</strong>
-                <span>Examples are schema- and parser-validated in tests</span>
-              </a>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/README.md" target="_blank" rel="noopener">
-                <strong>Hello World</strong>
-                <span>Shortest local path</span>
-              </a>
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#init-scaffolds"><strong>Init Scaffolds</strong></a>
+              <a class="sidebar-link" href="#demo-server"><strong>Demo Server</strong></a>
+              <a class="sidebar-link" href="#public-api"><strong>Public API Suites</strong></a>
+              <a class="sidebar-link" href="#gallery"><strong>Examples Gallery</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./writing-tests.html"><strong>Writing Tests</strong></a>
+              <a class="sidebar-link" href="./ci-usage.html"><strong>CI Usage</strong></a>
             </div>
           </aside>
         </div>
@@ -148,7 +301,8 @@
       <div class="site-footer__inner">
         <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
         <div class="footer__links">
-          <a href="./getting-started.html">Back to Getting Started</a>
+          <a href="./ci-usage.html">Prev: CI</a>
+          <a href="./troubleshooting.html">Next: Troubleshooting</a>
           <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
         </div>
       </div>

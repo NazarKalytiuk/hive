@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; CLI Reference</title>
+    <meta name="description" content="Complete reference for all Tarn CLI commands and flags.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html" class="active">CLI</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
+          <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>CLI Reference</h1>
+          <p class="lead">Complete reference for all Tarn CLI commands, options, and common usage patterns.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="tarn-run">tarn run</h2>
+            <p><strong>Purpose:</strong> Execute test files and produce results.</p>
+            <p><strong>Syntax:</strong> <code class="ic">tarn run [PATH] [OPTIONS]</code></p>
+            <p>Key options:</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>[PATH]</code></td><td>Test file or directory to run</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>Output format(s): human, json, junit, tap, html, curl, curl-all, compact, llm, FORMAT=PATH</td></tr>
+                  <tr><td><code>--json-mode &lt;MODE&gt;</code></td><td>verbose (default) or compact</td></tr>
+                  <tr><td><code>--tag &lt;TAGS&gt;</code></td><td>Filter by tag (comma-separated)</td></tr>
+                  <tr><td><code>--select FILE[::TEST[::STEP]]</code></td><td>Select file/test/step (repeatable)</td></tr>
+                  <tr><td><code>--var KEY=VALUE</code></td><td>Override env variables (repeatable)</td></tr>
+                  <tr><td><code>--env &lt;NAME&gt;</code></td><td>Load <code class="ic">tarn.env.{name}.yaml</code></td></tr>
+                  <tr><td><code>--verbose</code></td><td>Print full request/response for every step</td></tr>
+                  <tr><td><code>--only-failed</code></td><td>Show only failed tests</td></tr>
+                  <tr><td><code>--no-progress</code></td><td>Disable progress output</td></tr>
+                  <tr><td><code>--ndjson</code></td><td>Stream NDJSON events to stdout</td></tr>
+                  <tr><td><code>--dry-run</code></td><td>Show interpolated requests without sending</td></tr>
+                  <tr><td><code>--watch</code></td><td>Re-run on file changes</td></tr>
+                  <tr><td><code>--parallel</code></td><td>Run files in parallel</td></tr>
+                  <tr><td><code>-j, --jobs &lt;N&gt;</code></td><td>Number of parallel workers</td></tr>
+                  <tr><td><code>--insecure</code></td><td>Disable TLS verification</td></tr>
+                  <tr><td><code>--http1.1</code> / <code>--http2</code></td><td>Force HTTP version</td></tr>
+                  <tr><td><code>--proxy &lt;URL&gt;</code></td><td>Proxy URL</td></tr>
+                  <tr><td><code>--cacert &lt;FILE&gt;</code></td><td>Custom CA bundle</td></tr>
+                  <tr><td><code>--cert &lt;FILE&gt;</code> / <code>--key &lt;FILE&gt;</code></td><td>Client certificates</td></tr>
+                  <tr><td><code>--agent</code></td><td>Emit AgentReport JSON for MCP/automation</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run
+<span class="prompt">$</span> tarn run tests/users.tarn.yaml
+<span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">json</span> <span class="flag">--json-mode</span> <span class="value">compact</span>
+<span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">human</span> <span class="flag">--format</span> <span class="value">json=reports/run.json</span>
+<span class="prompt">$</span> tarn run <span class="flag">--tag</span> <span class="value">smoke</span>
+<span class="prompt">$</span> tarn run <span class="flag">--select</span> <span class="value">tests/users.tarn.yaml::login</span>
+<span class="prompt">$</span> tarn run <span class="flag">--ndjson</span>
+<span class="prompt">$</span> tarn run <span class="flag">--only-failed</span>
+<span class="prompt">$</span> tarn run <span class="flag">--watch</span>
+<span class="prompt">$</span> tarn run <span class="flag">--env</span> <span class="value">prod</span> <span class="flag">--var</span> <span class="value">base_url=https://api.example.com</span>
+<span class="prompt">$</span> tarn run <span class="flag">--parallel</span> <span class="flag">-j</span> <span class="value">4</span></pre>
+            </div>
+
+            <h2 id="tarn-validate">tarn validate</h2>
+            <p><strong>Purpose:</strong> Validate YAML syntax and schema without executing tests.</p>
+            <p><strong>Syntax:</strong> <code class="ic">tarn validate [PATH] [OPTIONS]</code></p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>[PATH]</code></td><td>File or directory to validate</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>human (default) or json</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn validate
+<span class="prompt">$</span> tarn validate tests/
+<span class="prompt">$</span> tarn validate <span class="flag">--format</span> <span class="value">json</span>
+<span class="prompt">$</span> tarn validate tests/users.tarn.yaml</pre>
+            </div>
+
+            <h2 id="tarn-fmt">tarn fmt</h2>
+            <p><strong>Purpose:</strong> Format test files into canonical YAML.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>[PATH]</code></td><td>File or directory to format</td></tr>
+                  <tr><td><code>--check</code></td><td>Check without writing (exits 1 on drift)</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn fmt tests/
+<span class="prompt">$</span> tarn fmt <span class="flag">--check</span> tests/
+<span class="prompt">$</span> tarn fmt tests/users.tarn.yaml</pre>
+            </div>
+
+            <h2 id="tarn-list">tarn list</h2>
+            <p><strong>Purpose:</strong> List all tests without executing.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--tag &lt;TAGS&gt;</code></td><td>Filter by tag</td></tr>
+                  <tr><td><code>--file &lt;FILE&gt;</code></td><td>Restrict to single file</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>human (default) or json</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn list
+<span class="prompt">$</span> tarn list <span class="flag">--format</span> <span class="value">json</span>
+<span class="prompt">$</span> tarn list <span class="flag">--tag</span> <span class="value">smoke</span>
+<span class="prompt">$</span> tarn list <span class="flag">--file</span> <span class="value">tests/users.tarn.yaml</span></pre>
+            </div>
+
+            <h2 id="tarn-init">tarn init</h2>
+            <p><strong>Purpose:</strong> Scaffold a new Tarn project with example files.</p>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn init
+<span class="prompt">$</span> tarn init my-project</pre>
+            </div>
+
+            <h2 id="tarn-env">tarn env</h2>
+            <p><strong>Purpose:</strong> Inspect resolved environment variables.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--json</code></td><td>JSON output</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn env
+<span class="prompt">$</span> tarn env <span class="flag">--json</span></pre>
+            </div>
+
+            <h2 id="tarn-lint">tarn lint</h2>
+            <p><strong>Purpose:</strong> Lint test files for reliability smells and correctness errors.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>[PATH]</code></td><td>File or directory to lint</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>human (default) or json</td></tr>
+                  <tr><td><code>--severity &lt;LEVEL&gt;</code></td><td>error, warning (default), info</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn lint
+<span class="prompt">$</span> tarn lint <span class="flag">--format</span> <span class="value">json</span>
+<span class="prompt">$</span> tarn lint <span class="flag">--severity</span> <span class="value">error</span></pre>
+            </div>
+
+            <h2 id="tarn-bench">tarn bench</h2>
+            <p><strong>Purpose:</strong> Benchmark a test step with concurrent requests.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>PATH</code></td><td>Test file (required)</td></tr>
+                  <tr><td><code>-n, --requests &lt;N&gt;</code></td><td>Total requests (default 100)</td></tr>
+                  <tr><td><code>-c, --concurrency &lt;N&gt;</code></td><td>Concurrent workers (default 10)</td></tr>
+                  <tr><td><code>--step &lt;INDEX&gt;</code></td><td>Step index to benchmark (default 0)</td></tr>
+                  <tr><td><code>--ramp-up &lt;DURATION&gt;</code></td><td>Ramp-up duration</td></tr>
+                  <tr><td><code>--fail-under-rps &lt;N&gt;</code></td><td>Fail if throughput below N req/s</td></tr>
+                  <tr><td><code>--fail-above-p95-ms &lt;N&gt;</code></td><td>Fail if p95 latency above N ms</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn bench tests/endpoint.tarn.yaml <span class="flag">-n</span> <span class="value">1000</span> <span class="flag">-c</span> <span class="value">20</span>
+<span class="prompt">$</span> tarn bench tests/endpoint.tarn.yaml <span class="flag">--step</span> <span class="value">0</span> <span class="flag">--format</span> <span class="value">json</span>
+<span class="prompt">$</span> tarn bench tests/endpoint.tarn.yaml <span class="flag">--fail-under-rps</span> <span class="value">500</span></pre>
+            </div>
+
+            <h2 id="tarn-failures">tarn failures</h2>
+            <p><strong>Purpose:</strong> Group failures from a prior run by root cause and suppress cascade noise.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--run &lt;ID&gt;</code></td><td>Run ID (or last/latest/prev)</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>human (default) or json</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn failures
+<span class="prompt">$</span> tarn failures <span class="flag">--run</span> <span class="value">last</span> <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2 id="tarn-rerun">tarn rerun</h2>
+            <p><strong>Purpose:</strong> Rerun only the failing subset of a prior run.</p>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn rerun <span class="flag">--failed</span>
+<span class="prompt">$</span> tarn rerun <span class="flag">--run</span> <span class="value">last</span> <span class="flag">--failed</span> <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2 id="tarn-inspect">tarn inspect</h2>
+            <p><strong>Purpose:</strong> Inspect a prior run's report at run/file/test/step level.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>run_id</code></td><td>Run ID (required positional)</td></tr>
+                  <tr><td><code>target</code></td><td>Optional drill-down: FILE, FILE::TEST, FILE::TEST::STEP</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn inspect last
+<span class="prompt">$</span> tarn inspect last tests/users.tarn.yaml::login
+<span class="prompt">$</span> tarn inspect last <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2 id="tarn-diff">tarn diff</h2>
+            <p><strong>Purpose:</strong> Compare two runs' summary and failure sets.</p>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn diff last prev
+<span class="prompt">$</span> tarn diff abc123 def456 <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2 id="tarn-report">tarn report</h2>
+            <p><strong>Purpose:</strong> Concise re-render of a prior run's persisted artifacts.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--run &lt;ID&gt;</code></td><td>Run ID</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>concise (default) or json</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="tarn-pack-context">tarn pack-context</h2>
+            <p><strong>Purpose:</strong> Pack a minimum remediation bundle for AI agents.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--run &lt;ID&gt;</code></td><td>Run ID</td></tr>
+                  <tr><td><code>--format &lt;FORMAT&gt;</code></td><td>json (default) or markdown</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="tarn-impact">tarn impact</h2>
+            <p><strong>Purpose:</strong> Map a code change to the Tarn tests most likely affected.</p>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn impact <span class="flag">--diff</span>
+<span class="prompt">$</span> tarn impact <span class="flag">--files</span> <span class="value">src/api/users.rs</span>
+<span class="prompt">$</span> tarn impact <span class="flag">--endpoints</span> <span class="value">"POST:/users"</span></pre>
+            </div>
+
+            <h2 id="tarn-scaffold">tarn scaffold</h2>
+            <p><strong>Purpose:</strong> Scaffold a minimal <code class="ic">.tarn.yaml</code> from OpenAPI specs or curl commands.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--from-openapi &lt;FILE&gt;</code></td><td>OpenAPI 3.x spec path</td></tr>
+                  <tr><td><code>--op-id &lt;ID&gt;</code></td><td>OperationId to scaffold</td></tr>
+                  <tr><td><code>--from-curl &lt;FILE&gt;</code></td><td>Curl command file</td></tr>
+                  <tr><td><code>--method &lt;METHOD&gt;</code></td><td>HTTP method</td></tr>
+                  <tr><td><code>--url &lt;URL&gt;</code></td><td>Request URL</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn scaffold <span class="flag">--from-openapi</span> <span class="value">spec.yaml</span> <span class="flag">--op-id</span> <span class="value">createUser</span>
+<span class="prompt">$</span> tarn scaffold <span class="flag">--from-curl</span> <span class="value">curl.txt</span>
+<span class="prompt">$</span> tarn scaffold <span class="flag">--method</span> <span class="value">GET</span> <span class="flag">--url</span> <span class="value">https://api.example.com/users</span></pre>
+            </div>
+
+            <h2 id="tarn-completions">tarn completions</h2>
+            <p><strong>Purpose:</strong> Generate shell completion scripts.</p>
+            <p><strong>Examples:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn completions bash
+<span class="prompt">$</span> tarn completions zsh
+<span class="prompt">$</span> tarn completions fish</pre>
+            </div>
+
+            <h2 id="tarn-update">tarn update</h2>
+            <p><strong>Purpose:</strong> Update Tarn to the latest version.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--check</code></td><td>Check for update without installing</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="tarn-summary">tarn summary</h2>
+            <p><strong>Purpose:</strong> Re-render a prior JSON report in LLM/compact format.</p>
+
+            <h2 id="tarn-import-hurl">tarn import-hurl</h2>
+            <p><strong>Purpose:</strong> Convert common-case <code class="ic">.hurl</code> files to Tarn YAML.</p>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#tarn-run"><strong>tarn run</strong><span>Execute test files</span></a>
+              <a class="sidebar-link" href="#tarn-validate"><strong>tarn validate</strong><span>Check YAML syntax</span></a>
+              <a class="sidebar-link" href="#tarn-fmt"><strong>tarn fmt</strong><span>Format test files</span></a>
+              <a class="sidebar-link" href="#tarn-list"><strong>tarn list</strong><span>List tests</span></a>
+              <a class="sidebar-link" href="#tarn-init"><strong>tarn init</strong><span>Scaffold project</span></a>
+              <a class="sidebar-link" href="#tarn-env"><strong>tarn env</strong><span>Inspect env vars</span></a>
+              <a class="sidebar-link" href="#tarn-lint"><strong>tarn lint</strong><span>Lint test files</span></a>
+              <a class="sidebar-link" href="#tarn-bench"><strong>tarn bench</strong><span>Benchmark steps</span></a>
+              <a class="sidebar-link" href="#tarn-failures"><strong>tarn failures</strong><span>Group failures</span></a>
+              <a class="sidebar-link" href="#tarn-rerun"><strong>tarn rerun</strong><span>Rerun failures</span></a>
+              <a class="sidebar-link" href="#tarn-inspect"><strong>tarn inspect</strong><span>Inspect runs</span></a>
+              <a class="sidebar-link" href="#tarn-diff"><strong>tarn diff</strong><span>Compare runs</span></a>
+              <a class="sidebar-link" href="#tarn-report"><strong>tarn report</strong><span>Re-render report</span></a>
+              <a class="sidebar-link" href="#tarn-pack-context"><strong>tarn pack-context</strong><span>Remediation bundle</span></a>
+              <a class="sidebar-link" href="#tarn-impact"><strong>tarn impact</strong><span>Map code changes</span></a>
+              <a class="sidebar-link" href="#tarn-scaffold"><strong>tarn scaffold</strong><span>Scaffold from specs</span></a>
+              <a class="sidebar-link" href="#tarn-completions"><strong>tarn completions</strong><span>Shell completions</span></a>
+              <a class="sidebar-link" href="#tarn-update"><strong>tarn update</strong><span>Update Tarn</span></a>
+              <a class="sidebar-link" href="#tarn-import-hurl"><strong>tarn import-hurl</strong><span>Convert .hurl</span></a>
+              <a class="sidebar-link" href="#tarn-summary"><strong>tarn summary</strong><span>Re-render report</span></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./ai-workflows.html">Next: AI Workflows</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

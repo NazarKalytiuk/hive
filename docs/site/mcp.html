@@ -19,12 +19,17 @@
         </a>
         <nav class="nav">
           <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
           <a href="./getting-started.html">Get Started</a>
-          <a href="./test-files.html">Test Files</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
           <a href="./ai-workflows.html">AI Workflows</a>
           <a href="./mcp.html" class="active">MCP</a>
           <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
           <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
           <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
@@ -61,7 +66,7 @@
             </div>
             <p>Commit this file and every contributor on the project picks up the same tool surface automatically.</p>
 
-            <h2>Available tools</h2>
+            <h2 id="tools">Available tools</h2>
             <ul>
               <li><code class="ic">tarn_list</code>: enumerate files and steps.</li>
               <li><code class="ic">tarn_validate</code>: catch syntax and config issues before execution.</li>
@@ -69,10 +74,118 @@
               <li><code class="ic">tarn_fix_plan</code>: prioritize failed steps and suggest next actions from the report. Shares its engine with the quick-fix code action in <a href="./tarn-lsp.html#code-actions">tarn-lsp</a>, so CLI agents and editor agents get the same remediation graph.</li>
             </ul>
 
-            <h2>Editor-specific fallbacks</h2>
-            <p>Prefer the portable <code class="ic">.mcp.json</code> above. If a client does not yet pick up project-level MCP files, each one ships its own JSON settings format &mdash; use the same <code class="ic">mcpServers</code> block inside the client's settings file (Claude Code's user-level <code class="ic">mcp.json</code>, Cursor's <code class="ic">~/.cursor/mcp.json</code>, Windsurf's MCP config) as a fallback.</p>
+            <h3 id="tarn_run"><code>tarn_run</code></h3>
+            <p>Execute tests and return structured JSON results.</p>
+            <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>path</code></td><td>string</td><td>No</td><td>workspace</td><td>Path to .tarn.yaml file or directory</td></tr>
+                <tr><td><code>tag</code></td><td>string</td><td>No</td><td>-</td><td>Filter by tag (comma-separated, AND)</td></tr>
+                <tr><td><code>env</code></td><td>string</td><td>No</td><td>-</td><td>Environment name (loads tarn.env.{name}.yaml)</td></tr>
+                <tr><td><code>vars</code></td><td>object</td><td>No</td><td>-</td><td>Variable overrides as key-value pairs</td></tr>
+              </tbody>
+            </table>
+            </div>
 
-            <h2>opencode</h2>
+            <h3 id="tarn_validate"><code>tarn_validate</code></h3>
+            <p>Validate .tarn.yaml files without executing.</p>
+            <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>path</code></td><td>string</td><td>Yes</td><td>-</td><td>Path to .tarn.yaml file or directory</td></tr>
+              </tbody>
+            </table>
+            </div>
+
+            <h3 id="tarn_list"><code>tarn_list</code></h3>
+            <p>List all available tests.</p>
+            <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>path</code></td><td>string</td><td>No</td><td>workspace</td><td>Path to directory</td></tr>
+              </tbody>
+            </table>
+            </div>
+
+            <h3 id="tarn_fix_plan"><code>tarn_fix_plan</code></h3>
+            <p>Analyze a failed report and return prioritized remediation.</p>
+            <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>path</code></td><td>string</td><td>No</td><td>-</td><td>Run tests first, then plan</td></tr>
+                <tr><td><code>tag</code></td><td>string</td><td>No</td><td>-</td><td>Tag filter when path is provided</td></tr>
+                <tr><td><code>env</code></td><td>string</td><td>No</td><td>-</td><td>Environment name when path is provided</td></tr>
+                <tr><td><code>vars</code></td><td>object</td><td>No</td><td>-</td><td>Variable overrides when path is provided</td></tr>
+                <tr><td><code>report</code></td><td>object</td><td>No</td><td>-</td><td>Pass a report directly</td></tr>
+                <tr><td><code>max_items</code></td><td>integer</td><td>No</td><td>all</td><td>Limit failing steps in the plan</td></tr>
+              </tbody>
+            </table>
+            </div>
+
+            <h2 id="portable-setup">Portable project setup</h2>
+            <p>See the <a href="#portable-setup">section above</a> for the portable <code>.mcp.json</code> approach. The following editor-specific configurations are fallbacks for clients that do not yet read the project-level file — use the same <code>mcpServers</code> block in each client's settings.</p>
+
+            <h2 id="claude-code">Claude Code</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre># Install tarn-mcp
+cargo install tarn-mcp</pre>
+            </div>
+            <p>Add to <code class="ic">.claude/settings.json</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"tarn"</span>: {
+      <span class="key">"command"</span>: <span class="str">"tarn-mcp"</span>,
+      <span class="key">"args"</span>: []
+    }
+  }
+}</pre>
+            </div>
+
+            <h2 id="cursor">Cursor</h2>
+            <p>Add to <code class="ic">~/.cursor/mcp.json</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"tarn"</span>: {
+      <span class="key">"command"</span>: <span class="str">"tarn-mcp"</span>,
+      <span class="key">"args"</span>: []
+    }
+  }
+}</pre>
+            </div>
+
+            <h2 id="windsurf">Windsurf</h2>
+            <p>Same <code class="ic">.mcp.json</code> configuration in the project root.</p>
+
+            <h2 id="opencode">opencode</h2>
             <p><a href="https://opencode.ai" target="_blank" rel="noopener">opencode</a> does not read <code class="ic">.mcp.json</code>. Use its native <code class="ic">opencode.jsonc</code> at the repo root &mdash; note the different schema shape (<code class="ic">mcp</code> instead of <code class="ic">mcpServers</code>, <code class="ic">type: "local"</code> for stdio, and a <code class="ic">command</code> array).</p>
             <div class="code-block">
               <div class="code-block__header">
@@ -93,7 +206,7 @@
             </div>
             <p>This repo commits a working <a href="https://github.com/NazarKalytiuk/hive/blob/main/opencode.jsonc" target="_blank" rel="noopener"><code class="ic">opencode.jsonc</code></a> at its root alongside a <code class="ic">.opencode/skills/tarn-api-testing/</code> symlink, so agents running <code class="ic">opencode</code> inside the Tarn repo get the full MCP + LSP + skill surface with no extra setup. See <a href="https://github.com/NazarKalytiuk/hive/blob/main/editors/opencode/README.md" target="_blank" rel="noopener"><code class="ic">editors/opencode/README.md</code></a> for the full install flow.</p>
 
-            <h2>Recommended loop</h2>
+            <h2 id="agent-loop">Recommended loop</h2>
             <ol>
               <li>Call <code class="ic">tarn_list</code> to get the suite shape.</li>
               <li>Edit or generate the Tarn YAML.</li>
@@ -101,6 +214,15 @@
               <li>Call <code class="ic">tarn_run</code>.</li>
               <li>Call <code class="ic">tarn_fix_plan</code> if the run failed and you want a prioritized debugging plan.</li>
             </ol>
+
+            <h3>Failures-first agent loop</h3>
+            <pre>1. tarn_list &rarr; discover tests
+2. Generate/edit YAML
+3. tarn_validate &rarr; catch syntax/config issues
+4. tarn_run &rarr; execute, inspect failure_category
+5. Check response body in failures to fix assertions
+6. tarn_fix_plan &rarr; structured remediation
+7. Fix and rerun until PASSED</pre>
 
             <h2>Why it beats shelling out</h2>
             <ul>
@@ -112,23 +234,18 @@
 
           <aside class="page__sidebar">
             <div class="sidebar-card">
-              <h3>Repository References</h3>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/MCP_WORKFLOW.md" target="_blank" rel="noopener">
-                <strong>MCP Workflow</strong>
-                <span>Canonical repo note</span>
-              </a>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/tree/main/tarn-mcp/src" target="_blank" rel="noopener">
-                <strong>tarn-mcp Source</strong>
-                <span>Implementation surface</span>
-              </a>
-              <a class="sidebar-link" href="./tarn-lsp.html">
-                <strong>tarn-lsp Guide</strong>
-                <span>Shared fix_plan engine</span>
-              </a>
-              <a class="sidebar-link" href="./ai-workflows.html">
-                <strong>AI Workflows</strong>
-                <span>JSON failure shape for agents</span>
-              </a>
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#tools"><strong>Available Tools</strong></a>
+              <a class="sidebar-link" href="#portable-setup"><strong>Portable Setup</strong></a>
+              <a class="sidebar-link" href="#claude-code"><strong>Claude Code</strong></a>
+              <a class="sidebar-link" href="#cursor"><strong>Cursor</strong></a>
+              <a class="sidebar-link" href="#opencode"><strong>opencode</strong></a>
+              <a class="sidebar-link" href="#agent-loop"><strong>Agent Loop</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./reference/mcp-tools.html"><strong>MCP Tools Reference</strong></a>
+              <a class="sidebar-link" href="./ai-workflows.html"><strong>AI Workflows</strong></a>
             </div>
           </aside>
         </div>
@@ -139,7 +256,8 @@
       <div class="site-footer__inner">
         <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
         <div class="footer__links">
-          <a href="./examples.html">Next: Examples</a>
+          <a href="./ai-workflows.html">Prev: AI Workflows</a>
+          <a href="./tarn-lsp.html">Next: LSP</a>
           <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
         </div>
       </div>

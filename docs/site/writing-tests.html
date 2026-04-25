@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; Writing Tests</title>
+    <meta name="description" content="Complete guide to writing Tarn test files: YAML format, requests, assertions, captures, variables, and more.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./writing-tests.html" class="active">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
+          <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Guide</span>
+          <h1>Writing Test Files</h1>
+          <p class="lead">Complete guide to Tarn's YAML test format: test file structure, requests, variables, assertions, captures, cookies, multipart, and includes.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+
+            <div class="toc">
+              <div class="toc__title">Contents</div>
+              <ol>
+                <li><a href="#test-file-format">Test File Format</a></li>
+                <li><a href="#requests">Requests</a></li>
+                <li><a href="#variables">Variables &amp; Interpolation</a></li>
+                <li><a href="#environment-files">Environment Files</a></li>
+                <li><a href="#captures">Captures</a></li>
+                <li><a href="#assertions">Assertions</a></li>
+                <li><a href="#builtins">Built-in Functions</a></li>
+                <li><a href="#cookies">Cookies</a></li>
+                <li><a href="#multipart">Multipart Upload</a></li>
+                <li><a href="#includes">Includes</a></li>
+              </ol>
+            </div>
+
+            <h2 id="test-file-format">1. Test File Format</h2>
+            <p>A <code class="ic">.tarn.yaml</code> file has this structure:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># yaml-language-server: $schema=https://raw.githubusercontent.com/NazarKalytiuk/hive/main/schemas/v1/testfile.json</span>
+<span class="key">name</span>: <span class="str">User API</span>
+<span class="key">description</span>: <span class="str">CRUD tests for the user endpoint</span>
+<span class="key">tags</span>: [<span class="str">smoke</span>, <span class="str">regression</span>]
+<span class="key">env</span>:
+  <span class="key">base_url</span>: <span class="str">"http://localhost:3000"</span>
+
+<span class="key">cookies</span>: <span class="str">"auto"</span>
+
+<span class="key">setup</span>:
+  - <span class="key">include</span>: <span class="str">./shared/auth.tarn.yaml</span>
+
+<span class="key">tests</span>:
+  - <span class="key">name</span>: <span class="str">Create user</span>
+    <span class="key">steps</span>:
+      - <span class="key">name</span>: <span class="str">POST /users</span>
+        <span class="key">request</span>:
+          <span class="key">method</span>: <span class="str">POST</span>
+          <span class="key">url</span>: <span class="str">"{{ env.base_url }}/users"</span>
+          <span class="key">headers</span>:
+            <span class="key">Content-Type</span>: <span class="str">"application/json"</span>
+          <span class="key">body</span>:
+            <span class="key">name</span>: <span class="str">"Jane Doe"</span>
+        <span class="key">capture</span>:
+          <span class="key">user_id</span>: <span class="str">"$.id"</span>
+        <span class="key">assert</span>:
+          <span class="key">status</span>: <span class="value">201</span>
+          <span class="key">body</span>:
+            <span class="str">"$.name"</span>: <span class="str">"Jane Doe"</span>
+
+<span class="key">teardown</span>:
+  - <span class="key">name</span>: <span class="str">Cleanup</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="str">DELETE</span>
+      <span class="key">url</span>: <span class="str">"{{ env.base_url }}/users/{{ capture.user_id }}"</span></pre>
+            </div>
+
+            <p><strong>Key structural elements:</strong></p>
+            <ul>
+              <li><code class="ic">name</code> &mdash; Suite name (recommended for readability)</li>
+              <li><code class="ic">description</code> &mdash; Optional suite description</li>
+              <li><code class="ic">tags</code> &mdash; Tags for filtering with <code class="ic">--tag</code></li>
+              <li><code class="ic">env</code> &mdash; Inline environment variables</li>
+              <li><code class="ic">cookies</code> &mdash; Cookie handling policy: "auto" (default), "off", or "per-test"</li>
+              <li><code class="ic">setup</code> &mdash; Steps run before all tests</li>
+              <li><code class="ic">teardown</code> &mdash; Steps run after all tests</li>
+              <li><code class="ic">tests</code> &mdash; Named test groups with their own steps</li>
+              <li><code class="ic">steps</code> &mdash; Flat (unnamed) steps (use this OR <code class="ic">tests</code>)</li>
+            </ul>
+
+            <div class="callout callout--info">
+              <div class="callout__title">Best practice</div>
+              <p>Use <code class="ic">tests</code> (named test groups) for most suites. Use flat <code class="ic">steps</code> for simple health-check files.</p>
+            </div>
+
+            <h2 id="requests">2. Requests</h2>
+            <p><strong>HTTP method and URL:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">GET</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/health"</span></pre>
+            </div>
+
+            <p><strong>With headers:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">POST</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/users"</span>
+  <span class="key">headers</span>:
+    <span class="key">Content-Type</span>: <span class="str">"application/json"</span>
+    <span class="key">Authorization</span>: <span class="str">"Bearer {{ capture.token }}"</span></pre>
+            </div>
+
+            <p><strong>JSON body:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">POST</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/users"</span>
+  <span class="key">body</span>:
+    <span class="key">name</span>: <span class="str">"Jane Doe"</span>
+    <span class="key">email</span>: <span class="str">"jane@example.com"</span>
+    <span class="key">role</span>: <span class="str">"admin"</span></pre>
+            </div>
+
+            <p><strong>Plain text body:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">POST</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/echo"</span>
+  <span class="key">headers</span>:
+    <span class="key">Content-Type</span>: <span class="str">"text/plain"</span>
+  <span class="key">body</span>: <span class="str">"Hello, world!"</span></pre>
+            </div>
+
+            <p><strong>Form-encoded body:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">POST</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/login"</span>
+  <span class="key">form</span>:
+    <span class="key">username</span>: <span class="str">"admin"</span>
+    <span class="key">password</span>: <span class="str">"secret123"</span></pre>
+            </div>
+
+            <p><strong>GraphQL:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">POST</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/graphql"</span>
+  <span class="key">graphql</span>:
+    <span class="key">query</span>: <span class="str">|
+      query GetUser($id: ID!) {
+        user(id: $id) { name email }
+      }</span>
+    <span class="key">variables</span>:
+      <span class="key">id</span>: <span class="str">"{{ capture.user_id }}"</span></pre>
+            </div>
+
+            <p><strong>Auth (Bearer token):</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">GET</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/protected"</span>
+  <span class="key">auth</span>:
+    <span class="key">bearer</span>: <span class="str">"{{ capture.token }}"</span></pre>
+            </div>
+
+            <p><strong>Auth (Basic):</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">request</span>:
+  <span class="key">method</span>: <span class="str">GET</span>
+  <span class="key">url</span>: <span class="str">"{{ env.base_url }}/basic-auth"</span>
+  <span class="key">auth</span>:
+    <span class="key">basic</span>:
+      <span class="key">username</span>: <span class="str">"admin"</span>
+      <span class="key">password</span>: <span class="str">"pass"</span></pre>
+            </div>
+
+            <p><strong>Query parameters</strong> are embedded in the URL:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">url</span>: <span class="str">"{{ env.base_url }}/users?page=1&amp;limit=50"</span></pre>
+            </div>
+
+            <p><strong>Request methods:</strong> Any valid HTTP method works: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, etc.</p>
+
+            <h2 id="variables">3. Variables &amp; Interpolation</h2>
+            <p>Variables are referenced with <code class="ic">{{ }}</code> syntax:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">url</span>: <span class="str">"{{ env.base_url }}/users/{{ capture.user_id }}"</span></pre>
+            </div>
+
+            <p><strong>Variable types:</strong></p>
+            <ul>
+              <li><code class="ic">{{ env.x }}</code> &mdash; Environment variable from any env source</li>
+              <li><code class="ic">{{ capture.x }}</code> &mdash; Captured value from a previous step</li>
+              <li><code class="ic">{{ params.x }}</code> &mdash; Parameter from an <code class="ic">include</code> directive</li>
+              <li><code class="ic">{{ $builtin }}</code> &mdash; Built-in function</li>
+            </ul>
+
+            <p><strong>Priority chain</strong> (highest to lowest):</p>
+            <ol>
+              <li><code class="ic">--var</code> flag (CLI)</li>
+              <li>Shell environment variables</li>
+              <li><code class="ic">tarn.env.local.yaml</code></li>
+              <li><code class="ic">tarn.env.{name}.yaml</code> (with <code class="ic">--env name</code>)</li>
+              <li><code class="ic">tarn.env.yaml</code></li>
+              <li>Inline <code class="ic">env:</code> block in the test file</li>
+            </ol>
+
+            <p><strong>Capture transforms</strong> (pipe syntax):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">url</span>: <span class="str">"{{ capture.tags | first }}"</span>
+<span class="key">url</span>: <span class="str">"{{ capture.tags | join('|') }}"</span>
+<span class="key">url</span>: <span class="str">"{{ capture.message | split(' ') | last }}"</span>
+<span class="key">url</span>: <span class="str">"{{ capture.count | to_int }}"</span>
+<span class="key">url</span>: <span class="str">"{{ capture.id | to_string }}"</span>
+<span class="key">url</span>: <span class="str">"{{ capture.text | replace('old', 'new') }}"</span></pre>
+            </div>
+
+            <p>Available transforms: <code class="ic">first</code>, <code class="ic">last</code>, <code class="ic">count</code>, <code class="ic">join(delimiter)</code>, <code class="ic">split(delimiter)</code>, <code class="ic">replace(from, to)</code>, <code class="ic">to_int</code>, <code class="ic">to_string</code>.</p>
+
+            <h2 id="environment-files">4. Environment Files</h2>
+            <p><strong>tarn.env.yaml</strong> (committed to repo, non-sensitive defaults):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">base_url</span>: <span class="str">"http://localhost:3000"</span>
+<span class="key">timeout</span>: <span class="value">10000</span></pre>
+            </div>
+
+            <p><strong>tarn.env.local.yaml</strong> (NOT committed, local overrides):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">base_url</span>: <span class="str">"http://localhost:3000"</span>
+<span class="key">api_key</span>: <span class="str">"local-dev-key-123"</span></pre>
+            </div>
+
+            <p><strong>Named environments</strong> (<code class="ic">tarn.env.prod.yaml</code>, <code class="ic">tarn.env.staging.yaml</code>):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># tarn.env.prod.yaml</span>
+<span class="key">base_url</span>: <span class="str">"https://api.example.com"</span>
+<span class="key">api_key</span>: <span class="str">"${PROD_API_KEY}"</span></pre>
+            </div>
+            <p>Run with: <code class="ic">tarn run --env prod</code></p>
+
+            <p><strong>Secrets management:</strong></p>
+            <ul>
+              <li>NEVER commit secrets to <code class="ic">tarn.env.yaml</code></li>
+              <li>Use <code class="ic">tarn.env.local.yaml</code> for local dev secrets (add to .gitignore)</li>
+              <li>Pass secrets via CI env vars or <code class="ic">--var</code></li>
+              <li>Reference shell env vars in YAML: use <code class="ic">$VAR_NAME</code> or <code class="ic">${VAR_NAME}</code> in values</li>
+            </ul>
+
+            <p><strong>Configuration</strong> (<code class="ic">tarn.config.yaml</code>):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">test_dir</span>: <span class="str">"tests"</span>
+<span class="key">timeout</span>: <span class="value">10000</span>
+<span class="key">retries</span>: <span class="value">0</span>
+<span class="key">parallel</span>: <span class="value">false</span>
+<span class="key">fail_fast_within_test</span>: <span class="value">false</span>
+<span class="key">faker</span>:
+  <span class="key">seed</span>: <span class="value">42</span></pre>
+            </div>
+
+            <h2 id="captures">5. Captures</h2>
+            <p>Captures extract values from responses for use in subsequent steps.</p>
+
+            <p><strong>JSONPath capture (shorthand):</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">capture</span>:
+  <span class="key">user_id</span>: <span class="str">"$.id"</span>
+  <span class="key">user_name</span>: <span class="str">"$.name"</span>
+  <span class="key">roles</span>: <span class="str">"$.roles[*].name"</span></pre>
+            </div>
+
+            <p><strong>Extended capture sources:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">capture</span>:
+  <span class="comment"># From response header</span>
+  <span class="key">session_id</span>:
+    <span class="key">header</span>: <span class="str">"set-cookie"</span>
+    <span class="key">regex</span>: <span class="str">"session=([^;]+)"</span>
+
+  <span class="comment"># From cookie</span>
+  <span class="key">auth_token</span>:
+    <span class="key">cookie</span>: <span class="str">"token"</span>
+
+  <span class="comment"># From whole body (text/HTML responses)</span>
+  <span class="key">page_content</span>:
+    <span class="key">body</span>: <span class="value">true</span>
+
+  <span class="comment"># From status code</span>
+  <span class="key">response_status</span>:
+    <span class="key">status</span>: <span class="value">true</span>
+
+  <span class="comment"># From final URL (after redirects)</span>
+  <span class="key">final_url</span>:
+    <span class="key">url</span>: <span class="value">true</span>
+
+  <span class="comment"># Explicit JSONPath</span>
+  <span class="key">created_at</span>:
+    <span class="key">jsonpath</span>: <span class="str">"$.createdAt"</span></pre>
+            </div>
+
+            <p><strong>Optional captures and defaults:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">capture</span>:
+  <span class="key">user_id</span>:
+    <span class="key">jsonpath</span>: <span class="str">"$.id"</span>
+    <span class="key">optional</span>: <span class="value">true</span>
+    <span class="key">default</span>: <span class="str">"fallback-id"</span></pre>
+            </div>
+
+            <p><strong>Status-gated captures:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">capture</span>:
+  <span class="key">user_id</span>:
+    <span class="key">jsonpath</span>: <span class="str">"$.id"</span>
+    <span class="key">when</span>:
+      <span class="key">status</span>: <span class="value">201</span></pre>
+            </div>
+
+            <p><strong>Type-preserving behavior:</strong> Numbers are captured as numbers, booleans as booleans, strings as strings. JSONPath capture preserves the JSON type of the matched value.</p>
+
+            <div class="callout callout--warning">
+              <div class="callout__title">Common mistakes</div>
+              <ul>
+                <li>JSONPath <code class="ic">$.id</code> on an array response &mdash; use <code class="ic">$[0].id</code> or <code class="ic">$[?(@.name=="Alice")].id</code></li>
+                <li>Header names are case-insensitive in lookup but should match the actual header name</li>
+                <li><code class="ic">regex:</code> uses capture group 1 &mdash; make sure your regex has a capturing group in parentheses</li>
+              </ul>
+            </div>
+
+            <h2 id="assertions">6. Assertions</h2>
+            <p>Full reference: <a href="./reference/assertions.html">Assertion Operators Reference</a></p>
+
+            <p><strong>Status assertions:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">status</span>: <span class="value">200</span>       <span class="comment"># exact</span>
+  <span class="key">status</span>: <span class="str">"2xx"</span>      <span class="comment"># any 2xx</span>
+  <span class="key">status</span>: { <span class="key">in</span>: [<span class="value">200</span>, <span class="value">201</span>, <span class="value">204</span>] }
+  <span class="key">status</span>: { <span class="key">gte</span>: <span class="value">200</span>, <span class="key">lt</span>: <span class="value">300</span> }</pre>
+            </div>
+
+            <p><strong>Body assertions via JSONPath:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">body</span>:
+    <span class="str">"$.name"</span>: <span class="str">"Jane Doe"</span>                        <span class="comment"># exact match</span>
+    <span class="str">"$.id"</span>: { <span class="key">type</span>: <span class="str">string</span>, <span class="key">not_empty</span>: <span class="value">true</span> }   <span class="comment"># multiple operators (AND)</span>
+    <span class="str">"$.email"</span>: { <span class="key">contains</span>: <span class="str">"@"</span> }                <span class="comment"># substring</span>
+    <span class="str">"$.role"</span>: { <span class="key">in</span>: [<span class="str">"admin"</span>, <span class="str">"user"</span>] }         <span class="comment"># value in list</span>
+    <span class="str">"$.createdAt"</span>: { <span class="key">is_date</span>: <span class="value">true</span> }            <span class="comment"># format validator</span>
+    <span class="str">"$.count"</span>: { <span class="key">gt</span>: <span class="value">0</span> }                        <span class="comment"># numeric comparison</span>
+    <span class="str">"$.tags"</span>: { <span class="key">length</span>: <span class="value">3</span> }                     <span class="comment"># array length</span>
+    <span class="str">"$.id"</span>: { <span class="key">is_uuid</span>: <span class="value">true</span> }                   <span class="comment"># UUID format</span></pre>
+            </div>
+
+            <p><strong>Header assertions:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">headers</span>:
+    <span class="key">content-type</span>: <span class="str">"application/json"</span>
+    <span class="key">x-request-id</span>: { <span class="key">matches</span>: <span class="str">"^[a-f0-9-]+$"</span> }</pre>
+            </div>
+
+            <p><strong>Duration assertions:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">duration</span>: <span class="str">"&lt; 500ms"</span>
+  <span class="key">duration</span>: <span class="str">"&lt;= 1s"</span>
+  <span class="key">duration</span>: <span class="str">"&gt; 200ms"</span></pre>
+            </div>
+
+            <p><strong>Plain text / HTML response:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">body</span>:
+    <span class="str">"$"</span>: <span class="str">"expected plain text"</span>
+    <span class="str">"$"</span>: { <span class="key">contains</span>: <span class="str">"partial match"</span> }</pre>
+            </div>
+
+            <p>Detailed reference of all 30+ assertion operators is on the <a href="./reference/assertions.html">Assertion Operators Reference</a> page.</p>
+
+            <h2 id="builtins">7. Built-in Functions</h2>
+            <p>Full reference: <a href="./reference/builtins.html">Built-in Functions Reference</a></p>
+
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">body</span>:
+  <span class="key">idempotency_key</span>: <span class="str">"{{ $uuid }}"</span>
+  <span class="key">transaction_id</span>: <span class="str">"{{ $uuid_v7 }}"</span>
+  <span class="key">name</span>: <span class="str">"{{ $name }}"</span>
+  <span class="key">email</span>: <span class="str">"{{ $email }}"</span>
+  <span class="key">random_tag</span>: <span class="str">"{{ $random_hex(8) }}"</span>
+  <span class="key">count</span>: <span class="str">"{{ $random_int(1, 100) }}"</span>
+  <span class="key">role</span>: <span class="str">"{{ $choice(admin, user, viewer) }}"</span>
+  <span class="key">slug</span>: <span class="str">"{{ $slug }}"</span>
+  <span class="key">timestamp</span>: <span class="str">"{{ $now_iso }}"</span></pre>
+            </div>
+
+            <p><strong>Deterministic seeding:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="value">TARN_FAKER_SEED=42 tarn run</span></pre>
+            </div>
+            <p>Or in <code class="ic">tarn.config.yaml</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">faker</span>:
+  <span class="key">seed</span>: <span class="value">42</span></pre>
+            </div>
+
+            <p>See <a href="./reference/builtins.html">Built-in Functions Reference</a> for the full list.</p>
+
+            <h2 id="cookies">8. Cookies</h2>
+            <p>Automatic cookie handling is ON by default:</p>
+            <ul>
+              <li><code class="ic">Set-Cookie</code> headers are captured automatically</li>
+              <li><code class="ic">Cookie</code> headers are sent on subsequent requests</li>
+              <li>The cookie jar is shared across all steps in the file</li>
+            </ul>
+
+            <p><strong>Disable cookies:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">cookies</span>: <span class="str">"off"</span></pre>
+            </div>
+
+            <p><strong>Named cookie jars</strong> (for multi-user sessions):</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">tests</span>:
+  - <span class="key">name</span>: <span class="str">Admin session</span>
+    <span class="key">steps</span>:
+      - <span class="key">name</span>: <span class="str">Login as admin</span>
+        <span class="key">request</span>:
+          <span class="key">method</span>: <span class="str">POST</span>
+          <span class="key">url</span>: <span class="str">"{{ env.base_url }}/login"</span>
+          <span class="key">body</span>: { <span class="key">username</span>: <span class="str">"admin"</span>, <span class="key">password</span>: <span class="str">"admin123"</span> }
+        <span class="key">cookies</span>: <span class="str">"admin"</span>
+      - <span class="key">name</span>: <span class="str">Admin action</span>
+        <span class="key">request</span>:
+          <span class="key">method</span>: <span class="str">GET</span>
+          <span class="key">url</span>: <span class="str">"{{ env.base_url }}/admin/dashboard"</span>
+        <span class="key">cookies</span>: <span class="str">"admin"</span>
+
+  - <span class="key">name</span>: <span class="str">User session</span>
+    <span class="key">steps</span>:
+      - <span class="key">name</span>: <span class="str">Login as user</span>
+        <span class="key">request</span>:
+          <span class="key">method</span>: <span class="str">POST</span>
+          <span class="key">url</span>: <span class="str">"{{ env.base_url }}/login"</span>
+          <span class="key">body</span>: { <span class="key">username</span>: <span class="str">"user"</span>, <span class="key">password</span>: <span class="str">"user123"</span> }
+        <span class="key">cookies</span>: <span class="str">"user"</span></pre>
+            </div>
+
+            <p><strong>Per-step override:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="str">No cookies for this step</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="str">GET</span>
+      <span class="key">url</span>: <span class="str">"{{ env.base_url }}/public"</span>
+    <span class="key">cookies</span>: <span class="str">"off"</span></pre>
+            </div>
+
+            <p><strong>Per-test reset:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">cookies</span>: <span class="str">"per-test"</span></pre>
+            </div>
+
+            <h2 id="multipart">9. Multipart Upload</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="str">Upload file</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="str">POST</span>
+      <span class="key">url</span>: <span class="str">"{{ env.base_url }}/upload"</span>
+      <span class="key">multipart</span>:
+        <span class="key">fields</span>:
+          - <span class="key">name</span>: <span class="str">"title"</span>
+            <span class="key">value</span>: <span class="str">"My Photo"</span>
+          - <span class="key">name</span>: <span class="str">"description"</span>
+            <span class="key">value</span>: <span class="str">"A sample image upload"</span>
+        <span class="key">files</span>:
+          - <span class="key">name</span>: <span class="str">"file"</span>
+            <span class="key">path</span>: <span class="str">"./fixtures/test.jpg"</span>
+            <span class="key">content_type</span>: <span class="str">"image/jpeg"</span>
+          - <span class="key">name</span>: <span class="str">"thumbnail"</span>
+            <span class="key">path</span>: <span class="str">"./fixtures/thumb.png"</span>
+            <span class="key">content_type</span>: <span class="str">"image/png"</span>
+      <span class="key">headers</span>:
+        <span class="key">Authorization</span>: <span class="str">"Bearer {{ capture.token }}"</span></pre>
+            </div>
+
+            <p><strong>Field reference:</strong></p>
+            <ul>
+              <li><code class="ic">fields</code> &mdash; Array of text fields with <code class="ic">name</code> and <code class="ic">value</code></li>
+              <li><code class="ic">files</code> &mdash; Array of file uploads with <code class="ic">name</code>, <code class="ic">path</code> (relative to test file), and optional <code class="ic">content_type</code></li>
+            </ul>
+
+            <div class="callout callout--warning">
+              <div class="callout__title">Common mistakes</div>
+              <ul>
+                <li>File paths are relative to the test file, NOT the working directory</li>
+                <li>Missing <code class="ic">content_type</code> defaults to <code class="ic">application/octet-stream</code></li>
+                <li>File must exist at the specified path</li>
+              </ul>
+            </div>
+
+            <h2 id="includes">10. Includes</h2>
+            <p>Share reusable steps across test files:</p>
+
+            <p><strong>shared/auth.tarn.yaml:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">name</span>: <span class="str">Auth</span>
+<span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="str">Login</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="str">POST</span>
+      <span class="key">url</span>: <span class="str">"{{ env.base_url }}/auth/login"</span>
+      <span class="key">body</span>:
+        <span class="key">username</span>: <span class="str">"{{ params.username }}"</span>
+        <span class="key">password</span>: <span class="str">"{{ params.password }}"</span>
+    <span class="key">capture</span>:
+      <span class="key">token</span>: <span class="str">"$.token"</span>
+    <span class="key">assert</span>:
+      <span class="key">status</span>: <span class="value">200</span>
+      <span class="key">body</span>:
+        <span class="str">"$.token"</span>: { <span class="key">not_empty</span>: <span class="value">true</span> }</pre>
+            </div>
+
+            <p><strong>Usage in a test file:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">setup</span>:
+  - <span class="key">include</span>: <span class="str">./shared/auth.tarn.yaml</span>
+    <span class="key">with</span>:
+      <span class="key">username</span>: <span class="str">"admin"</span>
+      <span class="key">password</span>: <span class="str">"{{ env.admin_password }}"</span>
+
+<span class="key">tests</span>:
+  - <span class="key">name</span>: <span class="str">Authenticated flow</span>
+    <span class="key">steps</span>:
+      - <span class="key">name</span>: <span class="str">Get profile</span>
+        <span class="key">request</span>:
+          <span class="key">method</span>: <span class="str">GET</span>
+          <span class="key">url</span>: <span class="str">"{{ env.base_url }}/profile"</span>
+          <span class="key">auth</span>:
+            <span class="key">bearer</span>: <span class="str">"{{ capture.token }}"</span>
+        <span class="key">assert</span>:
+          <span class="key">status</span>: <span class="value">200</span></pre>
+            </div>
+
+            <p><strong>Include placement:</strong></p>
+            <ul>
+              <li>In <code class="ic">setup</code> &mdash; for shared auth, data seeding</li>
+              <li>In <code class="ic">teardown</code> &mdash; for shared cleanup</li>
+              <li>In <code class="ic">steps</code> / <code class="ic">tests</code> &mdash; for reusable request patterns</li>
+            </ul>
+
+            <p><strong>Parameters:</strong> Use <code class="ic">with:</code> to pass <code class="ic">{{ params.x }}</code> values to the included file.</p>
+            <p><strong>Override:</strong> Use <code class="ic">override:</code> to override env/cookies/defaults from the included file.</p>
+
+            <p><strong>Folder structure best practice:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">tests</span>/
+  <span class="key">health</span>.tarn.yaml
+  <span class="key">users</span>.tarn.yaml
+<span class="key">shared</span>/
+  <span class="key">auth</span>.tarn.yaml
+  <span class="key">cleanup</span>.tarn.yaml</pre>
+            </div>
+
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#test-file-format"><strong>Test File Format</strong></a>
+              <a class="sidebar-link" href="#requests"><strong>Requests</strong></a>
+              <a class="sidebar-link" href="#variables"><strong>Variables &amp; Interpolation</strong></a>
+              <a class="sidebar-link" href="#environment-files"><strong>Environment Files</strong></a>
+              <a class="sidebar-link" href="#captures"><strong>Captures</strong></a>
+              <a class="sidebar-link" href="#assertions"><strong>Assertions</strong></a>
+              <a class="sidebar-link" href="#builtins"><strong>Built-in Functions</strong></a>
+              <a class="sidebar-link" href="#cookies"><strong>Cookies</strong></a>
+              <a class="sidebar-link" href="#multipart"><strong>Multipart Upload</strong></a>
+              <a class="sidebar-link" href="#includes"><strong>Includes</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Quick References</h3>
+              <a class="sidebar-link" href="./reference/assertions.html"><strong>Assertion Operators</strong></a>
+              <a class="sidebar-link" href="./reference/builtins.html"><strong>Built-in Functions</strong></a>
+              <a class="sidebar-link" href="./reference/yaml-format.html"><strong>YAML Format</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./cli-reference.html">Next: CLI Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

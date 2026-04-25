@@ -19,12 +19,17 @@
         </a>
         <nav class="nav">
           <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
           <a href="./getting-started.html" class="active">Get Started</a>
-          <a href="./test-files.html">Test Files</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
           <a href="./ai-workflows.html">AI Workflows</a>
           <a href="./mcp.html">MCP</a>
           <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
           <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
           <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
@@ -55,6 +60,107 @@
 <span class="prompt">$</span> cargo install --git https://github.com/NazarKalytiuk/hive.git --bin tarn</pre>
             </div>
 
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># macOS / Linux</span>
+<span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/NazarKalytiuk/hive/main/install.sh | sh
+
+<span class="comment"># From source with cargo</span>
+<span class="prompt">$</span> cargo install --git https://github.com/NazarKalytiuk/hive.git --bin tarn
+
+<span class="comment"># Also install companion tools</span>
+<span class="prompt">$</span> cargo install tarn-mcp
+<span class="prompt">$</span> cargo install tarn-lsp</pre>
+            </div>
+
+            <h2>Verify installation</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn --version
+<span class="prompt">$</span> which tarn
+<span class="prompt">$</span> tarn help</pre>
+            </div>
+
+            <h2>PATH troubleshooting</h2>
+            <p>If <code class="ic">tarn: command not found</code> appears after installation:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> export PATH="$HOME/.cargo/bin:$PATH"
+<span class="comment"># Add to ~/.zshrc or ~/.bashrc</span>
+<span class="prompt">$</span> echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc</pre>
+            </div>
+
+            <h2>Quick start</h2>
+            <p>Create <code class="ic">tests/health.tarn.yaml</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">name</span>: <span class="value">Health check</span>
+<span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="value">GET /health</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="value">GET</span>
+      <span class="key">url</span>: <span class="value">"{{ env.base_url }}/health"</span>
+    <span class="key">assert</span>:
+      <span class="key">status</span>: <span class="value">200</span></pre>
+            </div>
+            <p>Set <code class="ic">base_url</code> in <code class="ic">tarn.env.yaml</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">base_url</span>: <span class="value">"http://localhost:3000"</span></pre>
+            </div>
+
+            <h2>Run tests</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># Run all tests</span>
+<span class="prompt">$</span> tarn run
+
+<span class="comment"># Run specific file</span>
+<span class="prompt">$</span> tarn run tests/health.tarn.yaml
+
+<span class="comment"># Validate before run</span>
+<span class="prompt">$</span> tarn validate
+<span class="prompt">$</span> tarn validate <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2>JSON output</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">json</span>
+<span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">json</span> <span class="flag">--json-mode</span> <span class="value">compact</span></pre>
+            </div>
+
+            <h2>Understanding output</h2>
+            <p>A passed test shows a green status; a failed test shows red with details about what went wrong. The JSON format returns structured data including <code class="ic">failure_category</code>, <code class="ic">assertions.failures</code>, and the full <code class="ic">request</code> and <code class="ic">response</code> payloads for failed steps, making it easy to integrate with CI pipelines and automated tooling.</p>
+
             <h2>Scaffold a project</h2>
             <div class="code-block">
               <div class="code-block__header">
@@ -64,7 +170,7 @@
               </div>
               <pre><span class="prompt">$</span> tarn init</pre>
             </div>
-            <p>The scaffold keeps the default <code class="ic">tests/health.tarn.yaml</code> runnable, and puts heavier auth, polling, multipart, and multi-user examples under <code class="ic">examples/</code> so your first <code class="ic">tarn run</code> does not immediately depend on app-specific endpoints.</p>
+            <p>Run <code class="ic">tarn init</code> to generate the standard project layout including a runnable health check, environment template, and example files. The scaffold keeps the default <code class="ic">tests/health.tarn.yaml</code> runnable, and puts heavier auth, polling, multipart, and multi-user examples under <code class="ic">examples/</code> so your first <code class="ic">tarn run</code> does not immediately depend on app-specific endpoints.</p>
 
             <h2>Core loop</h2>
             <div class="code-block">
@@ -122,26 +228,31 @@
               <li><strong><a href="./tarn-lsp.html#zed">Zed</a></strong> and <strong><a href="./tarn-lsp.html#emacs">Emacs</a></strong> (<code class="ic">eglot</code>&nbsp;/&nbsp;<code class="ic">lsp-mode</code>) &mdash; point at <code class="ic">tarn-lsp</code> on <code class="ic">$PATH</code>.</li>
             </ul>
             <p>Full feature list, recipes, and the <code class="ic">tarn.evaluateJsonpath</code> command reference live on the <a href="./tarn-lsp.html">tarn-lsp page</a>.</p>
+
+            <h2>Next steps</h2>
+            <p>Once you&rsquo;re comfortable with running tests, explore:</p>
+            <ul>
+              <li>Writing complex test files with captures and assertions</li>
+              <li>Using environment files for different deployments</li>
+              <li>Setting up CI integration</li>
+              <li>Integrating with MCP for AI-assisted test development</li>
+            </ul>
           </article>
 
           <aside class="page__sidebar">
             <div class="sidebar-card">
               <h3>Quick Links</h3>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/INDEX.md" target="_blank" rel="noopener">
-                <strong>Docs Index</strong>
-                <span>Canonical markdown docs</span>
+              <a class="sidebar-link" href="./overview.html">
+                <strong>Overview</strong><span>What is Tarn</span>
               </a>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/README.md" target="_blank" rel="noopener">
-                <strong>README</strong>
-                <span>Full repo reference</span>
+              <a class="sidebar-link" href="./writing-tests.html">
+                <strong>Writing Tests</strong><span>Full test format guide</span>
+              </a>
+              <a class="sidebar-link" href="./cli-reference.html">
+                <strong>CLI Reference</strong><span>All commands</span>
               </a>
               <a class="sidebar-link" href="./examples.html">
-                <strong>Example Corpus</strong>
-                <span>Runnable suites and templates</span>
-              </a>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/TARN_LSP.md" target="_blank" rel="noopener">
-                <strong>tarn-lsp Spec</strong>
-                <span>Editor language server</span>
+                <strong>Examples</strong><span>Runnable suites</span>
               </a>
             </div>
           </aside>
@@ -153,7 +264,8 @@
       <div class="site-footer__inner">
         <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
         <div class="footer__links">
-          <a href="./test-files.html">Next: Test Files</a>
+          <a href="./overview.html">Prev: Overview</a>
+          <a href="./writing-tests.html">Next: Writing Tests</a>
           <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
         </div>
       </div>

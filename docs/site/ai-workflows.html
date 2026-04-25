@@ -19,12 +19,17 @@
         </a>
         <nav class="nav">
           <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
           <a href="./getting-started.html">Get Started</a>
-          <a href="./test-files.html">Test Files</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
           <a href="./ai-workflows.html" class="active">AI Workflows</a>
           <a href="./mcp.html">MCP</a>
           <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
           <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
           <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           </a>
@@ -57,6 +62,122 @@
               <li><strong>Compact JSON</strong>: slimmer payload for LLM and automation loops.</li>
               <li><strong>curl export</strong>: replays failed or full-suite requests without re-reading YAML.</li>
             </ul>
+
+            <h3>JSON report structure</h3>
+            <p>The JSON output from <code class="ic">tarn run --format json</code> has this structure:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  "schema_version": 1,
+  "summary": {
+    "status": "PASSED",
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  },
+  "files": [
+    {
+      "file": "tests/users.tarn.yaml",
+      "tests": [
+        {
+          "name": "User API",
+          "status": "FAILED",
+          "steps": [
+            {
+              "name": "Create user",
+              "status": "FAILED",
+              "failure_category": "assertion_failed",
+              "assertions": {
+                "failures": [
+                  {
+                    "assertion": "status",
+                    "expected": "201",
+                    "actual": "400",
+                    "message": "Expected status 201, got 400"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}</pre>
+            </div>
+
+            <h3>Failure categories</h3>
+            <p>Every failed step includes a <code class="ic">failure_category</code> field:</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Meaning</th>
+                    <th>How to fix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code class="ic">assertion_failed</code></td>
+                    <td>Request succeeded, assertion mismatch</td>
+                    <td>Adjust assertion to match real response</td>
+                  </tr>
+                  <tr>
+                    <td><code class="ic">connection_error</code></td>
+                    <td>DNS/TLS/connect failure before response</td>
+                    <td>Verify server is running and reachable</td>
+                  </tr>
+                  <tr>
+                    <td><code class="ic">timeout</code></td>
+                    <td>Exceeded allowed time</td>
+                    <td>Increase timeout, use polling</td>
+                  </tr>
+                  <tr>
+                    <td><code class="ic">parse_error</code></td>
+                    <td>Invalid YAML or schema</td>
+                    <td>Fix YAML, run tarn validate</td>
+                  </tr>
+                  <tr>
+                    <td><code class="ic">capture_error</code></td>
+                    <td>Assertions passed, capture extraction failed</td>
+                    <td>Update JSONPath, use optional/default</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3>How an agent should process failures</h3>
+            <ol>
+              <li>Check <code class="ic">summary.status</code> &mdash; if PASSED, done</li>
+              <li>For FAILED, iterate <code class="ic">files[].tests[].steps[]</code></li>
+              <li>Check <code class="ic">failure_category</code> FIRST (not the message string)</li>
+              <li>If <code class="ic">assertion_failed</code>: read <code class="ic">response.body</code>, compare with expected, adjust</li>
+              <li>If <code class="ic">connection_error</code>: check <code class="ic">request.url</code> for correct endpoint</li>
+              <li>If <code class="ic">capture_error</code>: verify JSONPath against response body</li>
+              <li>If <code class="ic">parse_error</code>: run <code class="ic">tarn_validate</code> for details</li>
+            </ol>
+
+            <h3>Using the fix plan</h3>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">#</span> Get structured remediation
+tarn_fix_plan(report: failedReport)</pre>
+            </div>
+            <p>Returns prioritized next actions per failed step.</p>
+
+            <h3>JSON output modes</h3>
+            <p>Verbose mode (default): full assertion details, all passes and failures</p>
+            <p>Compact mode (<code class="ic">--json-mode compact</code>): drops passed assertion details, truncates bodies to ~200 chars</p>
+            <p>Agent mode (<code class="ic">--agent</code>): compact root-cause-first AgentReport JSON for MCP/automation clients</p>
 
             <h2>Fields that matter in the retry loop</h2>
             <ul>
@@ -92,31 +213,11 @@
 
           <aside class="page__sidebar">
             <div class="sidebar-card">
-              <h3>Related Material</h3>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/docs/AI_WORKFLOW_DEMO.md" target="_blank" rel="noopener">
-                <strong>AI Workflow Demo</strong>
-                <span>Text-first walkthrough</span>
-              </a>
-              <a class="sidebar-link" href="https://github.com/NazarKalytiuk/hive/blob/main/schemas/v1/report.json" target="_blank" rel="noopener">
-                <strong>Report Schema</strong>
-                <span>Exact JSON contract</span>
-              </a>
-              <a class="sidebar-link" href="./tarn-lsp.html">
-                <strong>tarn-lsp Guide</strong>
-                <span>Language server capabilities</span>
-              </a>
-              <a class="sidebar-link" href="./tarn-lsp.html#claude-code">
-                <strong>Claude Code Plugin</strong>
-                <span>tarn-lsp in Claude Code</span>
-              </a>
-              <a class="sidebar-link" href="./tarn-lsp.html#vscode">
-                <strong>VS Code Extension</strong>
-                <span>Test explorer and live streaming</span>
-              </a>
-              <a class="sidebar-link" href="./mcp.html">
-                <strong>MCP Guide</strong>
-                <span>Structured tools instead of shelling out</span>
-              </a>
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./reference/json-report.html"><strong>JSON Report Format</strong><span>Report schema details</span></a>
+              <a class="sidebar-link" href="./reference/failure-categories.html"><strong>Failure Categories</strong><span>Full reference</span></a>
+              <a class="sidebar-link" href="./mcp.html"><strong>MCP Guide</strong><span>Structured tools</span></a>
+              <a class="sidebar-link" href="./tarn-lsp.html"><strong>tarn-lsp Guide</strong><span>Editor integration</span></a>
             </div>
           </aside>
         </div>
@@ -127,7 +228,8 @@
       <div class="site-footer__inner">
         <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
         <div class="footer__links">
-          <a href="./mcp.html">Next: MCP Integration</a>
+          <a href="./cli-reference.html">Prev: CLI Reference</a>
+          <a href="./mcp.html">Next: MCP</a>
           <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
         </div>
       </div>

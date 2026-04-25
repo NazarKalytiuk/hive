@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; Troubleshooting</title>
+    <meta name="description" content="Common Tarn issues and their fixes.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html">CI</a>
+          <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html" class="active">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Troubleshooting</span>
+          <h1>Common issues and how to fix them.</h1>
+          <p class="lead">Diagnose and fix common Tarn issues, from missing binaries to assertion mismatches.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="binary-not-found">Binary not found / PATH issues</h2>
+            <p><strong>Problem:</strong> <code class="ic">tarn: command not found</code> after installation.</p>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Add Cargo bin to PATH</span>
+<span class="prompt">$</span> <span class="value">export PATH="$HOME/.cargo/bin:$PATH"</span>
+<span class="prompt">$</span> <span class="comment"># Verify</span>
+<span class="prompt">$</span> which tarn
+<span class="prompt">$</span> tarn --version</pre>
+            </div>
+            <div class="callout callout--info">
+              <div class="callout__title">Check install.sh path</div>
+              <p>The installer puts binaries in <code class="ic">~/.cargo/bin/</code>. Add this to your <code class="ic">.bashrc</code>, <code class="ic">.zshrc</code>, or <code class="ic">.profile</code>.</p>
+            </div>
+
+            <h2 id="yaml-parse-errors">YAML parse errors</h2>
+            <p><strong>Problem:</strong> <code class="ic">tarn validate</code> reports YAML syntax errors.</p>
+            <p><strong>Common causes:</strong></p>
+            <ul>
+              <li>Mixed tabs and spaces (use spaces only)</li>
+              <li>Wrong indentation (YAML uses 2-space indents)</li>
+              <li>Missing <code class="ic">:</code> after key names</li>
+              <li>Quote issues: use double quotes for strings with <code class="ic">{{ }}</code></li>
+            </ul>
+            <p><strong>Fix:</strong> Run <code class="ic">tarn fmt</code> to normalize formatting, then <code class="ic">tarn validate</code> again:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn fmt tests/
+<span class="prompt">$</span> tarn validate</pre>
+            </div>
+
+            <h2 id="unresolved-interpolation">Unresolved <code class="ic">{{ ... }}</code> interpolation</h2>
+            <p><strong>Problem:</strong> The URL or body shows <code class="ic">{{ env.base_url }}</code> literally in the request instead of being resolved (or the agent/report shows unresolved mustache templates).</p>
+            <p><strong>Diagnosis:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Check resolved environment</span>
+<span class="prompt">$</span> tarn env --json</pre>
+            </div>
+            <p><strong>Causes:</strong></p>
+            <ul>
+              <li>Missing env key in tarn.env.yaml</li>
+              <li>Typo in variable name (e.g., <code class="ic">{{ env.bae_url }}</code>)</li>
+              <li>Variable not in scope (e.g., <code class="ic">{{ capture.x }}</code> before it's captured)</li>
+            </ul>
+            <p><strong>Fix:</strong> Verify the key exists in one of the env sources. Check the priority chain: <code class="ic">--var</code> &gt; shell env &gt; <code class="ic">tarn.env.local.yaml</code> &gt; <code class="ic">tarn.env.{name}.yaml</code> &gt; <code class="ic">tarn.env.yaml</code> &gt; inline <code class="ic">env:</code>.</p>
+
+            <h2 id="jsonpath-not-finding-field">JSONPath not finding field</h2>
+            <p><strong>Problem:</strong> <code class="ic">$.id</code> returns no match from the response body.</p>
+            <p><strong>Fix:</strong> Use the JSONPath evaluator to test:</p>
+            <ul>
+              <li>In <code class="ic">tarn-lsp</code>, hover over the JSONPath to evaluate against recorded responses</li>
+              <li>Use the <code class="ic">workspace/executeCommand</code> with <code class="ic">tarn.evaluateJsonpath</code></li>
+              <li>Check if the response body is actually JSON (some APIs return plain text for errors)</li>
+            </ul>
+            <p><strong>Common issues:</strong></p>
+            <ul>
+              <li>Response is an array, not an object: use <code class="ic">$[0].id</code> or <code class="ic">$[?(@.name=="Alice")].id</code></li>
+              <li>Response is wrapped in a different structure</li>
+              <li>The field is nested differently than expected</li>
+            </ul>
+
+            <h2 id="capture-extraction-failed">Capture extraction failed</h2>
+            <p><strong>Problem:</strong> Capture assertions passed but extraction failed (failure_category: capture_error).</p>
+            <p><strong>Fix:</strong></p>
+            <ul>
+              <li>Make the capture optional: <code class="ic">capture: { user_id: { jsonpath: "$.id", optional: true } }</code></li>
+              <li>Add a default: <code class="ic">capture: { user_id: { jsonpath: "$.id", default: "fallback" } }</code></li>
+              <li>Use status gate: <code class="ic">capture: { user_id: { jsonpath: "$.id", when: { status: 201 } } }</code></li>
+              <li>Check header names are correct for header captures</li>
+            </ul>
+
+            <h2 id="assertion-mismatch">Assertion mismatch</h2>
+            <p><strong>Problem:</strong> Expected status 201 but got 400. Expected <code class="ic">$.name</code> to equal "Jane" but got "John".</p>
+            <p><strong>Diagnosis:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># See full response</span>
+<span class="prompt">$</span> tarn run --verbose
+<span class="prompt">$</span> <span class="comment"># Or use compact JSON</span>
+<span class="prompt">$</span> tarn run --format json --json-mode compact</pre>
+            </div>
+            <p><strong>Fix:</strong> Adjust the assertion to match the real API response. Common scenarios:</p>
+            <ul>
+              <li>API returns 400 for validation errors &mdash; check request body</li>
+              <li>API returns different field names &mdash; update JSONPath</li>
+              <li>API returns paginated results &mdash; use <code class="ic">$.data[*].id</code> instead of <code class="ic">$.id</code></li>
+              <li>API changed response format &mdash; update tests</li>
+            </ul>
+
+            <h2 id="connection-refused">Connection refused</h2>
+            <p><strong>Problem:</strong> <code class="ic">connection_error</code> with "Connection refused" message.</p>
+            <p><strong>Causes:</strong></p>
+            <ul>
+              <li>Server not running</li>
+              <li>Wrong port</li>
+              <li>Wrong host</li>
+              <li>Docker container not started</li>
+            </ul>
+            <div class="callout callout--error">
+              <div class="callout__title">Server not reachable</div>
+              <p>Verify the server is running and reachable before executing tests.</p>
+            </div>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Check if server is running</span>
+<span class="prompt">$</span> curl http://localhost:3000/health
+<span class="prompt">$</span> <span class="comment"># Or use telnet</span>
+<span class="prompt">$</span> telnet localhost 3000</pre>
+            </div>
+
+            <h2 id="tls-dns-issues">TLS/DNS issues</h2>
+            <p><strong>Problem:</strong> SSL errors or "unable to verify certificate".</p>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Disable TLS verification (temporary)</span>
+<span class="prompt">$</span> tarn run --insecure
+
+<span class="prompt">$</span> <span class="comment"># Use custom CA bundle</span>
+<span class="prompt">$</span> tarn run --cacert ./custom-ca.pem
+
+<span class="prompt">$</span> <span class="comment"># Use client certificates</span>
+<span class="prompt">$</span> tarn run --cert ./client.pem --key ./client-key.pem</pre>
+            </div>
+
+            <h2 id="timeout">Timeout</h2>
+            <p><strong>Problem:</strong> Request times out for slow endpoints.</p>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># Per-step timeout (milliseconds)</span>
+<span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="str">Slow endpoint</span>
+    <span class="key">request</span>:
+      <span class="key">method</span>: <span class="str">GET</span>
+      <span class="key">url</span>: <span class="str">"{{ env.base_url }}/slow"</span>
+    <span class="key">timeout</span>: <span class="value">30000</span>  <span class="comment"># 30 seconds</span></pre>
+            </div>
+            <p>Or set global timeout:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># tarn.config.yaml</span>
+<span class="key">timeout</span>: <span class="value">30000</span></pre>
+            </div>
+            <p>Or use polling instead:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">poll</span>:
+  <span class="key">interval</span>: <span class="str">"2s"</span>
+  <span class="key">max_attempts</span>: <span class="value">10</span>
+  <span class="key">until</span>:
+    <span class="key">status</span>: <span class="value">200</span>
+    <span class="key">body</span>:
+      <span class="str">"$.status"</span>: <span class="str">"ready"</span></pre>
+            </div>
+
+            <h2 id="unexpected-html-response">Unexpected HTML response</h2>
+            <p><strong>Problem:</strong> Assertions fail because the response is HTML, not JSON.</p>
+            <p><strong>Causes:</strong></p>
+            <ul>
+              <li>Wrong URL (returning 404 HTML page)</li>
+              <li>Server error page (500 HTML error page)</li>
+              <li>Redirect to login page (HTML)</li>
+            </ul>
+            <div class="callout callout--warning">
+              <div class="callout__title">Check the response body</div>
+              <p>Inspect <code class="ic">response.body</code> in the JSON report. If it's HTML text, the URL or request might be wrong. Use <code class="ic">body: { "$": "string" }</code> assertion for plain text responses.</p>
+            </div>
+            <p>For whole-body assertions:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">assert</span>:
+  <span class="key">body</span>:
+    <span class="str">"$"</span>: { <span class="key">contains</span>: <span class="str">"expected text"</span> }</pre>
+            </div>
+
+            <h2 id="cookies-not-working">Cookies not working</h2>
+            <p><strong>Problem:</strong> Cookies from login step aren't sent in subsequent requests.</p>
+            <p><strong>Check:</strong></p>
+            <ul>
+              <li>Is <code class="ic">cookies: "off"</code> set on the file or step?</li>
+              <li>Are you using named jars correctly with <code class="ic">cookies: "jar_name"</code>?</li>
+              <li>Is <code class="ic">Set-Cookie</code> header being sent by the server?</li>
+              <li>For session cookies, check if the cookie domain/path matches</li>
+            </ul>
+            <div class="callout callout--info">
+              <div class="callout__title">Cookie jar names</div>
+              <p>Use named jars to isolate cookie stores across different user sessions.</p>
+            </div>
+            <p><strong>Fix:</strong> Remove <code class="ic">cookies: "off"</code> or use named jars:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">steps</span>:
+  - <span class="key">name</span>: <span class="str">Login</span>
+    <span class="key">request</span>: ...
+    <span class="key">cookies</span>: <span class="str">"admin"</span>  <span class="comment"># save to named jar</span>
+  - <span class="key">name</span>: <span class="str">Authenticated request</span>
+    <span class="key">request</span>: ...
+    <span class="key">cookies</span>: <span class="str">"admin"</span>  <span class="comment"># use same named jar</span></pre>
+            </div>
+
+            <h2 id="multipart-file-not-found">Multipart file not found</h2>
+            <p><strong>Problem:</strong> File upload fails because the file path is wrong.</p>
+            <div class="callout callout--warning">
+              <div class="callout__title">Relative paths</div>
+              <p>The path is relative to the test file. Use absolute paths if the working directory is ambiguous.</p>
+            </div>
+            <p><strong>Fix:</strong> Use relative paths from the test file location:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">multipart</span>:
+  <span class="key">files</span>:
+    - <span class="key">name</span>: <span class="str">"file"</span>
+      <span class="key">path</span>: <span class="str">"./fixtures/test.jpg"</span></pre>
+            </div>
+
+            <h2 id="mcp-binary-not-found">MCP binary not found</h2>
+            <p><strong>Problem:</strong> MCP client can't find <code class="ic">tarn-mcp</code>.</p>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Install tarn-mcp</span>
+<span class="prompt">$</span> cargo install tarn-mcp
+<span class="prompt">$</span> <span class="comment"># Verify</span>
+<span class="prompt">$</span> which tarn-mcp</pre>
+            </div>
+            <p>For <code class="ic">.mcp.json</code>, use absolute path:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"tarn"</span>: {
+      <span class="key">"command"</span>: <span class="str">"/home/user/.cargo/bin/tarn-mcp"</span>,
+      <span class="key">"args"</span>: []
+    }
+  }
+}</pre>
+            </div>
+
+            <h2 id="lsp-not-starting">LSP not starting</h2>
+            <p><strong>Problem:</strong> Editor reports <code class="ic">tarn-lsp</code> binary not found or server failed to start.</p>
+            <p><strong>Fix:</strong></p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> <span class="comment"># Install</span>
+<span class="prompt">$</span> cargo install tarn-lsp
+<span class="prompt">$</span> <span class="comment"># Verify</span>
+<span class="prompt">$</span> which tarn-lsp
+<span class="prompt">$</span> tarn-lsp --version</pre>
+            </div>
+            <div class="callout callout--info">
+              <div class="callout__title">Check filetype association</div>
+              <p>Some editors need explicit filetype rules for <code class="ic">.tarn.yaml</code>:</p>
+              <ul>
+                <li>Neovim: add <code class="ic">vim.filetype.add({ pattern = { [".*%.tarn%.yaml"] = "tarn" } })</code></li>
+                <li>Helix: add to <code class="ic">languages.toml</code></li>
+                <li>VS Code: the extension handles this automatically</li>
+              </ul>
+            </div>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#binary-not-found"><strong>Binary not found</strong></a>
+              <a class="sidebar-link" href="#yaml-parse-errors"><strong>YAML parse errors</strong></a>
+              <a class="sidebar-link" href="#unresolved-interpolation"><strong>Unresolved interpolation</strong></a>
+              <a class="sidebar-link" href="#jsonpath-not-finding-field"><strong>JSONPath not finding field</strong></a>
+              <a class="sidebar-link" href="#capture-extraction-failed"><strong>Capture extraction failed</strong></a>
+              <a class="sidebar-link" href="#assertion-mismatch"><strong>Assertion mismatch</strong></a>
+              <a class="sidebar-link" href="#connection-refused"><strong>Connection refused</strong></a>
+              <a class="sidebar-link" href="#tls-dns-issues"><strong>TLS/DNS issues</strong></a>
+              <a class="sidebar-link" href="#timeout"><strong>Timeout</strong></a>
+              <a class="sidebar-link" href="#unexpected-html-response"><strong>Unexpected HTML response</strong></a>
+              <a class="sidebar-link" href="#cookies-not-working"><strong>Cookies not working</strong></a>
+              <a class="sidebar-link" href="#multipart-file-not-found"><strong>Multipart file not found</strong></a>
+              <a class="sidebar-link" href="#mcp-binary-not-found"><strong>MCP binary not found</strong></a>
+              <a class="sidebar-link" href="#lsp-not-starting"><strong>LSP not starting</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./reference/failure-categories.html"><strong>Failure Categories</strong></a>
+              <a class="sidebar-link" href="./ci-usage.html"><strong>CI Usage</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./reference.html">Next: Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; Failure Categories Reference</title>
+    <meta name="description" content="Reference for Tarn's failure categories: taxonomy, diagnosis, and fixes for each category type.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="../index.html">Home</a>
+          <a href="../overview.html">Overview</a>
+          <a href="../getting-started.html">Get Started</a>
+          <a href="../writing-tests.html">Writing Tests</a>
+          <a href="../cli-reference.html">CLI</a>
+          <a href="../ai-workflows.html">AI Workflows</a>
+          <a href="../mcp.html">MCP</a>
+          <a href="../tarn-lsp.html">LSP</a>
+          <a href="../ci-usage.html">CI</a>
+          <a href="../examples.html">Examples</a>
+          <a href="../troubleshooting.html">Troubleshooting</a>
+          <a href="../reference.html" class="active">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>Failure Categories</h1>
+          <p class="lead">Stable failure taxonomy used in JSON reports, MCP tools, and fix plans. Each category has a specific diagnosis and fix path.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="overview">Overview</h2>
+            <p>Every failed step includes a <code class="ic">failure_category</code> field in the JSON report. Agents branch on this field instead of parsing assertion messages. This gives a stable taxonomy for routing failures to the right fix logic.</p>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Tag</th>
+                    <th>Meaning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>assertion_failed</code></td>
+                    <td><span class="tag tag--red">assertion</span></td>
+                    <td>Request succeeded, response received, but assertion(s) didn't match</td>
+                  </tr>
+                  <tr>
+                    <td><code>connection_error</code></td>
+                    <td><span class="tag tag--yellow">connection</span></td>
+                    <td>DNS / connect / TLS failure before a usable response</td>
+                  </tr>
+                  <tr>
+                    <td><code>timeout</code></td>
+                    <td><span class="tag tag--yellow">timeout</span></td>
+                    <td>Request exceeded allowed time</td>
+                  </tr>
+                  <tr>
+                    <td><code>parse_error</code></td>
+                    <td><span class="tag tag--violet">parse</span></td>
+                    <td>Invalid YAML syntax or schema validation failure</td>
+                  </tr>
+                  <tr>
+                    <td><code>capture_error</code></td>
+                    <td><span class="tag tag--blue">capture</span></td>
+                    <td>Assertions passed, but capture extraction failed</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="assertion-failed"><span class="tag tag--red" style="margin-right: 8px;">assertion</span> assertion_failed</h2>
+            <p><strong>What it means:</strong> The HTTP request was sent successfully, a response was received, but one or more assertions didn't match the actual response.</p>
+            <p><strong>Typical example:</strong> Expected <code>status: 201</code> but got <code>400</code>. Expected <code>$.name</code> to equal <code>"Jane"</code> but got <code>"John"</code>.</p>
+            <p><strong>How to diagnose:</strong></p>
+            <ul>
+              <li>Inspect <code>response.status</code> and <code>response.body</code> in the report</li>
+              <li>Compare <code>assertions.failures[].expected</code> vs <code>assertions.failures[].actual</code></li>
+              <li>Check if the API changed its response shape</li>
+            </ul>
+            <p><strong>How to fix:</strong></p>
+            <ul>
+              <li>Adjust assertion values to match the real response</li>
+              <li>Use <code>tarn run --verbose</code> to see full responses</li>
+              <li>Use <code>tarn-lsp</code>'s "scaffold assert.body from last response" code action</li>
+            </ul>
+
+            <h2 id="connection-error"><span class="tag tag--yellow" style="margin-right: 8px;">connection</span> connection_error</h2>
+            <p><strong>What it means:</strong> The HTTP request could not be completed. No usable HTTP response was received.</p>
+            <p><strong>Typical example:</strong> DNS resolution failure, connection refused, TLS certificate error, or network unreachable.</p>
+            <p><strong>How to diagnose:</strong></p>
+            <ul>
+              <li>Check the error message in the step output</li>
+              <li>Verify the URL is correct and the server is running</li>
+              <li>Check DNS resolution: <code>nslookup api.example.com</code></li>
+              <li>Verify TLS certificates if using HTTPS</li>
+            </ul>
+            <p><strong>How to fix:</strong></p>
+            <ul>
+              <li>Ensure the target server is running and reachable</li>
+              <li>Check <code>base_url</code> in env files</li>
+              <li>Use <code>--insecure</code> flag (temporarily) if TLS is the issue</li>
+              <li>Use <code>--cacert</code> for custom CA bundles</li>
+            </ul>
+            <div class="callout callout--warning">
+              <div class="callout__title">Common Mistake</div>
+              <p>A common cause is forgetting to start the local demo server (<code>cargo run -p demo-server</code>) before running tests against <code>http://localhost:3000</code>.</p>
+            </div>
+
+            <h2 id="timeout"><span class="tag tag--yellow" style="margin-right: 8px;">timeout</span> timeout</h2>
+            <p><strong>What it means:</strong> The request exceeded the allowed time and was aborted before a response was received.</p>
+            <p><strong>Typical example:</strong> A slow endpoint, network latency, or too low a timeout value.</p>
+            <p><strong>How to diagnose:</strong></p>
+            <ul>
+              <li>Check the configured timeout for the step or globally</li>
+              <li>Test the endpoint manually with <code>curl</code> to measure response time</li>
+            </ul>
+            <p><strong>How to fix:</strong></p>
+            <ul>
+              <li>Increase step-level <code>timeout</code> in the test file</li>
+              <li>Set a higher global timeout in <code>tarn.config.yaml</code></li>
+              <li>Use polling for endpoints that need time to process</li>
+            </ul>
+
+            <h2 id="parse-error"><span class="tag tag--violet" style="margin-right: 8px;">parse</span> parse_error</h2>
+            <p><strong>What it means:</strong> The YAML file has syntax errors, or fails schema validation. No tests were executed.</p>
+            <p><strong>Typical example:</strong> Invalid indentation, missing comma in YAML, unknown field name, missing required field.</p>
+            <p><strong>How to diagnose:</strong></p>
+            <ul>
+              <li>Run <code>tarn validate</code> to get precise error location</li>
+              <li>Run <code>tarn validate --format json</code> for machine-readable diagnostics</li>
+              <li>Check for <code>{{ ... }}</code> interpolation syntax errors</li>
+            </ul>
+            <p><strong>How to fix:</strong></p>
+            <ul>
+              <li>Fix YAML indentation (use spaces, not tabs)</li>
+              <li>Ensure all required fields are present</li>
+              <li>Use <code>tarn fmt</code> to normalize formatting</li>
+              <li>Add the schema comment for IDE autocompletion</li>
+            </ul>
+
+            <h2 id="capture-error"><span class="tag tag--blue" style="margin-right: 8px;">capture</span> capture_error</h2>
+            <p><strong>What it means:</strong> Assertions passed, but the response didn't contain the field or header needed for a capture extraction.</p>
+            <p><strong>Typical example:</strong> JSONPath <code>$.id</code> points to a field that doesn't exist in the response body, or a header <code>set-cookie</code> isn't present.</p>
+            <p><strong>How to diagnose:</strong></p>
+            <ul>
+              <li>Check the response body/headers in the report</li>
+              <li>Verify the JSONPath expression matches the actual response structure</li>
+              <li>Check if the API changed response format</li>
+            </ul>
+            <p><strong>How to fix:</strong></p>
+            <ul>
+              <li>Update the JSONPath to match the actual response</li>
+              <li>Make captures <code>optional: true</code> if the field isn't always present</li>
+              <li>Add <code>default: &lt;value&gt;</code> for fallback values</li>
+            </ul>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#assertion-failed"><strong>assertion_failed</strong><span>Assertion mismatch</span></a>
+              <a class="sidebar-link" href="#connection-error"><strong>connection_error</strong><span>Network/TLS issues</span></a>
+              <a class="sidebar-link" href="#timeout"><strong>timeout</strong><span>Request timeout</span></a>
+              <a class="sidebar-link" href="#parse-error"><strong>parse_error</strong><span>YAML/schema errors</span></a>
+              <a class="sidebar-link" href="#capture-error"><strong>capture_error</strong><span>Capture extraction failure</span></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./json-report.html"><strong>JSON Report</strong></a>
+              <a class="sidebar-link" href="../ai-workflows.html"><strong>AI Workflows</strong></a>
+              <a class="sidebar-link" href="../troubleshooting.html"><strong>Troubleshooting</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="../index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./mcp-tools.html">Next: MCP Tools</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

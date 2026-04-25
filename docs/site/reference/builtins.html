@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; Built-in Functions Reference</title>
+    <meta name="description" content="Complete reference of all Tarn built-in functions: UUIDs, timestamps, faker generators, and more.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="../index.html">Home</a>
+          <a href="../overview.html">Overview</a>
+          <a href="../getting-started.html">Get Started</a>
+          <a href="../writing-tests.html">Writing Tests</a>
+          <a href="../cli-reference.html">CLI</a>
+          <a href="../ai-workflows.html">AI Workflows</a>
+          <a href="../mcp.html">MCP</a>
+          <a href="../tarn-lsp.html">LSP</a>
+          <a href="../ci-usage.html">CI</a>
+          <a href="../examples.html">Examples</a>
+          <a href="../troubleshooting.html">Troubleshooting</a>
+          <a href="../reference.html" class="active">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>Built-in Functions</h1>
+          <p class="lead">UUIDs, timestamps, random generators, and EN-locale faker data for dynamic test data.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="uuid">UUIDs</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Expression</th>
+                    <th>Output</th>
+                    <th>Deterministic</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>{{ $uuid }}</code></td>
+                    <td>Random UUID v4</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $uuid_v4 }}</code></td>
+                    <td>Same as <code>$uuid</code></td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $uuid_v7 }}</code></td>
+                    <td>Time-ordered UUID v7 (Unix-ms prefix + random suffix)</td>
+                    <td>Partial (real-time prefix)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>Use in request bodies and capture assertions:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">body:</span>
+  <span class="key">idempotency_key:</span> <span class="str">"{{ $uuid }}"</span>
+  <span class="key">event_id:</span> <span class="str">"{{ $uuid_v7 }}"</span></pre>
+            </div>
+
+            <h2 id="timestamps">Timestamps</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Expression</th>
+                    <th>Output</th>
+                    <th>Deterministic</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>{{ $timestamp }}</code></td>
+                    <td>Unix timestamp (seconds since epoch)</td>
+                    <td>No (real-time)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $now_iso }}</code></td>
+                    <td>ISO 8601 datetime string</td>
+                    <td>No (real-time)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="random">Random generators</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Expression</th>
+                    <th>Output</th>
+                    <th>Deterministic</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>{{ $random_hex(8) }}</code></td>
+                    <td>N-character random hex string</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $random_int(1, 100) }}</code></td>
+                    <td>Random integer in [MIN, MAX]</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $alpha(8) }}</code></td>
+                    <td>N lowercase ASCII letters</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $alnum(8) }}</code></td>
+                    <td>N lowercase alphanumeric characters</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $choice(a, b, c) }}</code></td>
+                    <td>Pick one option randomly</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $bool }}</code></td>
+                    <td>Random <code>"true"</code> or <code>"false"</code> string</td>
+                    <td>Yes (seeded)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="faker">Faker generators (EN locale)</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Expression</th>
+                    <th>Output</th>
+                    <th>Example</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>{{ $email }}</code></td>
+                    <td>Random free email address</td>
+                    <td><code>jane.doe@example.com</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $first_name }}</code></td>
+                    <td>Random first name</td>
+                    <td><code>Jane</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $last_name }}</code></td>
+                    <td>Random last name</td>
+                    <td><code>Doe</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $name }}</code></td>
+                    <td>Random full name</td>
+                    <td><code>Jane Doe</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $username }}</code></td>
+                    <td>Random username</td>
+                    <td><code>jane_doe_42</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $phone }}</code></td>
+                    <td>Random phone number</td>
+                    <td><code>+1-555-123-4567</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $word }}</code></td>
+                    <td>Random single word</td>
+                    <td><code>qui</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $words(3) }}</code></td>
+                    <td>N random words joined by space</td>
+                    <td><code>lorem ipsum dolor</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $sentence }}</code></td>
+                    <td>Random sentence (4-10 words)</td>
+                    <td><code>Lorem ipsum dolor sit amet.</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $slug }}</code></td>
+                    <td>Hyphen-joined lowercase slug (2-4 words)</td>
+                    <td><code>lorem-ipsum-dolor</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $ipv4 }}</code></td>
+                    <td>Random IPv4 address</td>
+                    <td><code>192.168.1.1</code></td>
+                  </tr>
+                  <tr>
+                    <td><code>{{ $ipv6 }}</code></td>
+                    <td>Random IPv6 address</td>
+                    <td><code>fe80::1</code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p>Faker example in a request body:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">body:</span>
+  <span class="key">name:</span> <span class="str">"{{ $name }}"</span>
+  <span class="key">email:</span> <span class="str">"{{ $email }}"</span>
+  <span class="key">username:</span> <span class="str">"{{ $username }}"</span>
+  <span class="key">role:</span> <span class="str">"{{ $choice(admin, user, viewer) }}"</span>
+  <span class="key">tags:</span> <span class="str">"{{ $words(3) }}"</span></pre>
+            </div>
+
+            <h2 id="determinism">Determinism</h2>
+            <p>Set <code class="ic">TARN_FAKER_SEED=&lt;u64&gt;</code> environment variable (highest priority) or <code class="ic">faker.seed: &lt;u64&gt;</code> in <code class="ic">tarn.config.yaml</code> to freeze every RNG-backed built-in for the process:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="comment"># tarn.config.yaml</span>
+<span class="key">faker:</span>
+  <span class="key">seed:</span> 42</pre>
+            </div>
+            <p>With a seed, these become reproducible:</p>
+            <ul>
+              <li><code>$uuid</code> / <code>$uuid_v4</code> (v7 is partially real-time)</li>
+              <li>All <code>$random_*</code> and <code>$choice</code> / <code>$bool</code></li>
+              <li>All faker generators (<code>$name</code>, <code>$email</code>, etc.)</li>
+            </ul>
+            <p>These remain real-time even with a seed:</p>
+            <ul>
+              <li><code>$timestamp</code> &mdash; wall clock</li>
+              <li><code>$now_iso</code> &mdash; wall clock</li>
+              <li>v7 UUID timestamp prefix &mdash; wall clock</li>
+            </ul>
+
+            <div class="callout callout--info">
+              <div class="callout__title">Tip</div>
+              <p>Use a deterministic seed in CI to make test failures reproducible. Use no seed during local development for varied data.</p>
+            </div>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#uuid"><strong>UUIDs</strong><span>$uuid, $uuid_v4, $uuid_v7</span></a>
+              <a class="sidebar-link" href="#timestamps"><strong>Timestamps</strong><span>$timestamp, $now_iso</span></a>
+              <a class="sidebar-link" href="#random"><strong>Random generators</strong><span>$random_hex, $random_int, $choice, $bool</span></a>
+              <a class="sidebar-link" href="#faker"><strong>Faker generators</strong><span>$name, $email, $phone, and more</span></a>
+              <a class="sidebar-link" href="#determinism"><strong>Determinism</strong><span>Seeding for reproducible tests</span></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>All References</h3>
+              <a class="sidebar-link" href="../reference.html"><strong>Reference Hub</strong><span>Back to all references</span></a>
+              <a class="sidebar-link" href="./assertions.html"><strong>Assertion Operators</strong><span>All 30 operators</span></a>
+              <a class="sidebar-link" href="./yaml-format.html"><strong>YAML Format</strong><span>Test file structure</span></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="../index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./yaml-format.html">Next: YAML Format</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

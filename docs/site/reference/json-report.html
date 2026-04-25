@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; JSON Report Format Reference</title>
+    <meta name="description" content="Reference for Tarn's JSON report schema: fields, types, and usage for CI and agents.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="../index.html">Home</a>
+          <a href="../overview.html">Overview</a>
+          <a href="../getting-started.html">Get Started</a>
+          <a href="../writing-tests.html">Writing Tests</a>
+          <a href="../cli-reference.html">CLI</a>
+          <a href="../ai-workflows.html">AI Workflows</a>
+          <a href="../mcp.html">MCP</a>
+          <a href="../tarn-lsp.html">LSP</a>
+          <a href="../ci-usage.html">CI</a>
+          <a href="../examples.html">Examples</a>
+          <a href="../troubleshooting.html">Troubleshooting</a>
+          <a href="../reference.html" class="active">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>JSON Report Format</h1>
+          <p class="lead">The structured JSON output from <code class="ic">tarn run --format json</code> with versioned schema for CI and agent consumption.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="top-level">Top-level structure</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="str">"schema_version"</span>: 1,
+  <span class="str">"summary"</span>: {
+    <span class="str">"status"</span>: <span class="str">"PASSED"</span> | <span class="str">"FAILED"</span>,
+    <span class="str">"total"</span>: 10,
+    <span class="str">"passed"</span>: 9,
+    <span class="str">"failed"</span>: 1
+  },
+  <span class="str">"files"</span>: [...]
+}</pre>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>schema_version</code></td><td>integer</td><td>Report schema version (currently 1)</td></tr>
+                  <tr><td><code>summary.status</code></td><td>string</td><td><code>"PASSED"</code> or <code>"FAILED"</code></td></tr>
+                  <tr><td><code>summary.total</code></td><td>integer</td><td>Total test count</td></tr>
+                  <tr><td><code>summary.passed</code></td><td>integer</td><td>Passed test count</td></tr>
+                  <tr><td><code>summary.failed</code></td><td>integer</td><td>Failed test count</td></tr>
+                  <tr><td><code>files</code></td><td>array</td><td>Array of file results</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="file-object">File object</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>file</code></td><td>string</td><td>Path to the test file</td></tr>
+                  <tr><td><code>tests</code></td><td>array</td><td>Array of test results</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="test-object">Test object</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>name</code></td><td>string</td><td>Test name (or "flat" for unnamed steps)</td></tr>
+                  <tr><td><code>status</code></td><td>string</td><td><code>"PASSED"</code> or <code>"FAILED"</code></td></tr>
+                  <tr><td><code>steps</code></td><td>array</td><td>Array of step results</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="step-object">Step object</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="str">"name"</span>: <span class="str">"Create user"</span>,
+  <span class="str">"status"</span>: <span class="str">"PASSED"</span> | <span class="str">"FAILED"</span>,
+  <span class="str">"failure_category"</span>: <span class="str">"assertion_failed"</span>,
+  <span class="str">"assertions"</span>: {
+    <span class="str">"failures"</span>: [{
+      <span class="str">"assertion"</span>: <span class="str">"status"</span>,
+      <span class="str">"expected"</span>: <span class="str">"201"</span>,
+      <span class="str">"actual"</span>: <span class="str">"400"</span>,
+      <span class="str">"message"</span>: <span class="str">"Expected status 201, got 400"</span>
+    }]
+  },
+  <span class="str">"request"</span>: { <span class="str">"method"</span>: <span class="str">"POST"</span>, <span class="str">"url"</span>: <span class="str">"..."</span> },
+  <span class="str">"response"</span>: { <span class="str">"status"</span>: 400, <span class="str">"body"</span>: {...} }
+}</pre>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>name</code></td><td>string</td><td>Step name</td></tr>
+                  <tr><td><code>status</code></td><td>string</td><td><code>"PASSED"</code> or <code>"FAILED"</code></td></tr>
+                  <tr><td><code>failure_category</code></td><td>string</td><td>Category of failure (see <a href="./failure-categories.html">Failure Categories</a>)</td></tr>
+                  <tr><td><code>error_code</code></td><td>string</td><td>Stable machine-readable subtype for routing</td></tr>
+                  <tr><td><code>remediation_hints</code></td><td>array</td><td>Next-step guidance hints</td></tr>
+                  <tr><td><code>assertions.failures</code></td><td>array</td><td>Array of assertion failure details</td></tr>
+                  <tr><td><code>assertions.failures[].assertion</code></td><td>string</td><td>The assertion that failed</td></tr>
+                  <tr><td><code>assertions.failures[].expected</code></td><td>string</td><td>Expected value</td></tr>
+                  <tr><td><code>assertions.failures[].actual</code></td><td>string</td><td>Actual value</td></tr>
+                  <tr><td><code>assertions.failures[].message</code></td><td>string</td><td>Human-readable failure description</td></tr>
+                  <tr><td><code>request</code></td><td>object</td><td>Request details (included for failed executed steps)</td></tr>
+                  <tr><td><code>response</code></td><td>object|null</td><td>Response details (omitted when no HTTP response exists)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="inclusion-rules">When request/response are included</h2>
+            <ul>
+              <li><code>request</code> is included for failed <strong>executed</strong> steps</li>
+              <li><code>response</code> is included when an HTTP response was received</li>
+              <li><code>response</code> is <code>null</code> for connection errors, DNS failures, TLS errors</li>
+              <li>Non-JSON responses are preserved as JSON strings</li>
+            </ul>
+
+            <h2 id="json-modes">JSON output modes</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>Flag</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Verbose</td><td><code>--json-mode verbose</code></td><td>Full assertion details, all passed/failed assertions included</td></tr>
+                  <tr><td>Compact</td><td><code>--json-mode compact</code></td><td>Drops passed assertion details, truncates response bodies (~200 chars)</td></tr>
+                  <tr><td>LLM</td><td><code>--format llm</code></td><td>LLM-friendly grep-friendly text (auto on pipe; no ANSI when piped)</td></tr>
+                  <tr><td>Agent</td><td><code>--agent</code></td><td>Compact root-cause-first AgentReport JSON for MCP/automation</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="example">Example failed report</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>{
+  <span class="str">"schema_version"</span>: 1,
+  <span class="str">"summary"</span>: { <span class="str">"status"</span>: <span class="str">"FAILED"</span>, <span class="str">"total"</span>: 1, <span class="str">"passed"</span>: 0, <span class="str">"failed"</span>: 1 },
+  <span class="str">"files"</span>: [{
+    <span class="str">"file"</span>: <span class="str">"tests/users.tarn.yaml"</span>,
+    <span class="str">"tests"</span>: [{
+      <span class="str">"name"</span>: <span class="str">"User API"</span>,
+      <span class="str">"status"</span>: <span class="str">"FAILED"</span>,
+      <span class="str">"steps"</span>: [{
+        <span class="str">"name"</span>: <span class="str">"Create user"</span>,
+        <span class="str">"status"</span>: <span class="str">"FAILED"</span>,
+        <span class="str">"failure_category"</span>: <span class="str">"assertion_failed"</span>,
+        <span class="str">"assertions"</span>: {
+          <span class="str">"failures"</span>: [{
+            <span class="str">"assertion"</span>: <span class="str">"body.$.name"</span>,
+            <span class="str">"expected"</span>: <span class="str">"Jane Doe"</span>,
+            <span class="str">"actual"</span>: <span class="str">"Jane Smith"</span>,
+            <span class="str">"message"</span>: <span class="str">"Body assertion failed for $.name: expected 'Jane Doe', got 'Jane Smith'"</span>
+          }]
+        },
+        <span class="str">"request"</span>: { <span class="str">"method"</span>: <span class="str">"POST"</span>, <span class="str">"url"</span>: <span class="str">"http://api.example.com/users"</span> },
+        <span class="str">"response"</span>: { <span class="str">"status"</span>: 201, <span class="str">"body"</span>: { <span class="str">"name"</span>: <span class="str">"Jane Smith"</span>, <span class="str">"id"</span>: <span class="str">"abc123"</span> } }
+      }]
+    }]
+  }]
+}</pre>
+            </div>
+
+            <h2 id="ci-parsing">How CI / agents parse the report</h2>
+            <ol>
+              <li>Check <code class="ic">summary.status</code>: <code>"PASSED"</code> means all tests passed</li>
+              <li>Iterate <code class="ic">files[].tests[].steps[]</code></li>
+              <li>Check <code class="ic">failure_category</code> first (not the assertion message)</li>
+              <li>Read <code class="ic">response.body</code> to fix assertions against real payload</li>
+              <li>Use <code class="ic">request.url</code> to check for unresolved <code>{{ ... }}</code> interpolation</li>
+            </ol>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#top-level"><strong>Top-level structure</strong></a>
+              <a class="sidebar-link" href="#step-object"><strong>Step object</strong></a>
+              <a class="sidebar-link" href="#inclusion-rules"><strong>Inclusion rules</strong></a>
+              <a class="sidebar-link" href="#json-modes"><strong>JSON modes</strong></a>
+              <a class="sidebar-link" href="#example"><strong>Failed report example</strong></a>
+              <a class="sidebar-link" href="#ci-parsing"><strong>CI parsing guide</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./failure-categories.html"><strong>Failure Categories</strong></a>
+              <a class="sidebar-link" href="../ai-workflows.html"><strong>AI Workflows</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="../index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./failure-categories.html">Next: Failure Categories</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

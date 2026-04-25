@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; LSP Capabilities Reference</title>
+    <meta name="description" content="Reference for tarn-lsp language server capabilities: diagnostics, hover, completion, code actions, and more.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="../index.html">Home</a>
+          <a href="../overview.html">Overview</a>
+          <a href="../getting-started.html">Get Started</a>
+          <a href="../writing-tests.html">Writing Tests</a>
+          <a href="../cli-reference.html">CLI</a>
+          <a href="../ai-workflows.html">AI Workflows</a>
+          <a href="../mcp.html">MCP</a>
+          <a href="../tarn-lsp.html">LSP</a>
+          <a href="../ci-usage.html">CI</a>
+          <a href="../examples.html">Examples</a>
+          <a href="../troubleshooting.html">Troubleshooting</a>
+          <a href="../reference.html" class="active">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>LSP Capabilities</h1>
+          <p class="lead">Quick reference of all <code class="ic">tarn-lsp</code> language server features: LSP methods, supported editors, and key commands.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="features">Feature matrix</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>LSP Method</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Diagnostics</td>
+                    <td><code>textDocument/publishDiagnostics</code></td>
+                    <td>Parse/schema errors on open, save, and debounced change (300ms). Sources: <code>yaml_syntax</code>, <code>tarn_parse</code>, <code>tarn_validation</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Hover</td>
+                    <td><code>textDocument/hover</code></td>
+                    <td>Context-aware Markdown for <code>{{ env.x }}</code>, <code>{{ capture.x }}</code>, <code>{{ $builtin }}</code>, and JSONPath evaluation against recorded responses.</td>
+                  </tr>
+                  <tr>
+                    <td>Completion</td>
+                    <td><code>textDocument/completion</code></td>
+                    <td>Env keys, capture names, built-in functions, and schema-driven YAML key completion.</td>
+                  </tr>
+                  <tr>
+                    <td>Document symbols</td>
+                    <td><code>textDocument/documentSymbol</code></td>
+                    <td>Hierarchical outline: file &rarr; named tests &rarr; steps. Setup, teardown, and flat steps included.</td>
+                  </tr>
+                  <tr>
+                    <td>Go-to-definition</td>
+                    <td><code>textDocument/definition</code></td>
+                    <td>Jump from <code>{{ capture.x }}</code> or <code>{{ env.x }}</code> to its declaration site.</td>
+                  </tr>
+                  <tr>
+                    <td>References</td>
+                    <td><code>textDocument/references</code></td>
+                    <td>List every use site. Capture: single-test scope. Env: workspace-wide.</td>
+                  </tr>
+                  <tr>
+                    <td>Rename</td>
+                    <td><code>textDocument/rename</code></td>
+                    <td>Atomic <code>WorkspaceEdit</code>. Capture: single file. Env: all source files + use sites.</td>
+                  </tr>
+                  <tr>
+                    <td>Code lens</td>
+                    <td><code>textDocument/codeLens</code></td>
+                    <td>"Run test" / "Run step" buttons using <code>tarn.runTest</code> and <code>tarn.runStep</code> commands.</td>
+                  </tr>
+                  <tr>
+                    <td>Formatting</td>
+                    <td><code>textDocument/formatting</code></td>
+                    <td>Full document formatting via <code>tarn::format::format_document</code> (same as <code>tarn fmt</code> CLI).</td>
+                  </tr>
+                  <tr>
+                    <td>Code actions</td>
+                    <td><code>textDocument/codeAction</code></td>
+                    <td>Extract env var, Capture this field, Scaffold assert from last response, Apply fix (quick fix via fix_plan engine).</td>
+                  </tr>
+                  <tr>
+                    <td>JSONPath evaluator</td>
+                    <td><code>workspace/executeCommand</code></td>
+                    <td><code>tarn.evaluateJsonpath</code> evaluates a path against inline response or sidecar step reference.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="sidecar">Recorded-response sidecar</h2>
+            <p>The JSONPath hover, "scaffold assert" code action, and <code>tarn.evaluateJsonpath</code> step reference all read from:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre>&lt;file&gt;.tarn.yaml
+&lt;file&gt;.tarn.yaml.last-run/
+  &lt;test-slug&gt;/
+    &lt;step-slug&gt;.response.json</pre>
+            </div>
+            <p>Clients write responses here after runs so hover-JSONPath lights up. The LSP is read-only against this layout.</p>
+
+            <h2 id="supported-editors">Supported editors</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Editor</th>
+                    <th>Setup method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Claude Code</td>
+                    <td>Plugin marketplace</td>
+                    <td>Claims all <code>.yaml</code>/<code>.yml</code> files (compound-extension caveat)</td>
+                  </tr>
+                  <tr>
+                    <td>opencode</td>
+                    <td><code>opencode.jsonc</code> LSP config</td>
+                    <td>Same compound-extension caveat as Claude Code</td>
+                  </tr>
+                  <tr>
+                    <td>VS Code</td>
+                    <td>Extension + optional <code>tarn.experimentalLspClient</code></td>
+                    <td>Test explorer, live streaming, environments</td>
+                  </tr>
+                  <tr>
+                    <td>Neovim</td>
+                    <td><code>vim.lsp.start</code> + filetype rule</td>
+                    <td>Built-in LSP client (0.10+)</td>
+                  </tr>
+                  <tr>
+                    <td>Helix</td>
+                    <td><code>languages.toml</code> config</td>
+                    <td>LSP 3.17 stdio</td>
+                  </tr>
+                  <tr>
+                    <td>Zed</td>
+                    <td><code>settings.json</code> LSP block</td>
+                    <td>Language extension pattern</td>
+                  </tr>
+                  <tr>
+                    <td>Emacs</td>
+                    <td><code>eglot</code> / <code>lsp-mode</code></td>
+                    <td>Register against <code>.tarn.yaml</code> buffers</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#features"><strong>Feature matrix</strong></a>
+              <a class="sidebar-link" href="#sidecar"><strong>Response sidecar</strong></a>
+              <a class="sidebar-link" href="#supported-editors"><strong>Supported editors</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="../tarn-lsp.html"><strong>Full LSP Guide</strong></a>
+              <a class="sidebar-link" href="./mcp-tools.html"><strong>MCP Tools</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="../index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="../reference.html">Back to Reference Hub</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

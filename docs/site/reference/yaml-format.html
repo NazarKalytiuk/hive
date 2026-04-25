@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; YAML Test File Format Reference</title>
+    <meta name="description" content="Complete reference for Tarn .tarn.yaml test file structure and fields.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="../index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="../index.html">Home</a>
+          <a href="../overview.html">Overview</a>
+          <a href="../getting-started.html">Get Started</a>
+          <a href="../writing-tests.html">Writing Tests</a>
+          <a href="../cli-reference.html">CLI</a>
+          <a href="../ai-workflows.html">AI Workflows</a>
+          <a href="../mcp.html">MCP</a>
+          <a href="../tarn-lsp.html">LSP</a>
+          <a href="../ci-usage.html">CI</a>
+          <a href="../examples.html">Examples</a>
+          <a href="../troubleshooting.html">Troubleshooting</a>
+          <a href="../reference.html" class="active">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Reference</span>
+          <h1>YAML Test File Format</h1>
+          <p class="lead">Complete reference for <code class="ic">.tarn.yaml</code> file structure, all fields with descriptions and constraints.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2 id="top-level">Top-level fields</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Required</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>version</code></td><td>No</td><td>string</td><td>Schema version (<code>"1"</code> only)</td></tr>
+                  <tr><td><code>name</code></td><td>No*</td><td>string</td><td>Top-level test suite name (*recommended)</td></tr>
+                  <tr><td><code>description</code></td><td>No</td><td>string</td><td>Suite description</td></tr>
+                  <tr><td><code>tags</code></td><td>No</td><td>[string]</td><td>Tags for filtering with <code>--tag</code></td></tr>
+                  <tr><td><code>env</code></td><td>No</td><td>object</td><td>Inline environment variables</td></tr>
+                  <tr><td><code>cookies</code></td><td>No</td><td>string</td><td><code>"auto"</code> (default), <code>"off"</code>, <code>"per-test"</code></td></tr>
+                  <tr><td><code>redaction</code></td><td>No</td><td>object</td><td>Report-time redaction of headers, env, captures</td></tr>
+                  <tr><td><code>defaults</code></td><td>No</td><td>object</td><td>Project-wide request defaults (headers, auth, timeout)</td></tr>
+                  <tr><td><code>setup</code></td><td>No</td><td>[step]</td><td>Setup steps run before all tests</td></tr>
+                  <tr><td><code>teardown</code></td><td>No</td><td>[step]</td><td>Teardown steps run after all tests</td></tr>
+                  <tr><td><code>tests</code></td><td>See note</td><td>[test]</td><td>Named test groups (mutually exclusive with <code>steps</code>)</td></tr>
+                  <tr><td><code>steps</code></td><td>See note</td><td>[step]</td><td>Flat (unnamed) steps (mutually exclusive with <code>tests</code>)</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>At least one of <code>steps</code> or <code>tests</code> must be present.</p>
+
+            <h2 id="step">Step fields</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Required</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>name</code></td><td>Yes</td><td>string</td><td>Step name (display and identification)</td></tr>
+                  <tr><td><code>request</code></td><td>Yes</td><td>object</td><td>HTTP request (method + url required)</td></tr>
+                  <tr><td><code>capture</code></td><td>No</td><td>object</td><td>Capture variables from response</td></tr>
+                  <tr><td><code>assert</code></td><td>No</td><td>object</td><td>Response assertions</td></tr>
+                  <tr><td><code>poll</code></td><td>No</td><td>object</td><td>Polling configuration (until, interval, max_attempts)</td></tr>
+                  <tr><td><code>retries</code></td><td>No</td><td>integer</td><td>Retry count for transient failures</td></tr>
+                  <tr><td><code>timeout</code></td><td>No</td><td>integer</td><td>Per-step timeout in milliseconds</td></tr>
+                  <tr><td><code>connect_timeout</code></td><td>No</td><td>integer</td><td>TCP connection timeout in milliseconds</td></tr>
+                  <tr><td><code>delay</code></td><td>No</td><td>integer</td><td>Delay before step in milliseconds</td></tr>
+                  <tr><td><code>follow_redirects</code></td><td>No</td><td>boolean</td><td>Whether to follow redirects (default: true)</td></tr>
+                  <tr><td><code>max_redirs</code></td><td>No</td><td>integer</td><td>Maximum redirects to follow</td></tr>
+                  <tr><td><code>cookies</code></td><td>No</td><td>string/boolean</td><td><code>"off"</code> to disable, string for named jar, true/false</td></tr>
+                  <tr><td><code>script</code></td><td>No</td><td>string</td><td>Inline Lua script (optional feature)</td></tr>
+                  <tr><td><code>if</code></td><td>No</td><td>string</td><td>Skip step unless interpolated expression is truthy</td></tr>
+                  <tr><td><code>unless</code></td><td>No</td><td>string</td><td>Skip step if interpolated expression is truthy</td></tr>
+                  <tr><td><code>debug</code></td><td>No</td><td>boolean</td><td>Record full response for debugging</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="request">Request fields</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Required</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>method</code></td><td>Yes</td><td>string</td><td>HTTP method (GET, POST, PUT, PATCH, DELETE, etc.)</td></tr>
+                  <tr><td><code>url</code></td><td>Yes</td><td>string</td><td>Request URL with <code>{{ ... }}</code> interpolation</td></tr>
+                  <tr><td><code>headers</code></td><td>No</td><td>object</td><td>HTTP headers (key: value)</td></tr>
+                  <tr><td><code>body</code></td><td>No</td><td>any</td><td>JSON body (object/array), or plain text (string)</td></tr>
+                  <tr><td><code>form</code></td><td>No</td><td>object</td><td>Form-urlencoded body</td></tr>
+                  <tr><td><code>graphql</code></td><td>No</td><td>object</td><td>GraphQL query (query, variables, operation_name)</td></tr>
+                  <tr><td><code>multipart</code></td><td>No</td><td>object</td><td>Multipart form data (fields + files)</td></tr>
+                  <tr><td><code>auth</code></td><td>No</td><td>object</td><td>Auth config (<code>bearer</code> token or <code>basic</code> credentials)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="assert">Assert fields</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>status</code></td><td>integer / string / object</td><td>Status assertion (exact, shorthand, or complex)</td></tr>
+                  <tr><td><code>body</code></td><td>object</td><td>Body assertions keyed by JSONPath</td></tr>
+                  <tr><td><code>headers</code></td><td>object</td><td>Response header assertions</td></tr>
+                  <tr><td><code>duration</code></td><td>string</td><td>Duration assertion (<code>"< 500ms"</code>, etc.)</td></tr>
+                  <tr><td><code>redirect</code></td><td>object</td><td>Redirect assertions (url, count)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="capture">Capture fields</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Value / Sub-fields</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>name: "$.json.path"</code></td><td>string (JSONPath)</td><td>Capture from body JSONPath (shorthand)</td></tr>
+                  <tr><td><code>name.jsonpath</code></td><td>string</td><td>Explicit JSONPath capture from body</td></tr>
+                  <tr><td><code>name.header</code></td><td>string</td><td>Capture from response header</td></tr>
+                  <tr><td><code>name.cookie</code></td><td>string</td><td>Capture cookie by name from Set-Cookie</td></tr>
+                  <tr><td><code>name.body</code></td><td>true</td><td>Capture whole response body as string</td></tr>
+                  <tr><td><code>name.status</code></td><td>true</td><td>Capture HTTP status code as number</td></tr>
+                  <tr><td><code>name.url</code></td><td>true</td><td>Capture final URL after redirects</td></tr>
+                  <tr><td><code>name.regex</code></td><td>string</td><td>Regex capture group 1 (on header/body sources)</td></tr>
+                  <tr><td><code>name.optional</code></td><td>true</td><td>Don't fail if source is missing</td></tr>
+                  <tr><td><code>name.default</code></td><td>any</td><td>Fallback value when source yields no match</td></tr>
+                  <tr><td><code>name.when</code></td><td>object</td><td>Status gate (<code>{ status: 201 }</code> or <code>{ status: "2xx" }</code>)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="pol">Poll configuration</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Required</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>until</code></td><td>Yes</td><td>object</td><td>Assertions that must pass to stop polling</td></tr>
+                  <tr><td><code>interval</code></td><td>Yes</td><td>string/ms</td><td>Polling interval (e.g. <code>"1s"</code>, <code>500</code>)</td></tr>
+                  <tr><td><code>max_attempts</code></td><td>Yes</td><td>integer</td><td>Maximum polling attempts before failure</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="include">Include directive</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Required</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>include</code></td><td>Yes</td><td>string</td><td>Path to shared <code>.tarn.yaml</code> file</td></tr>
+                  <tr><td><code>with</code></td><td>No</td><td>object</td><td>Parameters to pass (<code>{{ params.x }}</code>)</td></tr>
+                  <tr><td><code>override</code></td><td>No</td><td>object</td><td>Override env/cookies/defaults from included file</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="auth">Auth config</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Example</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>auth.bearer</code></td><td>string</td><td><code>auth: { bearer: "{{ capture.token }}" }</code></td></tr>
+                  <tr><td><code>auth.basic</code></td><td>object</td><td><code>auth: { basic: { username: "admin", password: "pass" } }</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>On this page</h3>
+              <a class="sidebar-link" href="#top-level"><strong>Top-level fields</strong></a>
+              <a class="sidebar-link" href="#step"><strong>Step fields</strong></a>
+              <a class="sidebar-link" href="#request"><strong>Request fields</strong></a>
+              <a class="sidebar-link" href="#assert"><strong>Assert fields</strong></a>
+              <a class="sidebar-link" href="#capture"><strong>Capture fields</strong></a>
+              <a class="sidebar-link" href="#pol"><strong>Poll configuration</strong></a>
+              <a class="sidebar-link" href="#include"><strong>Include directive</strong></a>
+              <a class="sidebar-link" href="#auth"><strong>Auth config</strong></a>
+            </div>
+            <div class="sidebar-card" style="margin-top: 12px;">
+              <h3>All References</h3>
+              <a class="sidebar-link" href="../reference.html"><strong>Reference Hub</strong></a>
+              <a class="sidebar-link" href="./assertions.html"><strong>Assertion Operators</strong></a>
+              <a class="sidebar-link" href="./builtins.html"><strong>Built-in Functions</strong></a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="../index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./json-report.html">Next: JSON Report</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

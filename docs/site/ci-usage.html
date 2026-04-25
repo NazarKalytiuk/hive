@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tarn &mdash; CI Integration</title>
+    <meta name="description" content="Integrate Tarn into your CI pipeline. Run tests in GitHub Actions, GitLab CI, CircleCI, and Jenkins with structured JSON reports and artifact uploads.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="./index.html">
+          <span class="brand__icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 4l7 13H5l7-13z"/></svg></span>
+          Tarn
+        </a>
+        <nav class="nav">
+          <a href="./index.html">Home</a>
+          <a href="./overview.html">Overview</a>
+          <a href="./getting-started.html">Get Started</a>
+          <a href="./writing-tests.html">Writing Tests</a>
+          <a href="./cli-reference.html">CLI</a>
+          <a href="./ai-workflows.html">AI Workflows</a>
+          <a href="./mcp.html">MCP</a>
+          <a href="./tarn-lsp.html">LSP</a>
+          <a href="./ci-usage.html" class="active">CI</a>
+          <a href="./examples.html">Examples</a>
+          <a href="./troubleshooting.html">Troubleshooting</a>
+          <a href="./reference.html">Reference</a>
+          <a href="https://github.com/NazarKalytiuk/hive" class="nav__gh" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="container">
+        <section class="page__hero">
+          <span class="badge">Guide 06</span>
+          <h1>Integrate Tarn into your CI pipeline.</h1>
+          <p class="lead">Drop Tarn into any CI system. Validate YAML before running, pass secrets through env vars, push structured reports as artifacts, and gate merges on clean test runs.</p>
+        </section>
+
+        <div class="page__layout">
+          <article class="page__content">
+            <h2>GitHub Actions</h2>
+            <p>Copy this workflow into <code class="ic">.github/workflows/tarn.yml</code>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">name</span>: <span class="str">API Tests</span>
+<span class="key">on</span>: [push, pull_request]
+<span class="key">jobs</span>:
+  <span class="key">test</span>:
+    <span class="key">runs-on</span>: <span class="str">ubuntu-latest</span>
+    <span class="key">steps</span>:
+      - <span class="key">uses</span>: <span class="str">actions/checkout@v6</span>
+      - <span class="key">name</span>: <span class="str">Install Tarn</span>
+        <span class="key">run</span>: <span class="str">curl -fsSL https://raw.githubusercontent.com/NazarKalytiuk/hive/main/install.sh | sh</span>
+      - <span class="key">name</span>: <span class="str">Validate YAML</span>
+        <span class="key">run</span>: <span class="str">tarn validate</span>
+      - <span class="key">name</span>: <span class="str">Run tests</span>
+        <span class="key">run</span>: <span class="str">tarn run --format json --json-mode compact --no-progress</span>
+        <span class="key">env</span>:
+          <span class="key">BASE_URL</span>: ${{ secrets.API_BASE_URL }}
+          <span class="key">API_KEY</span>: ${{ secrets.API_KEY }}</pre>
+            </div>
+
+            <h2>Validate before run</h2>
+            <p>Run <code class="ic">tarn validate</code> at the start of CI to catch YAML and config issues before execution:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn validate
+<span class="prompt">$</span> tarn validate <span class="flag">--format</span> <span class="value">json</span></pre>
+            </div>
+
+            <h2>Failing the pipeline</h2>
+            <p><code class="ic">tarn run</code> exits non-zero when any test fails. For JSON output, check <code class="ic">summary.status</code> in the report:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run <span class="flag">--format</span> <span class="value">json</span> <span class="flag">--json-mode</span> <span class="value">compact</span> <span class="flag">--no-progress</span>
+<span class="comment"># exits 1 if any test fails</span></pre>
+            </div>
+
+            <h2>Saving JSON report as artifact</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">- name</span>: <span class="str">Run tests</span>
+  <span class="key">run</span>: <span class="str">tarn run --format json=reports/run.json --no-progress</span>
+<span class="key">- name</span>: <span class="str">Upload report</span>
+  <span class="key">uses</span>: <span class="str">actions/upload-artifact@v4</span>
+  <span class="key">with</span>:
+    <span class="key">name</span>: <span class="str">tarn-report</span>
+    <span class="key">path</span>: <span class="str">reports/run.json</span></pre>
+            </div>
+            <p>The JSON report contains structured failure data including <code class="ic">failure_category</code>, <code class="ic">error_code</code>, request and response payloads, and <code class="ic">remediation_hints</code> &mdash; ideal for post-processing in CI.</p>
+
+            <h2>Using environment secrets</h2>
+            <p>Pass secrets via env vars. They override <code class="ic">tarn.env.yaml</code> values due to the <a href="./getting-started.html">priority chain</a>:</p>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="key">- name</span>: <span class="str">Run tests</span>
+  <span class="key">run</span>: <span class="str">tarn run</span>
+  <span class="key">env</span>:
+    <span class="key">BASE_URL</span>: ${{ secrets.API_BASE_URL }}
+    <span class="key">API_KEY</span>: ${{ secrets.API_KEY }}</pre>
+            </div>
+
+            <h2>Using named environments</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run <span class="flag">--env</span> <span class="value">prod</span>
+<span class="prompt">$</span> tarn run <span class="flag">--env</span> <span class="value">staging</span></pre>
+            </div>
+            <p>Define each environment's variables in <code class="ic">tarn.env.prod.yaml</code> and <code class="ic">tarn.env.staging.yaml</code>.</p>
+
+            <h2>Using <code class="ic">--var</code> for overrides</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn run <span class="flag">--var</span> <span class="value">base_url=https://staging.example.com</span> <span class="flag">--var</span> <span class="value">api_key=test123</span></pre>
+            </div>
+            <p>The <code class="ic">--var</code> flag has the highest priority in the variable resolution chain, above shell env and env files.</p>
+
+            <h2>Format check in CI</h2>
+            <div class="code-block">
+              <div class="code-block__header">
+                <span class="code-block__dot code-block__dot--red"></span>
+                <span class="code-block__dot code-block__dot--yellow"></span>
+                <span class="code-block__dot code-block__dot--green"></span>
+              </div>
+              <pre><span class="prompt">$</span> tarn fmt <span class="flag">--check</span> tests/
+<span class="comment"># exits 1 if any file needs formatting</span></pre>
+            </div>
+            <p>Add this as a lint step early in your pipeline. It shares the same formatter engine as the LSP's <code class="ic">textDocument/formatting</code>, so passing <code class="ic">--check</code> means byte-identical output to "Format Document" in any editor.</p>
+
+            <h2>Other CI systems</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>System</th>
+                    <th>Pattern</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>GitLab CI</td>
+                    <td>Use <code class="ic">artifacts:reports</code> to persist the JSON report</td>
+                  </tr>
+                  <tr>
+                    <td>CircleCI</td>
+                    <td>Use <code class="ic">store_artifacts</code> for the JSON report</td>
+                  </tr>
+                  <tr>
+                    <td>Jenkins</td>
+                    <td>Use <code class="ic">archiveArtifacts</code> to preserve the report</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2>Best practices for CI</h2>
+            <ul>
+              <li>Always run <code class="ic">tarn validate</code> before <code class="ic">tarn run</code></li>
+              <li>Use <code class="ic">--no-progress</code> in CI for clean output</li>
+              <li>Use <code class="ic">--format json --json-mode compact</code> for machine parsing</li>
+              <li>Use deterministic faker seed: <code class="ic">TARN_FAKER_SEED=42 tarn run</code></li>
+              <li>Pass secrets via CI env vars, not in <code class="ic">tarn.env.yaml</code></li>
+              <li>Format gating: <code class="ic">tarn fmt --check</code> in a lint step</li>
+            </ul>
+          </article>
+
+          <aside class="page__sidebar">
+            <div class="sidebar-card">
+              <h3>Related</h3>
+              <a class="sidebar-link" href="./reference/json-report.html">
+                <strong>JSON Report Format</strong>
+                <span>Report schema, JSON modes, CI parsing guide</span>
+              </a>
+              <a class="sidebar-link" href="./reference/failure-categories.html">
+                <strong>Failure Categories</strong>
+                <span>Machine-readable error taxonomy</span>
+              </a>
+              <a class="sidebar-link" href="./ai-workflows.html">
+                <strong>AI Workflows</strong>
+                <span>Structured retry loops for agents</span>
+              </a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <span class="footer__brand"><a href="./index.html">Tarn</a> &mdash; AI-first API testing CLI</span>
+        <div class="footer__links">
+          <a href="./examples.html">Next: Examples</a>
+          <a href="https://github.com/NazarKalytiuk/hive" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
