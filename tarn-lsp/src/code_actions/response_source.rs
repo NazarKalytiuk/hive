@@ -238,8 +238,13 @@ mod tests {
             "create_user",
             "POST /users",
         );
-        let s = p.to_string_lossy();
-        assert!(s.ends_with("users.tarn.yaml.last-run/create_user/post-users.response.json"));
+        // Compare by path components rather than string suffix so the
+        // assertion is platform-agnostic — `PathBuf::push` writes the
+        // host separator (`\` on Windows, `/` on Unix).
+        let suffix = PathBuf::from("users.tarn.yaml.last-run")
+            .join("create_user")
+            .join("post-users.response.json");
+        assert!(p.ends_with(&suffix), "got {}", p.display());
     }
 
     #[test]

@@ -426,8 +426,13 @@ mod tests {
 
     #[test]
     fn step_file_to_pathbuf_accepts_file_url() {
-        let p = step_file_to_pathbuf("file:///tmp/x.tarn.yaml");
-        assert_eq!(p, PathBuf::from("/tmp/x.tarn.yaml"));
+        // Build the URL from a platform-valid absolute path so this works
+        // on Windows (where `file:///tmp/x.tarn.yaml` is not a valid
+        // file URL — `Url::to_file_path` requires a drive letter).
+        let path = std::env::temp_dir().join("x.tarn.yaml");
+        let url = Url::from_file_path(&path).expect("path is absolute");
+        let p = step_file_to_pathbuf(url.as_str());
+        assert_eq!(p, path);
     }
 
     #[test]

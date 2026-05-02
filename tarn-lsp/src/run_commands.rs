@@ -680,8 +680,13 @@ mod tests {
 
     #[test]
     fn parse_file_arg_accepts_file_url() {
-        let p = parse_file_arg("file:///tmp/foo.tarn.yaml").unwrap();
-        assert_eq!(p, PathBuf::from("/tmp/foo.tarn.yaml"));
+        // Build the URL from a platform-valid absolute path so this works
+        // on Windows (where `file:///tmp/foo.tarn.yaml` is not a valid
+        // file URL — `Url::to_file_path` requires a drive letter).
+        let path = std::env::temp_dir().join("foo.tarn.yaml");
+        let url = lsp_types::Url::from_file_path(&path).expect("path is absolute");
+        let p = parse_file_arg(url.as_str()).unwrap();
+        assert_eq!(p, path);
     }
 
     #[test]

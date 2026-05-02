@@ -471,8 +471,15 @@ mod tests {
 
     #[test]
     fn missing_root_returns_error() {
-        let bogus =
-            Url::from_directory_path("/this/path/should/not/exist/for/tarn/lsp/tests").unwrap();
+        // Build the URL from a platform-valid absolute path that is
+        // guaranteed not to exist. A hard-coded `/this/path/...` works
+        // on Unix but `Url::from_directory_path` rejects it on Windows
+        // (no drive letter), which makes `unwrap()` panic before the
+        // function under test even runs.
+        let nonexistent = std::env::temp_dir()
+            .join("tarn-lsp-tests-missing-root-d8a3c1e7")
+            .join("does-not-exist");
+        let bogus = Url::from_directory_path(&nonexistent).expect("path is absolute");
         let mut idx = WorkspaceIndex::with_root(bogus);
         let result = idx.ensure_scanned();
         assert!(matches!(result, Err(WorkspaceError::RootUnreadable(_, _))));
