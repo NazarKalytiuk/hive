@@ -71,7 +71,7 @@ fn definition_jumps_from_capture_interpolation_to_declaring_step() {
     });
     handshake(&client_conn);
 
-    let uri = Url::parse("file:///tmp/def-capture.tarn.yaml").unwrap();
+    let uri = fixture_uri("def-capture.tarn.yaml");
     send_did_open(&client_conn, &uri, FIXTURE);
     drain_publish_diagnostics_for(&client_conn, &uri);
 
@@ -100,7 +100,7 @@ fn definition_jumps_from_env_interpolation_to_inline_env_block() {
     });
     handshake(&client_conn);
 
-    let uri = Url::parse("file:///tmp/def-env.tarn.yaml").unwrap();
+    let uri = fixture_uri("def-env.tarn.yaml");
     send_did_open(&client_conn, &uri, FIXTURE);
     drain_publish_diagnostics_for(&client_conn, &uri);
 
@@ -140,7 +140,7 @@ steps:
       method: GET
       url: \"http://localhost/{{ $uuid }}\"
 ";
-    let uri = Url::parse("file:///tmp/def-builtin.tarn.yaml").unwrap();
+    let uri = fixture_uri("def-builtin.tarn.yaml");
     send_did_open(&client_conn, &uri, fixture);
     drain_publish_diagnostics_for(&client_conn, &uri);
 
@@ -158,6 +158,21 @@ steps:
 // ---------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------
+
+/// Build a `file://` URI under the host's temp directory.
+///
+/// The definition handler reconstructs response URIs by routing the
+/// path through `Url::to_file_path` → `current_dir().join(...)` →
+/// `Url::from_file_path`. On Windows, that round trip silently
+/// prepends the current drive letter to a drive-less URI like
+/// `file:///tmp/foo`, so an assertion of `location.uri == uri` fails
+/// even though the path is logically the same. Anchoring the URI to
+/// `std::env::temp_dir()` (which is always absolute and drive-qualified
+/// on Windows) makes the round trip lossless on every platform.
+fn fixture_uri(name: &str) -> Url {
+    let path = std::env::temp_dir().join(name);
+    Url::from_file_path(&path).expect("temp_dir produces an absolute path")
+}
 
 fn request_definition(
     client_conn: &Connection,
